@@ -1,0 +1,22 @@
+name: zest-hermes
+version: "0.0.1"
+description: Zest developer productivity - session tracking, standups, and privacy controls for Hermes Agent
+provides_tools:
+  - zest_login
+  - zest_logout
+  - zest_status
+  - zest_sync
+  - zest_standup
+  - zest_privacy
+  - zest_enable
+  - zest_disable
+  - zest_workspace
+  - zest_ignore
+  - zest_unignore
+  - zest_list_ignored
+  - zest_is_ignored
+  - zest_check_notifications
+provides_hooks:
+  - on_session_start
+  - on_session_end
+  - pre_llm_call
