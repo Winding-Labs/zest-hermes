@@ -1,3 +1,116 @@
+// ../../packages/plugin-common/src/auth/agent-session.ts
+var ERROR_MESSAGES = {
+  401: "Invalid provisioning key - check agentId and provisioningKey in settings",
+  403: "Agent is not active - ask a workspace admin to activate the agent",
+  404: "Agent not found - check agentId in settings",
+  422: "Invalid request - check agentId and provisioningKey format (must be UUIDs)"
+};
+
+class AgentProvisioningError extends Error {
+  statusCode;
+  constructor(message, statusCode) {
+    super(message);
+    this.statusCode = statusCode;
+    this.name = "AgentProvisioningError";
+  }
+}
+function isCredentialsError(error) {
+  return error instanceof AgentProvisioningError && (error.statusCode === 401 || error.statusCode === 404);
+}
+function isAgentInactiveError(error) {
+  return error instanceof AgentProvisioningError && error.statusCode === 403;
+}
+function decodeJwtPayload(token) {
+  const parts = token.split(".");
+  if (parts.length !== 3)
+    throw new Error("Malformed JWT");
+  const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+  return JSON.parse(Buffer.from(payload, "base64").toString("utf-8"));
+}
+async function fetchAgentSession({
+  supabaseUrl,
+  supabaseAnonKey,
+  agentId,
+  provisioningKey
+}) {
+  const url = `${supabaseUrl}/functions/v1/provision-agent-session`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: supabaseAnonKey,
+      Authorization: `Bearer ${supabaseAnonKey}`
+    },
+    body: JSON.stringify({ agent_id: agentId, provisioning_key: provisioningKey })
+  });
+  if (!response.ok) {
+    let detail = ERROR_MESSAGES[response.status] || "Unknown error";
+    try {
+      const body = await response.json();
+      if (body.error)
+        detail = `${detail} (${body.error})`;
+    } catch {}
+    throw new AgentProvisioningError(`Agent provisioning failed (${response.status}): ${detail}`, response.status);
+  }
+  const data = await response.json();
+  const jwt = decodeJwtPayload(data.access_token);
+  const userId = jwt.sub;
+  const email = jwt.email;
+  if (!userId) {
+    throw new Error("Agent provisioning returned a JWT without a sub claim");
+  }
+  if (!email) {
+    throw new Error("Agent provisioning returned a JWT without an email claim");
+  }
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    authMode: "agent",
+    userId,
+    email
+  };
+}
+var DEFAULT_RECOVERY_COOLDOWN_MS = 5 * 60 * 1000;
+function createAgentSessionRecovery(options) {
+  const cooldownMs = options.cooldownMs ?? DEFAULT_RECOVERY_COOLDOWN_MS;
+  let lastAttempt = 0;
+  let permanentlyFailed = false;
+  return async function recoverAgentSession(agentId, provisioningKey, workspaceId) {
+    if (permanentlyFailed) {
+      options.logger?.debug("agent_recovery_skipped_permanent");
+      return null;
+    }
+    if (Date.now() - lastAttempt < cooldownMs) {
+      options.logger?.debug("agent_recovery_cooldown");
+      return null;
+    }
+    lastAttempt = Date.now();
+    try {
+      options.logger?.info("agent_recovery_start");
+      const session = await fetchAgentSession({
+        supabaseUrl: options.supabaseUrl,
+        supabaseAnonKey: options.supabaseAnonKey,
+        agentId,
+        provisioningKey
+      });
+      if (workspaceId) {
+        session.workspaceId = workspaceId;
+      }
+      await options.sessionManager.saveSession(session);
+      options.logger?.info("agent_recovery_success");
+      return session;
+    } catch (error) {
+      if (isCredentialsError(error) || isAgentInactiveError(error)) {
+        permanentlyFailed = true;
+        options.logger?.error("agent_recovery_permanent", error);
+      } else {
+        options.logger?.warn("agent_recovery_failed", error);
+      }
+      return null;
+    }
+  };
+}
+
 // ../../packages/plugin-common/src/analytics/events.ts
 var AUTH_DEVICE_CODE_INITIATION_FAILED = "auth_device_code_initiation_failed";
 var AUTH_DEVICE_CODE_POLLING_FAILED = "auth_device_code_polling_failed";
@@ -274,6 +387,8 @@ var UPDATE_CHECK_CACHE_TTL_MS = 60 * 60 * 1000;
 var STALE_SESSION_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 var NOTIFICATION_DURATION_MS = 5 * 60 * 1000;
 var STANDUP_NOTIFICATION_THROTTLE_MS = 2 * 60 * 60 * 1000;
+var SUPABASE_URL = "https://fnnlebrtmlxxjwdvngck.supabase.co";
+var SUPABASE_ANON_KEY = "sb_publishable_gJsE8TaVHipVQfLNDFV3tA_z7SRAZBY";
 
 // src/utils/logger.ts
 import { createWriteStream, mkdirSync } from "node:fs";
@@ -334,20 +449,21 @@ var sessionManager = createSessionManager({
   sessionFilePath: SESSION_FILE,
   logger
 });
-var {
-  loadSession,
-  saveSession,
-  clearSession,
-  getValidSession,
-  reconcileWorkspaceName,
-  updateWorkspaceInSession
-} = sessionManager;
+
+// src/daemon/agent-recovery.ts
+var recovery = null;
+async function tryAgentRecovery(settings) {
+  if (settings.authMode !== "agent" || !settings.agentId || !settings.provisioningKey) {
+    return null;
+  }
+  recovery ??= createAgentSessionRecovery({
+    sessionManager,
+    supabaseUrl: SUPABASE_URL,
+    supabaseAnonKey: SUPABASE_ANON_KEY,
+    logger
+  });
+  return recovery(settings.agentId, settings.provisioningKey, settings.workspaceId);
+}
 export {
-  updateWorkspaceInSession,
-  sessionManager,
-  saveSession,
-  reconcileWorkspaceName,
-  loadSession,
-  getValidSession,
-  clearSession
+  tryAgentRecovery
 };

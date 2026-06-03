@@ -5,6 +5,7 @@ import { dirname } from "node:path";
 // ../../packages/plugin-common/src/analytics/events.ts
 var AUTH_DEVICE_CODE_INITIATION_FAILED = "auth_device_code_initiation_failed";
 var AUTH_DEVICE_CODE_POLLING_FAILED = "auth_device_code_polling_failed";
+var AUTH_AGENT_PROVISIONING_FAILED = "auth_agent_provisioning_failed";
 var AUTH_SESSION_LOAD_FAILED = "auth_session_load_failed";
 var AUTH_SESSION_CLEAR_FAILED = "auth_session_clear_failed";
 var AUTH_SESSION_SAVE_FAILED = "auth_session_save_failed";
@@ -46,6 +47,7 @@ var SUPABASE_SESSION_WRITE_FAILED = "supabase_session_write_failed";
 var ERROR_TYPES = [
   AUTH_DEVICE_CODE_INITIATION_FAILED,
   AUTH_DEVICE_CODE_POLLING_FAILED,
+  AUTH_AGENT_PROVISIONING_FAILED,
   AUTH_SESSION_CLEAR_FAILED,
   AUTH_SESSION_LOAD_FAILED,
   AUTH_SESSION_SAVE_FAILED,
@@ -111,6 +113,7 @@ var HERMES_ZEST_HOME = join(homedir(), ".hermes-zest");
 var HERMES_CONFIG_PATH = join(HERMES_HOME, "config.yaml");
 var STATE_DB_PATH = join(HERMES_HOME, "state.db");
 var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
+var PENDING_FINALIZE_FILE = join(HERMES_ZEST_HOME, "pending-finalize");
 var QUEUE_DIR = join(HERMES_ZEST_HOME, "queue");
 var EVENTS_QUEUE_FILE = join(QUEUE_DIR, "events.jsonl");
 var SESSIONS_QUEUE_FILE = join(QUEUE_DIR, "chat-sessions.jsonl");

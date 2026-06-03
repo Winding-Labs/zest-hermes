@@ -42,6 +42,8 @@ from .tools import (
     handle_zest_sync,
     handle_zest_unignore,
     handle_zest_workspace,
+    on_session_end,
+    on_session_finalize,
     on_session_start,
     spawn_daemon,
 )
@@ -78,20 +80,26 @@ def _on_pre_llm_call(**kwargs):
     return None
 
 
-def _load_disabled_tools():
+_AGENT_MODE_HIDDEN = {"zest_login", "zest_logout"}
+
+
+def _load_settings():
     settings_file = STATE_DIR / "settings.json"
     try:
-        settings = json.loads(settings_file.read_text())
-        return set(settings.get("disabledTools", []))
+        return json.loads(settings_file.read_text())
     except (OSError, json.JSONDecodeError, TypeError):
-        return set()
+        return {}
 
 
 def register(ctx):
-    disabled = _load_disabled_tools()
+    settings = _load_settings()
+    disabled = set(settings.get("disabledTools", []))
+    is_agent_mode = settings.get("authMode") == "agent"
 
     for name, schema, handler, description in _COMMANDS:
         if name in disabled:
+            continue
+        if is_agent_mode and name in _AGENT_MODE_HIDDEN:
             continue
         ctx.register_tool(
             name=name,
@@ -111,6 +119,8 @@ def register(ctx):
     spawn_daemon()
 
     ctx.register_hook("on_session_start", on_session_start)
+    ctx.register_hook("on_session_end", on_session_end)
+    ctx.register_hook("on_session_finalize", on_session_finalize)
 
     ctx.register_cli_command(
         name="zest-daemon",

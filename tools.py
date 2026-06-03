@@ -21,6 +21,7 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).parent
 DIST_DIR = PLUGIN_ROOT / "dist"
 COMMANDS_DIR = DIST_DIR / "commands"
+HOOKS_DIR = DIST_DIR / "hooks"
 DAEMON_ENTRY = DIST_DIR / "daemon" / "index.js"
 
 STATE_DIR = Path.home() / ".hermes-zest"
@@ -30,9 +31,19 @@ ACTIVE_SESSIONS_FILE = STATE_DIR / "active-sessions"
 CURRENT_SESSION_FILE = STATE_DIR / "current-session-id"
 
 
+def _run_hook(script_name: str, raw_args: str = "") -> str:
+    """Run a Node hook script and return its stdout."""
+    return _run_script(HOOKS_DIR / script_name, raw_args)
+
+
 def _run_command(script_name: str, raw_args: str = "") -> str:
     """Run a Node command script and return its stdout as a JSON string."""
-    cmd = ["node", str(COMMANDS_DIR / script_name)]
+    return _run_script(COMMANDS_DIR / script_name, raw_args)
+
+
+def _run_script(script_path: Path, raw_args: str = "") -> str:
+    """Run a Node script and return its stdout."""
+    cmd = ["node", str(script_path)]
     if raw_args:
         cmd.extend(shlex.split(raw_args))
     try:
@@ -57,6 +68,26 @@ def on_session_start(**kwargs):
     if session_id:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         CURRENT_SESSION_FILE.write_text(session_id)
+
+
+def on_session_end(**kwargs):
+    """Hook: per-turn extraction (Hermes on_session_end = end of turn, not session)."""
+    _run_hook("extract-turn.js")
+
+
+def on_session_finalize(**kwargs):
+    """Hook: mark session for deferred finalization.
+
+    Hermes dispatches this hook BEFORE writing ended_at to state.db,
+    so reading the session here yields stale data. Instead we write
+    the session_id to a pending file that extract-turn picks up on
+    the next conversation turn, when ended_at is guaranteed to exist.
+    """
+    session_id = kwargs.get("session_id")
+    if session_id:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        with open(STATE_DIR / "pending-finalize", "a") as f:
+            f.write(session_id + "\n")
 
 
 def _read_current_session_id() -> str | None:
@@ -230,7 +261,7 @@ def _ensure_daemon_running() -> dict:
     log_file = open(DAEMON_LOG, "a")
     try:
         proc = subprocess.Popen(
-            ["bun", str(DAEMON_ENTRY)],
+            ["node", str(DAEMON_ENTRY)],
             stdout=log_file,
             stderr=log_file,
             stdin=subprocess.DEVNULL,

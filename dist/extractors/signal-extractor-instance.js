@@ -6,6 +6,7 @@ var HERMES_ZEST_HOME = join(homedir(), ".hermes-zest");
 var HERMES_CONFIG_PATH = join(HERMES_HOME, "config.yaml");
 var STATE_DB_PATH = join(HERMES_HOME, "state.db");
 var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
+var PENDING_FINALIZE_FILE = join(HERMES_ZEST_HOME, "pending-finalize");
 var QUEUE_DIR = join(HERMES_ZEST_HOME, "queue");
 var EVENTS_QUEUE_FILE = join(QUEUE_DIR, "events.jsonl");
 var SESSIONS_QUEUE_FILE = join(QUEUE_DIR, "chat-sessions.jsonl");
@@ -82,7 +83,7 @@ var logger = {
 
 // src/extractors/signal-extractor.ts
 import { readFile, writeFile } from "node:fs/promises";
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 
 // ../../packages/plugin-common/src/utils/fs-utils.ts
 import { mkdir, stat } from "node:fs/promises";
@@ -92,6 +93,33 @@ async function ensureDirectory(dirPath) {
   } catch {
     await mkdir(dirPath, { recursive: true, mode: 448 });
   }
+}
+
+// src/utils/bundled-skills.ts
+import { readdirSync } from "node:fs";
+import { homedir as homedir2 } from "node:os";
+import { join as join3 } from "node:path";
+var BUNDLED_SKILLS_DIR = join3(process.env.HERMES_DIR ?? join3(homedir2(), ".hermes"), "hermes-agent", "skills");
+var bundledSkills;
+function scanBundledSkills() {
+  const names = new Set;
+  try {
+    const categories = readdirSync(BUNDLED_SKILLS_DIR, { withFileTypes: true });
+    for (const cat of categories) {
+      if (!cat.isDirectory())
+        continue;
+      const skills = readdirSync(join3(BUNDLED_SKILLS_DIR, cat.name), { withFileTypes: true });
+      for (const skill of skills) {
+        if (skill.isDirectory())
+          names.add(skill.name);
+      }
+    }
+  } catch {}
+  return names;
+}
+function isBundledSkill(name) {
+  bundledSkills ??= scanBundledSkills();
+  return bundledSkills.has(name);
 }
 
 // src/utils/tool-call-parser.ts
@@ -105,6 +133,13 @@ function parseToolCalls(json) {
     return [];
   }
 }
+function parseArguments(argsJson) {
+  try {
+    return JSON.parse(argsJson);
+  } catch {
+    return null;
+  }
+}
 
 // src/extractors/signal-extractor.ts
 var HERMES_BUILTIN_TOOLS = new Set([
@@ -113,8 +148,12 @@ var HERMES_BUILTIN_TOOLS = new Set([
   "write_file",
   "search_files",
   "list_directory",
-  "execute_code"
+  "execute_code",
+  "patch",
+  "browser_navigate",
+  "memory"
 ]);
+var SKILL_TOOLS = new Set(["skill_view", "skill_manage"]);
 var EMPTY_SIGNALS = {
   mcp_usage: {},
   skill_usage: {},
@@ -123,12 +162,32 @@ var EMPTY_SIGNALS = {
   unknown_usage: {},
   image_count: 0
 };
+var MCP_TOOL_REGEX = /^mcp_[a-z0-9]+_.+/;
 function categorizeTool(name) {
-  if (name.startsWith("mcp__"))
+  if (MCP_TOOL_REGEX.test(name))
     return "mcp";
-  if (HERMES_BUILTIN_TOOLS.has(name))
+  if (SKILL_TOOLS.has(name))
+    return "skill";
+  if (HERMES_BUILTIN_TOOLS.has(name) || name.startsWith("zest_"))
     return "builtin";
   return "unknown";
+}
+function resolveUsageKey(name, argsJson) {
+  if (name === "skill_view") {
+    const args = parseArguments(argsJson);
+    return typeof args?.name === "string" && args.name || "skill_view";
+  }
+  if (name === "skill_manage") {
+    const args = parseArguments(argsJson);
+    const action = typeof args?.action === "string" ? args.action : "unknown";
+    return `skill_manage:${action}`;
+  }
+  if (name === "memory") {
+    const args = parseArguments(argsJson);
+    const action = typeof args?.action === "string" ? args.action : "unknown";
+    return `memory:${action}`;
+  }
+  return name;
 }
 function incrementRecord(map, key) {
   map[key] = (map[key] ?? 0) + 1;
@@ -140,7 +199,8 @@ function extractSignalsFromMessages(messages, previous = EMPTY_SIGNALS) {
     agent_usage: { ...previous.agent_usage },
     builtin_usage: { ...previous.builtin_usage },
     unknown_usage: { ...previous.unknown_usage },
-    image_count: previous.image_count
+    image_count: previous.image_count,
+    tool_metadata: previous.tool_metadata ? { ...previous.tool_metadata } : undefined
   };
   for (const msg of messages) {
     if (!msg.tool_calls)
@@ -149,20 +209,41 @@ function extractSignalsFromMessages(messages, previous = EMPTY_SIGNALS) {
     for (const call of toolCalls) {
       const name = call.function.name;
       const category = categorizeTool(name);
+      const key = resolveUsageKey(name, call.function.arguments);
       switch (category) {
         case "mcp":
-          incrementRecord(signals.mcp_usage, name);
+          incrementRecord(signals.mcp_usage, key);
+          break;
+        case "skill":
+          incrementRecord(signals.skill_usage, key);
+          populateSkillMetadata(signals, name, call.function.arguments);
           break;
         case "builtin":
-          incrementRecord(signals.builtin_usage, name);
+          incrementRecord(signals.builtin_usage, key);
           break;
         case "unknown":
-          incrementRecord(signals.unknown_usage, name);
+          incrementRecord(signals.unknown_usage, key);
           break;
       }
     }
   }
   return signals;
+}
+function populateSkillMetadata(signals, toolName, argsJson) {
+  if (toolName !== "skill_view")
+    return;
+  const args = parseArguments(argsJson);
+  const skillName = typeof args?.name === "string" ? args.name : null;
+  if (!skillName)
+    return;
+  signals.tool_metadata ??= {};
+  if (signals.tool_metadata[skillName])
+    return;
+  signals.tool_metadata[skillName] = {
+    description: null,
+    category: "skill",
+    is_bundled: isBundledSkill(skillName)
+  };
 }
 function hasSignalData(signals) {
   return Object.keys(signals.mcp_usage).length > 0 || Object.keys(signals.skill_usage).length > 0 || Object.keys(signals.agent_usage).length > 0 || Object.keys(signals.builtin_usage).length > 0 || Object.keys(signals.unknown_usage).length > 0 || signals.image_count > 0;
@@ -208,7 +289,7 @@ class SignalExtractor {
   }
   statePath(sessionId) {
     const sanitized = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
-    return join3(this.stateDir, `signals-${sanitized}.json`);
+    return join4(this.stateDir, `signals-${sanitized}.json`);
   }
   async readState(sessionId) {
     try {

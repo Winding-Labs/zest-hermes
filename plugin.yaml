@@ -1,5 +1,5 @@
 name: zest-hermes
-version: "0.0.1"
+version: "0.1.0"
 description: Zest developer productivity - session tracking, standups, and privacy controls for Hermes Agent
 provides_tools:
   - zest_login
@@ -19,4 +19,5 @@ provides_tools:
 provides_hooks:
   - on_session_start
   - on_session_end
+  - on_session_finalize
   - pre_llm_call

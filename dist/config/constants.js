@@ -6,6 +6,7 @@ var HERMES_ZEST_HOME = join(homedir(), ".hermes-zest");
 var HERMES_CONFIG_PATH = join(HERMES_HOME, "config.yaml");
 var STATE_DB_PATH = join(HERMES_HOME, "state.db");
 var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
+var PENDING_FINALIZE_FILE = join(HERMES_ZEST_HOME, "pending-finalize");
 var QUEUE_DIR = join(HERMES_ZEST_HOME, "queue");
 var EVENTS_QUEUE_FILE = join(QUEUE_DIR, "events.jsonl");
 var SESSIONS_QUEUE_FILE = join(QUEUE_DIR, "chat-sessions.jsonl");
@@ -26,8 +27,7 @@ var PLATFORM = "cli";
 var SOURCE = "hermes";
 var CLIENT_ID = "hermes";
 var ZEST_SESSION_NAMESPACE = "a7e3f1d9-8b4c-4e2a-9f6d-3c5b7a1e0d82";
-var POLL_INTERVAL_MS = 5000;
-var SYNC_INTERVAL_MS = 60000;
+var SYNC_INTERVAL_MS = 30000;
 var VERSION_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 var VERSION_CHECK_TIMEOUT_MS = 5000;
 var UPDATE_CHECK_CACHE_TTL_MS = 60 * 60 * 1000;
@@ -64,8 +64,8 @@ export {
   SESSIONS_QUEUE_FILE,
   QUEUE_DIR,
   POSTHOG_API_KEY,
-  POLL_INTERVAL_MS,
   PLATFORM,
+  PENDING_FINALIZE_FILE,
   ORPHAN_MISS_THRESHOLD,
   ORPHAN_CHECK_INTERVAL_MS,
   NOTIFICATION_DURATION_MS,

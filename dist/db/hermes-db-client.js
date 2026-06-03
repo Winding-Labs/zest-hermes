@@ -1,5 +1,34 @@
+// src/db/node-sqlite-adapter.ts
+import { DatabaseSync } from "node:sqlite";
+
+class Database {
+  db;
+  constructor(path, options) {
+    this.db = new DatabaseSync(path, {
+      open: true,
+      readOnly: options?.readonly ?? false
+    });
+  }
+  query(sql) {
+    const db = this.db;
+    return {
+      all(...params) {
+        const stmt = db.prepare(sql);
+        return params.length > 0 ? stmt.all(...params) : stmt.all();
+      },
+      get(...params) {
+        const stmt = db.prepare(sql);
+        const row = params.length > 0 ? stmt.get(...params) : stmt.get();
+        return row ?? null;
+      }
+    };
+  }
+  close() {
+    this.db.close();
+  }
+}
+
 // src/db/hermes-db-client.ts
-import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 
 class HermesDbSqliteClient {
@@ -16,6 +45,14 @@ class HermesDbSqliteClient {
   getSessionsAfter(epoch) {
     const db = this.ensureDb();
     return epoch !== null ? db.query("SELECT * FROM sessions WHERE started_at > ? ORDER BY started_at ASC").all(epoch) : db.query("SELECT * FROM sessions ORDER BY started_at ASC").all();
+  }
+  getSessionsByIds(ids) {
+    const safeIds = ids.filter((id) => id.trim().length > 0);
+    if (safeIds.length === 0)
+      return [];
+    const db = this.ensureDb();
+    const placeholders = safeIds.map(() => "?").join(", ");
+    return db.query(`SELECT * FROM sessions WHERE id IN (${placeholders})`).all(...safeIds);
   }
   getMessagesAfter(lastId) {
     const db = this.ensureDb();

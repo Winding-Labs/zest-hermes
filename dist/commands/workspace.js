@@ -667,7 +667,7 @@ var require_tslib = __commonJS((exports2, module) => {
   });
 });
 
-// ../../node_modules/.bun/@supabase+functions-js@2.89.0/node_modules/@supabase/functions-js/dist/main/helper.js
+// ../../node_modules/.bun/@supabase+functions-js@2.105.4/node_modules/@supabase/functions-js/dist/main/helper.js
 var require_helper = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.resolveFetch = undefined;
@@ -680,7 +680,7 @@ var require_helper = __commonJS((exports2) => {
   exports2.resolveFetch = resolveFetch;
 });
 
-// ../../node_modules/.bun/@supabase+functions-js@2.89.0/node_modules/@supabase/functions-js/dist/main/types.js
+// ../../node_modules/.bun/@supabase+functions-js@2.105.4/node_modules/@supabase/functions-js/dist/main/types.js
 var require_types = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.FunctionRegion = exports2.FunctionsHttpError = exports2.FunctionsRelayError = exports2.FunctionsFetchError = exports2.FunctionsError = undefined;
@@ -690,6 +690,13 @@ var require_types = __commonJS((exports2) => {
       super(message);
       this.name = name;
       this.context = context;
+    }
+    toJSON() {
+      return {
+        name: this.name,
+        message: this.message,
+        context: this.context
+      };
     }
   }
   exports2.FunctionsError = FunctionsError;
@@ -734,7 +741,7 @@ var require_types = __commonJS((exports2) => {
   })(FunctionRegion || (exports2.FunctionRegion = FunctionRegion = {}));
 });
 
-// ../../node_modules/.bun/@supabase+functions-js@2.89.0/node_modules/@supabase/functions-js/dist/main/FunctionsClient.js
+// ../../node_modules/.bun/@supabase+functions-js@2.105.4/node_modules/@supabase/functions-js/dist/main/FunctionsClient.js
 var require_FunctionsClient = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.FunctionsClient = undefined;
@@ -784,7 +791,11 @@ var require_FunctionsClient = __commonJS((exports2) => {
               body = JSON.stringify(functionArgs);
             }
           } else {
-            body = functionArgs;
+            if (functionArgs && typeof functionArgs !== "string" && !(typeof Blob !== "undefined" && functionArgs instanceof Blob) && !(functionArgs instanceof ArrayBuffer) && !(typeof FormData !== "undefined" && functionArgs instanceof FormData)) {
+              body = JSON.stringify(functionArgs);
+            } else {
+              body = functionArgs;
+            }
           }
           let effectiveSignal = signal;
           if (timeout) {
@@ -843,7 +854,7 @@ var require_FunctionsClient = __commonJS((exports2) => {
   exports2.FunctionsClient = FunctionsClient;
 });
 
-// ../../node_modules/.bun/@supabase+functions-js@2.89.0/node_modules/@supabase/functions-js/dist/main/index.js
+// ../../node_modules/.bun/@supabase+functions-js@2.105.4/node_modules/@supabase/functions-js/dist/main/index.js
 var require_main = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.FunctionRegion = exports2.FunctionsRelayError = exports2.FunctionsHttpError = exports2.FunctionsFetchError = exports2.FunctionsError = exports2.FunctionsClient = undefined;
@@ -869,7 +880,7 @@ var require_main = __commonJS((exports2) => {
   } });
 });
 
-// ../../node_modules/.bun/@supabase+realtime-js@2.89.0/node_modules/@supabase/realtime-js/dist/main/lib/websocket-factory.js
+// ../../node_modules/.bun/@supabase+realtime-js@2.105.4/node_modules/@supabase/realtime-js/dist/main/lib/websocket-factory.js
 var require_websocket_factory = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.WebSocketFactory = undefined;
@@ -879,36 +890,39 @@ var require_websocket_factory = __commonJS((exports2) => {
     static detectEnvironment() {
       var _a;
       if (typeof WebSocket !== "undefined") {
-        return { type: "native", constructor: WebSocket };
+        return { type: "native", wsConstructor: WebSocket };
       }
-      if (typeof globalThis !== "undefined" && typeof globalThis.WebSocket !== "undefined") {
-        return { type: "native", constructor: globalThis.WebSocket };
+      const gt = globalThis;
+      if (typeof globalThis !== "undefined" && typeof gt.WebSocket !== "undefined") {
+        return { type: "native", wsConstructor: gt.WebSocket };
       }
-      if (typeof global !== "undefined" && typeof global.WebSocket !== "undefined") {
-        return { type: "native", constructor: global.WebSocket };
+      const gl = typeof global !== "undefined" ? global : undefined;
+      if (gl && typeof gl.WebSocket !== "undefined") {
+        return { type: "native", wsConstructor: gl.WebSocket };
       }
-      if (typeof globalThis !== "undefined" && typeof globalThis.WebSocketPair !== "undefined" && typeof globalThis.WebSocket === "undefined") {
+      if (typeof globalThis !== "undefined" && typeof gt.WebSocketPair !== "undefined" && typeof globalThis.WebSocket === "undefined") {
         return {
           type: "cloudflare",
           error: "Cloudflare Workers detected. WebSocket clients are not supported in Cloudflare Workers.",
           workaround: "Use Cloudflare Workers WebSocket API for server-side WebSocket handling, or deploy to a different runtime."
         };
       }
-      if (typeof globalThis !== "undefined" && globalThis.EdgeRuntime || typeof navigator !== "undefined" && ((_a = navigator.userAgent) === null || _a === undefined ? undefined : _a.includes("Vercel-Edge"))) {
+      if (typeof globalThis !== "undefined" && gt.EdgeRuntime || typeof navigator !== "undefined" && ((_a = navigator.userAgent) === null || _a === undefined ? undefined : _a.includes("Vercel-Edge"))) {
         return {
           type: "unsupported",
           error: "Edge runtime detected (Vercel Edge/Netlify Edge). WebSockets are not supported in edge functions.",
           workaround: "Use serverless functions or a different deployment target for WebSocket functionality."
         };
       }
-      if (typeof process !== "undefined") {
-        const processVersions = process["versions"];
+      const _process = globalThis["process"];
+      if (_process) {
+        const processVersions = _process["versions"];
         if (processVersions && processVersions["node"]) {
           const versionString = processVersions["node"];
           const nodeVersion = parseInt(versionString.replace(/^v/, "").split(".")[0]);
           if (nodeVersion >= 22) {
             if (typeof globalThis.WebSocket !== "undefined") {
-              return { type: "native", constructor: globalThis.WebSocket };
+              return { type: "native", wsConstructor: globalThis.WebSocket };
             }
             return {
               type: "unsupported",
@@ -933,8 +947,8 @@ var require_websocket_factory = __commonJS((exports2) => {
     }
     static getWebSocketConstructor() {
       const env = this.detectEnvironment();
-      if (env.constructor) {
-        return env.constructor;
+      if (env.wsConstructor) {
+        return env.wsConstructor;
       }
       let errorMessage = env.error || "WebSocket not supported in this environment.";
       if (env.workaround) {
@@ -943,10 +957,6 @@ var require_websocket_factory = __commonJS((exports2) => {
 Suggested solution: ${env.workaround}`;
       }
       throw new Error(errorMessage);
-    }
-    static createWebSocket(url, protocols) {
-      const WS = this.getWebSocketConstructor();
-      return new WS(url, protocols);
     }
     static isWebSocketSupported() {
       try {
@@ -961,14 +971,14 @@ Suggested solution: ${env.workaround}`;
   exports2.default = WebSocketFactory;
 });
 
-// ../../node_modules/.bun/@supabase+realtime-js@2.89.0/node_modules/@supabase/realtime-js/dist/main/lib/version.js
+// ../../node_modules/.bun/@supabase+realtime-js@2.105.4/node_modules/@supabase/realtime-js/dist/main/lib/version.js
 var require_version = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.version = undefined;
-  exports2.version = "2.89.0";
+  exports2.version = "2.105.4";
 });
 
-// ../../node_modules/.bun/@supabase+realtime-js@2.89.0/node_modules/@supabase/realtime-js/dist/main/lib/constants.js
+// ../../node_modules/.bun/@supabase+realtime-js@2.105.4/node_modules/@supabase/realtime-js/dist/main/lib/constants.js
 var require_constants = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.CONNECTION_STATE = exports2.TRANSPORTS = exports2.CHANNEL_EVENTS = exports2.CHANNEL_STATES = exports2.SOCKET_STATES = exports2.MAX_PUSH_BUFFER_SIZE = exports2.WS_CLOSE_NORMAL = exports2.DEFAULT_TIMEOUT = exports2.VERSION = exports2.DEFAULT_VSN = exports2.VSN_2_0_0 = exports2.VSN_1_0_0 = exports2.DEFAULT_VERSION = undefined;
@@ -976,49 +986,44 @@ var require_constants = __commonJS((exports2) => {
   exports2.DEFAULT_VERSION = `realtime-js/${version_1.version}`;
   exports2.VSN_1_0_0 = "1.0.0";
   exports2.VSN_2_0_0 = "2.0.0";
-  exports2.DEFAULT_VSN = exports2.VSN_1_0_0;
+  exports2.DEFAULT_VSN = exports2.VSN_2_0_0;
   exports2.VERSION = version_1.version;
   exports2.DEFAULT_TIMEOUT = 1e4;
   exports2.WS_CLOSE_NORMAL = 1000;
   exports2.MAX_PUSH_BUFFER_SIZE = 100;
-  var SOCKET_STATES;
-  (function(SOCKET_STATES2) {
-    SOCKET_STATES2[SOCKET_STATES2["connecting"] = 0] = "connecting";
-    SOCKET_STATES2[SOCKET_STATES2["open"] = 1] = "open";
-    SOCKET_STATES2[SOCKET_STATES2["closing"] = 2] = "closing";
-    SOCKET_STATES2[SOCKET_STATES2["closed"] = 3] = "closed";
-  })(SOCKET_STATES || (exports2.SOCKET_STATES = SOCKET_STATES = {}));
-  var CHANNEL_STATES;
-  (function(CHANNEL_STATES2) {
-    CHANNEL_STATES2["closed"] = "closed";
-    CHANNEL_STATES2["errored"] = "errored";
-    CHANNEL_STATES2["joined"] = "joined";
-    CHANNEL_STATES2["joining"] = "joining";
-    CHANNEL_STATES2["leaving"] = "leaving";
-  })(CHANNEL_STATES || (exports2.CHANNEL_STATES = CHANNEL_STATES = {}));
-  var CHANNEL_EVENTS;
-  (function(CHANNEL_EVENTS2) {
-    CHANNEL_EVENTS2["close"] = "phx_close";
-    CHANNEL_EVENTS2["error"] = "phx_error";
-    CHANNEL_EVENTS2["join"] = "phx_join";
-    CHANNEL_EVENTS2["reply"] = "phx_reply";
-    CHANNEL_EVENTS2["leave"] = "phx_leave";
-    CHANNEL_EVENTS2["access_token"] = "access_token";
-  })(CHANNEL_EVENTS || (exports2.CHANNEL_EVENTS = CHANNEL_EVENTS = {}));
-  var TRANSPORTS;
-  (function(TRANSPORTS2) {
-    TRANSPORTS2["websocket"] = "websocket";
-  })(TRANSPORTS || (exports2.TRANSPORTS = TRANSPORTS = {}));
-  var CONNECTION_STATE;
-  (function(CONNECTION_STATE2) {
-    CONNECTION_STATE2["Connecting"] = "connecting";
-    CONNECTION_STATE2["Open"] = "open";
-    CONNECTION_STATE2["Closing"] = "closing";
-    CONNECTION_STATE2["Closed"] = "closed";
-  })(CONNECTION_STATE || (exports2.CONNECTION_STATE = CONNECTION_STATE = {}));
+  exports2.SOCKET_STATES = {
+    connecting: 0,
+    open: 1,
+    closing: 2,
+    closed: 3
+  };
+  exports2.CHANNEL_STATES = {
+    closed: "closed",
+    errored: "errored",
+    joined: "joined",
+    joining: "joining",
+    leaving: "leaving"
+  };
+  exports2.CHANNEL_EVENTS = {
+    close: "phx_close",
+    error: "phx_error",
+    join: "phx_join",
+    reply: "phx_reply",
+    leave: "phx_leave",
+    access_token: "access_token"
+  };
+  exports2.TRANSPORTS = {
+    websocket: "websocket"
+  };
+  exports2.CONNECTION_STATE = {
+    connecting: "connecting",
+    open: "open",
+    closing: "closing",
+    closed: "closed"
+  };
 });
 
-// ../../node_modules/.bun/@supabase+realtime-js@2.89.0/node_modules/@supabase/realtime-js/dist/main/lib/serializer.js
+// ../../node_modules/.bun/@supabase+realtime-js@2.105.4/node_modules/@supabase/realtime-js/dist/main/lib/serializer.js
 var require_serializer = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
 
@@ -1163,36 +1168,7 @@ var require_serializer = __commonJS((exports2) => {
   exports2.default = Serializer;
 });
 
-// ../../node_modules/.bun/@supabase+realtime-js@2.89.0/node_modules/@supabase/realtime-js/dist/main/lib/timer.js
-var require_timer = __commonJS((exports2) => {
-  Object.defineProperty(exports2, "__esModule", { value: true });
-
-  class Timer {
-    constructor(callback, timerCalc) {
-      this.callback = callback;
-      this.timerCalc = timerCalc;
-      this.timer = undefined;
-      this.tries = 0;
-      this.callback = callback;
-      this.timerCalc = timerCalc;
-    }
-    reset() {
-      this.tries = 0;
-      clearTimeout(this.timer);
-      this.timer = undefined;
-    }
-    scheduleTimeout() {
-      clearTimeout(this.timer);
-      this.timer = setTimeout(() => {
-        this.tries = this.tries + 1;
-        this.callback();
-      }, this.timerCalc(this.tries + 1));
-    }
-  }
-  exports2.default = Timer;
-});
-
-// ../../node_modules/.bun/@supabase+realtime-js@2.89.0/node_modules/@supabase/realtime-js/dist/main/lib/transformers.js
+// ../../node_modules/.bun/@supabase+realtime-js@2.105.4/node_modules/@supabase/realtime-js/dist/main/lib/transformers.js
 var require_transformers = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.httpEndpointURL = exports2.toTimestampString = exports2.toArray = exports2.toJson = exports2.toNumber = exports2.toBoolean = exports2.convertCell = exports2.convertColumn = exports2.convertChangeData = exports2.PostgresTypes = undefined;
@@ -1361,35 +1337,96 @@ var require_transformers = __commonJS((exports2) => {
   exports2.httpEndpointURL = httpEndpointURL;
 });
 
-// ../../node_modules/.bun/@supabase+realtime-js@2.89.0/node_modules/@supabase/realtime-js/dist/main/lib/push.js
-var require_push = __commonJS((exports2) => {
-  Object.defineProperty(exports2, "__esModule", { value: true });
-  var constants_1 = require_constants();
-
-  class Push {
-    constructor(channel, event, payload = {}, timeout = constants_1.DEFAULT_TIMEOUT) {
+// ../../node_modules/.bun/@supabase+phoenix@0.4.2/node_modules/@supabase/phoenix/priv/static/phoenix.cjs.js
+var require_phoenix_cjs = __commonJS((exports2, module) => {
+  var __defProp2 = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames2 = Object.getOwnPropertyNames;
+  var __hasOwnProp2 = Object.prototype.hasOwnProperty;
+  var __export2 = (target, all) => {
+    for (var name in all)
+      __defProp2(target, name, { get: all[name], enumerable: true });
+  };
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key of __getOwnPropNames2(from))
+        if (!__hasOwnProp2.call(to, key) && key !== except)
+          __defProp2(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toCommonJS = (mod) => __copyProps(__defProp2({}, "__esModule", { value: true }), mod);
+  var phoenix_exports = {};
+  __export2(phoenix_exports, {
+    Channel: () => Channel,
+    LongPoll: () => LongPoll,
+    Presence: () => Presence,
+    Push: () => Push,
+    Serializer: () => serializer_default,
+    Socket: () => Socket,
+    Timer: () => Timer
+  });
+  module.exports = __toCommonJS(phoenix_exports);
+  var closure = (value) => {
+    if (typeof value === "function") {
+      return value;
+    } else {
+      let closure2 = function() {
+        return value;
+      };
+      return closure2;
+    }
+  };
+  var globalSelf = typeof self !== "undefined" ? self : null;
+  var phxWindow = typeof window !== "undefined" ? window : null;
+  var global2 = globalSelf || phxWindow || globalThis;
+  var DEFAULT_VSN = "2.0.0";
+  var DEFAULT_TIMEOUT = 1e4;
+  var WS_CLOSE_NORMAL = 1000;
+  var SOCKET_STATES = { connecting: 0, open: 1, closing: 2, closed: 3 };
+  var CHANNEL_STATES = {
+    closed: "closed",
+    errored: "errored",
+    joined: "joined",
+    joining: "joining",
+    leaving: "leaving"
+  };
+  var CHANNEL_EVENTS = {
+    close: "phx_close",
+    error: "phx_error",
+    join: "phx_join",
+    reply: "phx_reply",
+    leave: "phx_leave"
+  };
+  var TRANSPORTS = {
+    longpoll: "longpoll",
+    websocket: "websocket"
+  };
+  var XHR_STATES = {
+    complete: 4
+  };
+  var AUTH_TOKEN_PREFIX = "base64url.bearer.phx.";
+  var Push = class {
+    constructor(channel, event, payload, timeout) {
       this.channel = channel;
       this.event = event;
-      this.payload = payload;
-      this.timeout = timeout;
-      this.sent = false;
-      this.timeoutTimer = undefined;
-      this.ref = "";
+      this.payload = payload || function() {
+        return {};
+      };
       this.receivedResp = null;
+      this.timeout = timeout;
+      this.timeoutTimer = null;
       this.recHooks = [];
-      this.refEvent = null;
+      this.sent = false;
+      this.ref = undefined;
     }
     resend(timeout) {
       this.timeout = timeout;
-      this._cancelRefEvent();
-      this.ref = "";
-      this.refEvent = null;
-      this.receivedResp = null;
-      this.sent = false;
+      this.reset();
       this.send();
     }
     send() {
-      if (this._hasReceived("timeout")) {
+      if (this.hasReceived("timeout")) {
         return;
       }
       this.startTimeout();
@@ -1397,219 +1434,572 @@ var require_push = __commonJS((exports2) => {
       this.channel.socket.push({
         topic: this.channel.topic,
         event: this.event,
-        payload: this.payload,
+        payload: this.payload(),
         ref: this.ref,
-        join_ref: this.channel._joinRef()
+        join_ref: this.channel.joinRef()
       });
     }
-    updatePayload(payload) {
-      this.payload = Object.assign(Object.assign({}, this.payload), payload);
-    }
     receive(status, callback) {
-      var _a;
-      if (this._hasReceived(status)) {
-        callback((_a = this.receivedResp) === null || _a === undefined ? undefined : _a.response);
+      if (this.hasReceived(status)) {
+        callback(this.receivedResp.response);
       }
       this.recHooks.push({ status, callback });
       return this;
     }
-    startTimeout() {
-      if (this.timeoutTimer) {
+    reset() {
+      this.cancelRefEvent();
+      this.ref = null;
+      this.refEvent = null;
+      this.receivedResp = null;
+      this.sent = false;
+    }
+    destroy() {
+      this.cancelRefEvent();
+      this.cancelTimeout();
+    }
+    matchReceive({ status, response, _ref }) {
+      this.recHooks.filter((h) => h.status === status).forEach((h) => h.callback(response));
+    }
+    cancelRefEvent() {
+      if (!this.refEvent) {
         return;
       }
-      this.ref = this.channel.socket._makeRef();
-      this.refEvent = this.channel._replyEventName(this.ref);
-      const callback = (payload) => {
-        this._cancelRefEvent();
-        this._cancelTimeout();
+      this.channel.off(this.refEvent);
+    }
+    cancelTimeout() {
+      clearTimeout(this.timeoutTimer);
+      this.timeoutTimer = null;
+    }
+    startTimeout() {
+      if (this.timeoutTimer) {
+        this.cancelTimeout();
+      }
+      this.ref = this.channel.socket.makeRef();
+      this.refEvent = this.channel.replyEventName(this.ref);
+      this.channel.on(this.refEvent, (payload) => {
+        this.cancelRefEvent();
+        this.cancelTimeout();
         this.receivedResp = payload;
-        this._matchReceive(payload);
-      };
-      this.channel._on(this.refEvent, {}, callback);
+        this.matchReceive(payload);
+      });
       this.timeoutTimer = setTimeout(() => {
         this.trigger("timeout", {});
       }, this.timeout);
     }
-    trigger(status, response) {
-      if (this.refEvent)
-        this.channel._trigger(this.refEvent, { status, response });
-    }
-    destroy() {
-      this._cancelRefEvent();
-      this._cancelTimeout();
-    }
-    _cancelRefEvent() {
-      if (!this.refEvent) {
-        return;
-      }
-      this.channel._off(this.refEvent, {});
-    }
-    _cancelTimeout() {
-      clearTimeout(this.timeoutTimer);
-      this.timeoutTimer = undefined;
-    }
-    _matchReceive({ status, response }) {
-      this.recHooks.filter((h) => h.status === status).forEach((h) => h.callback(response));
-    }
-    _hasReceived(status) {
+    hasReceived(status) {
       return this.receivedResp && this.receivedResp.status === status;
     }
-  }
-  exports2.default = Push;
-});
-
-// ../../node_modules/.bun/@supabase+realtime-js@2.89.0/node_modules/@supabase/realtime-js/dist/main/RealtimePresence.js
-var require_RealtimePresence = __commonJS((exports2) => {
-  Object.defineProperty(exports2, "__esModule", { value: true });
-  exports2.REALTIME_PRESENCE_LISTEN_EVENTS = undefined;
-  var REALTIME_PRESENCE_LISTEN_EVENTS;
-  (function(REALTIME_PRESENCE_LISTEN_EVENTS2) {
-    REALTIME_PRESENCE_LISTEN_EVENTS2["SYNC"] = "sync";
-    REALTIME_PRESENCE_LISTEN_EVENTS2["JOIN"] = "join";
-    REALTIME_PRESENCE_LISTEN_EVENTS2["LEAVE"] = "leave";
-  })(REALTIME_PRESENCE_LISTEN_EVENTS || (exports2.REALTIME_PRESENCE_LISTEN_EVENTS = REALTIME_PRESENCE_LISTEN_EVENTS = {}));
-
-  class RealtimePresence {
-    constructor(channel, opts) {
-      this.channel = channel;
+    trigger(status, response) {
+      this.channel.trigger(this.refEvent, { status, response });
+    }
+  };
+  var Timer = class {
+    constructor(callback, timerCalc) {
+      this.callback = callback;
+      this.timerCalc = timerCalc;
+      this.timer = undefined;
+      this.tries = 0;
+    }
+    reset() {
+      this.tries = 0;
+      clearTimeout(this.timer);
+    }
+    scheduleTimeout() {
+      clearTimeout(this.timer);
+      this.timer = setTimeout(() => {
+        this.tries = this.tries + 1;
+        this.callback();
+      }, this.timerCalc(this.tries + 1));
+    }
+  };
+  var Channel = class {
+    constructor(topic, params, socket) {
+      this.state = CHANNEL_STATES.closed;
+      this.topic = topic;
+      this.params = closure(params || {});
+      this.socket = socket;
+      this.bindings = [];
+      this.bindingRef = 0;
+      this.timeout = this.socket.timeout;
+      this.joinedOnce = false;
+      this.joinPush = new Push(this, CHANNEL_EVENTS.join, this.params, this.timeout);
+      this.pushBuffer = [];
+      this.stateChangeRefs = [];
+      this.rejoinTimer = new Timer(() => {
+        if (this.socket.isConnected()) {
+          this.rejoin();
+        }
+      }, this.socket.rejoinAfterMs);
+      this.stateChangeRefs.push(this.socket.onError(() => this.rejoinTimer.reset()));
+      this.stateChangeRefs.push(this.socket.onOpen(() => {
+        this.rejoinTimer.reset();
+        if (this.isErrored()) {
+          this.rejoin();
+        }
+      }));
+      this.joinPush.receive("ok", () => {
+        this.state = CHANNEL_STATES.joined;
+        this.rejoinTimer.reset();
+        this.pushBuffer.forEach((pushEvent) => pushEvent.send());
+        this.pushBuffer = [];
+      });
+      this.joinPush.receive("error", (reason) => {
+        this.state = CHANNEL_STATES.errored;
+        if (this.socket.hasLogger())
+          this.socket.log("channel", `error ${this.topic}`, reason);
+        if (this.socket.isConnected()) {
+          this.rejoinTimer.scheduleTimeout();
+        }
+      });
+      this.onClose(() => {
+        this.rejoinTimer.reset();
+        if (this.socket.hasLogger())
+          this.socket.log("channel", `close ${this.topic}`);
+        this.state = CHANNEL_STATES.closed;
+        this.socket.remove(this);
+      });
+      this.onError((reason) => {
+        if (this.socket.hasLogger())
+          this.socket.log("channel", `error ${this.topic}`, reason);
+        if (this.isJoining()) {
+          this.joinPush.reset();
+        }
+        this.state = CHANNEL_STATES.errored;
+        if (this.socket.isConnected()) {
+          this.rejoinTimer.scheduleTimeout();
+        }
+      });
+      this.joinPush.receive("timeout", () => {
+        if (this.socket.hasLogger())
+          this.socket.log("channel", `timeout ${this.topic}`, this.joinPush.timeout);
+        let leavePush = new Push(this, CHANNEL_EVENTS.leave, closure({}), this.timeout);
+        leavePush.send();
+        this.state = CHANNEL_STATES.errored;
+        this.joinPush.reset();
+        if (this.socket.isConnected()) {
+          this.rejoinTimer.scheduleTimeout();
+        }
+      });
+      this.on(CHANNEL_EVENTS.reply, (payload, ref) => {
+        this.trigger(this.replyEventName(ref), payload);
+      });
+    }
+    join(timeout = this.timeout) {
+      if (this.joinedOnce) {
+        throw new Error("tried to join multiple times. 'join' can only be called a single time per channel instance");
+      } else {
+        this.timeout = timeout;
+        this.joinedOnce = true;
+        this.rejoin();
+        return this.joinPush;
+      }
+    }
+    teardown() {
+      this.pushBuffer.forEach((push) => push.destroy());
+      this.pushBuffer = [];
+      this.rejoinTimer.reset();
+      this.joinPush.destroy();
+      this.state = CHANNEL_STATES.closed;
+      this.bindings = [];
+    }
+    onClose(callback) {
+      this.on(CHANNEL_EVENTS.close, callback);
+    }
+    onError(callback) {
+      return this.on(CHANNEL_EVENTS.error, (reason) => callback(reason));
+    }
+    on(event, callback) {
+      let ref = this.bindingRef++;
+      this.bindings.push({ event, ref, callback });
+      return ref;
+    }
+    off(event, ref) {
+      this.bindings = this.bindings.filter((bind) => {
+        return !(bind.event === event && (typeof ref === "undefined" || ref === bind.ref));
+      });
+    }
+    canPush() {
+      return this.socket.isConnected() && this.isJoined();
+    }
+    push(event, payload, timeout = this.timeout) {
+      payload = payload || {};
+      if (!this.joinedOnce) {
+        throw new Error(`tried to push '${event}' to '${this.topic}' before joining. Use channel.join() before pushing events`);
+      }
+      let pushEvent = new Push(this, event, function() {
+        return payload;
+      }, timeout);
+      if (this.canPush()) {
+        pushEvent.send();
+      } else {
+        pushEvent.startTimeout();
+        this.pushBuffer.push(pushEvent);
+      }
+      return pushEvent;
+    }
+    leave(timeout = this.timeout) {
+      this.rejoinTimer.reset();
+      this.joinPush.cancelTimeout();
+      this.state = CHANNEL_STATES.leaving;
+      let onClose = () => {
+        if (this.socket.hasLogger())
+          this.socket.log("channel", `leave ${this.topic}`);
+        this.trigger(CHANNEL_EVENTS.close, "leave");
+      };
+      let leavePush = new Push(this, CHANNEL_EVENTS.leave, closure({}), timeout);
+      leavePush.receive("ok", () => onClose()).receive("timeout", () => onClose());
+      leavePush.send();
+      if (!this.canPush()) {
+        leavePush.trigger("ok", {});
+      }
+      return leavePush;
+    }
+    onMessage(_event, payload, _ref) {
+      return payload;
+    }
+    filterBindings(_binding, _payload, _ref) {
+      return true;
+    }
+    isMember(topic, event, payload, joinRef) {
+      if (this.topic !== topic) {
+        return false;
+      }
+      if (joinRef && joinRef !== this.joinRef()) {
+        if (this.socket.hasLogger())
+          this.socket.log("channel", "dropping outdated message", { topic, event, payload, joinRef });
+        return false;
+      } else {
+        return true;
+      }
+    }
+    joinRef() {
+      return this.joinPush.ref;
+    }
+    rejoin(timeout = this.timeout) {
+      if (this.isLeaving()) {
+        return;
+      }
+      this.socket.leaveOpenTopic(this.topic);
+      this.state = CHANNEL_STATES.joining;
+      this.joinPush.resend(timeout);
+    }
+    trigger(event, payload, ref, joinRef) {
+      let handledPayload = this.onMessage(event, payload, ref, joinRef);
+      if (payload && !handledPayload) {
+        throw new Error("channel onMessage callbacks must return the payload, modified or unmodified");
+      }
+      let eventBindings = this.bindings.filter((bind) => bind.event === event && this.filterBindings(bind, payload, ref));
+      for (let i = 0;i < eventBindings.length; i++) {
+        let bind = eventBindings[i];
+        bind.callback(handledPayload, ref, joinRef || this.joinRef());
+      }
+    }
+    replyEventName(ref) {
+      return `chan_reply_${ref}`;
+    }
+    isClosed() {
+      return this.state === CHANNEL_STATES.closed;
+    }
+    isErrored() {
+      return this.state === CHANNEL_STATES.errored;
+    }
+    isJoined() {
+      return this.state === CHANNEL_STATES.joined;
+    }
+    isJoining() {
+      return this.state === CHANNEL_STATES.joining;
+    }
+    isLeaving() {
+      return this.state === CHANNEL_STATES.leaving;
+    }
+  };
+  var Ajax = class {
+    static request(method, endPoint, headers, body, timeout, ontimeout, callback) {
+      if (global2.XDomainRequest) {
+        let req = new global2.XDomainRequest;
+        return this.xdomainRequest(req, method, endPoint, body, timeout, ontimeout, callback);
+      } else if (global2.XMLHttpRequest) {
+        let req = new global2.XMLHttpRequest;
+        return this.xhrRequest(req, method, endPoint, headers, body, timeout, ontimeout, callback);
+      } else if (global2.fetch && global2.AbortController) {
+        return this.fetchRequest(method, endPoint, headers, body, timeout, ontimeout, callback);
+      } else {
+        throw new Error("No suitable XMLHttpRequest implementation found");
+      }
+    }
+    static fetchRequest(method, endPoint, headers, body, timeout, ontimeout, callback) {
+      let options = {
+        method,
+        headers,
+        body
+      };
+      let controller = null;
+      if (timeout) {
+        controller = new AbortController;
+        const _timeoutId = setTimeout(() => controller.abort(), timeout);
+        options.signal = controller.signal;
+      }
+      global2.fetch(endPoint, options).then((response) => response.text()).then((data) => this.parseJSON(data)).then((data) => callback && callback(data)).catch((err) => {
+        if (err.name === "AbortError" && ontimeout) {
+          ontimeout();
+        } else {
+          callback && callback(null);
+        }
+      });
+      return controller;
+    }
+    static xdomainRequest(req, method, endPoint, body, timeout, ontimeout, callback) {
+      req.timeout = timeout;
+      req.open(method, endPoint);
+      req.onload = () => {
+        let response = this.parseJSON(req.responseText);
+        callback && callback(response);
+      };
+      if (ontimeout) {
+        req.ontimeout = ontimeout;
+      }
+      req.onprogress = () => {};
+      req.send(body);
+      return req;
+    }
+    static xhrRequest(req, method, endPoint, headers, body, timeout, ontimeout, callback) {
+      req.open(method, endPoint, true);
+      req.timeout = timeout;
+      for (let [key, value] of Object.entries(headers)) {
+        req.setRequestHeader(key, value);
+      }
+      req.onerror = () => callback && callback(null);
+      req.onreadystatechange = () => {
+        if (req.readyState === XHR_STATES.complete && callback) {
+          let response = this.parseJSON(req.responseText);
+          callback(response);
+        }
+      };
+      if (ontimeout) {
+        req.ontimeout = ontimeout;
+      }
+      req.send(body);
+      return req;
+    }
+    static parseJSON(resp) {
+      if (!resp || resp === "") {
+        return null;
+      }
+      try {
+        return JSON.parse(resp);
+      } catch {
+        console && console.log("failed to parse JSON response", resp);
+        return null;
+      }
+    }
+    static serialize(obj, parentKey) {
+      let queryStr = [];
+      for (var key in obj) {
+        if (!Object.prototype.hasOwnProperty.call(obj, key)) {
+          continue;
+        }
+        let paramKey = parentKey ? `${parentKey}[${key}]` : key;
+        let paramVal = obj[key];
+        if (typeof paramVal === "object") {
+          queryStr.push(this.serialize(paramVal, paramKey));
+        } else {
+          queryStr.push(encodeURIComponent(paramKey) + "=" + encodeURIComponent(paramVal));
+        }
+      }
+      return queryStr.join("&");
+    }
+    static appendParams(url, params) {
+      if (Object.keys(params).length === 0) {
+        return url;
+      }
+      let prefix = url.match(/\?/) ? "&" : "?";
+      return `${url}${prefix}${this.serialize(params)}`;
+    }
+  };
+  var arrayBufferToBase64 = (buffer) => {
+    let binary = "";
+    let bytes = new Uint8Array(buffer);
+    let len = bytes.byteLength;
+    for (let i = 0;i < len; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  };
+  var LongPoll = class {
+    constructor(endPoint, protocols) {
+      if (protocols && protocols.length === 2 && protocols[1].startsWith(AUTH_TOKEN_PREFIX)) {
+        this.authToken = atob(protocols[1].slice(AUTH_TOKEN_PREFIX.length));
+      }
+      this.endPoint = null;
+      this.token = null;
+      this.skipHeartbeat = true;
+      this.reqs = /* @__PURE__ */ new Set;
+      this.awaitingBatchAck = false;
+      this.currentBatch = null;
+      this.currentBatchTimer = null;
+      this.batchBuffer = [];
+      this.onopen = function() {};
+      this.onerror = function() {};
+      this.onmessage = function() {};
+      this.onclose = function() {};
+      this.pollEndpoint = this.normalizeEndpoint(endPoint);
+      this.readyState = SOCKET_STATES.connecting;
+      setTimeout(() => this.poll(), 0);
+    }
+    normalizeEndpoint(endPoint) {
+      return endPoint.replace("ws://", "http://").replace("wss://", "https://").replace(new RegExp("(.*)/" + TRANSPORTS.websocket), "$1/" + TRANSPORTS.longpoll);
+    }
+    endpointURL() {
+      return Ajax.appendParams(this.pollEndpoint, { token: this.token });
+    }
+    closeAndRetry(code, reason, wasClean) {
+      this.close(code, reason, wasClean);
+      this.readyState = SOCKET_STATES.connecting;
+    }
+    ontimeout() {
+      this.onerror("timeout");
+      this.closeAndRetry(1005, "timeout", false);
+    }
+    isActive() {
+      return this.readyState === SOCKET_STATES.open || this.readyState === SOCKET_STATES.connecting;
+    }
+    poll() {
+      const headers = { Accept: "application/json" };
+      if (this.authToken) {
+        headers["X-Phoenix-AuthToken"] = this.authToken;
+      }
+      this.ajax("GET", headers, null, () => this.ontimeout(), (resp) => {
+        if (resp) {
+          var { status, token, messages } = resp;
+          if (status === 410 && this.token !== null) {
+            this.onerror(410);
+            this.closeAndRetry(3410, "session_gone", false);
+            return;
+          }
+          this.token = token;
+        } else {
+          status = 0;
+        }
+        switch (status) {
+          case 200:
+            messages.forEach((msg) => {
+              setTimeout(() => this.onmessage({ data: msg }), 0);
+            });
+            this.poll();
+            break;
+          case 204:
+            this.poll();
+            break;
+          case 410:
+            this.readyState = SOCKET_STATES.open;
+            this.onopen({});
+            this.poll();
+            break;
+          case 403:
+            this.onerror(403);
+            this.close(1008, "forbidden", false);
+            break;
+          case 0:
+          case 500:
+            this.onerror(500);
+            this.closeAndRetry(1011, "internal server error", 500);
+            break;
+          default:
+            throw new Error(`unhandled poll status ${status}`);
+        }
+      });
+    }
+    send(body) {
+      if (typeof body !== "string") {
+        body = arrayBufferToBase64(body);
+      }
+      if (this.currentBatch) {
+        this.currentBatch.push(body);
+      } else if (this.awaitingBatchAck) {
+        this.batchBuffer.push(body);
+      } else {
+        this.currentBatch = [body];
+        this.currentBatchTimer = setTimeout(() => {
+          this.batchSend(this.currentBatch);
+          this.currentBatch = null;
+        }, 0);
+      }
+    }
+    batchSend(messages) {
+      this.awaitingBatchAck = true;
+      this.ajax("POST", { "Content-Type": "application/x-ndjson" }, messages.join(`
+`), () => this.onerror("timeout"), (resp) => {
+        this.awaitingBatchAck = false;
+        if (!resp || resp.status !== 200) {
+          this.onerror(resp && resp.status);
+          this.closeAndRetry(1011, "internal server error", false);
+        } else if (this.batchBuffer.length > 0) {
+          this.batchSend(this.batchBuffer);
+          this.batchBuffer = [];
+        }
+      });
+    }
+    close(code, reason, wasClean) {
+      for (let req of this.reqs) {
+        req.abort();
+      }
+      this.readyState = SOCKET_STATES.closed;
+      let opts = Object.assign({ code: 1000, reason: undefined, wasClean: true }, { code, reason, wasClean });
+      this.batchBuffer = [];
+      clearTimeout(this.currentBatchTimer);
+      this.currentBatchTimer = null;
+      if (typeof CloseEvent !== "undefined") {
+        this.onclose(new CloseEvent("close", opts));
+      } else {
+        this.onclose(opts);
+      }
+    }
+    ajax(method, headers, body, onCallerTimeout, callback) {
+      let req;
+      let ontimeout = () => {
+        this.reqs.delete(req);
+        onCallerTimeout();
+      };
+      req = Ajax.request(method, this.endpointURL(), headers, body, this.timeout, ontimeout, (resp) => {
+        this.reqs.delete(req);
+        if (this.isActive()) {
+          callback(resp);
+        }
+      });
+      this.reqs.add(req);
+    }
+  };
+  var Presence = class _Presence {
+    constructor(channel, opts = {}) {
+      let events = opts.events || { state: "presence_state", diff: "presence_diff" };
       this.state = {};
       this.pendingDiffs = [];
+      this.channel = channel;
       this.joinRef = null;
-      this.enabled = false;
       this.caller = {
-        onJoin: () => {},
-        onLeave: () => {},
-        onSync: () => {}
+        onJoin: function() {},
+        onLeave: function() {},
+        onSync: function() {}
       };
-      const events = (opts === null || opts === undefined ? undefined : opts.events) || {
-        state: "presence_state",
-        diff: "presence_diff"
-      };
-      this.channel._on(events.state, {}, (newState) => {
-        const { onJoin, onLeave, onSync } = this.caller;
-        this.joinRef = this.channel._joinRef();
-        this.state = RealtimePresence.syncState(this.state, newState, onJoin, onLeave);
+      this.channel.on(events.state, (newState) => {
+        let { onJoin, onLeave, onSync } = this.caller;
+        this.joinRef = this.channel.joinRef();
+        this.state = _Presence.syncState(this.state, newState, onJoin, onLeave);
         this.pendingDiffs.forEach((diff) => {
-          this.state = RealtimePresence.syncDiff(this.state, diff, onJoin, onLeave);
+          this.state = _Presence.syncDiff(this.state, diff, onJoin, onLeave);
         });
         this.pendingDiffs = [];
         onSync();
       });
-      this.channel._on(events.diff, {}, (diff) => {
-        const { onJoin, onLeave, onSync } = this.caller;
+      this.channel.on(events.diff, (diff) => {
+        let { onJoin, onLeave, onSync } = this.caller;
         if (this.inPendingSyncState()) {
           this.pendingDiffs.push(diff);
         } else {
-          this.state = RealtimePresence.syncDiff(this.state, diff, onJoin, onLeave);
+          this.state = _Presence.syncDiff(this.state, diff, onJoin, onLeave);
           onSync();
         }
       });
-      this.onJoin((key, currentPresences, newPresences) => {
-        this.channel._trigger("presence", {
-          event: "join",
-          key,
-          currentPresences,
-          newPresences
-        });
-      });
-      this.onLeave((key, currentPresences, leftPresences) => {
-        this.channel._trigger("presence", {
-          event: "leave",
-          key,
-          currentPresences,
-          leftPresences
-        });
-      });
-      this.onSync(() => {
-        this.channel._trigger("presence", { event: "sync" });
-      });
-    }
-    static syncState(currentState, newState, onJoin, onLeave) {
-      const state = this.cloneDeep(currentState);
-      const transformedState = this.transformState(newState);
-      const joins = {};
-      const leaves = {};
-      this.map(state, (key, presences) => {
-        if (!transformedState[key]) {
-          leaves[key] = presences;
-        }
-      });
-      this.map(transformedState, (key, newPresences) => {
-        const currentPresences = state[key];
-        if (currentPresences) {
-          const newPresenceRefs = newPresences.map((m) => m.presence_ref);
-          const curPresenceRefs = currentPresences.map((m) => m.presence_ref);
-          const joinedPresences = newPresences.filter((m) => curPresenceRefs.indexOf(m.presence_ref) < 0);
-          const leftPresences = currentPresences.filter((m) => newPresenceRefs.indexOf(m.presence_ref) < 0);
-          if (joinedPresences.length > 0) {
-            joins[key] = joinedPresences;
-          }
-          if (leftPresences.length > 0) {
-            leaves[key] = leftPresences;
-          }
-        } else {
-          joins[key] = newPresences;
-        }
-      });
-      return this.syncDiff(state, { joins, leaves }, onJoin, onLeave);
-    }
-    static syncDiff(state, diff, onJoin, onLeave) {
-      const { joins, leaves } = {
-        joins: this.transformState(diff.joins),
-        leaves: this.transformState(diff.leaves)
-      };
-      if (!onJoin) {
-        onJoin = () => {};
-      }
-      if (!onLeave) {
-        onLeave = () => {};
-      }
-      this.map(joins, (key, newPresences) => {
-        var _a;
-        const currentPresences = (_a = state[key]) !== null && _a !== undefined ? _a : [];
-        state[key] = this.cloneDeep(newPresences);
-        if (currentPresences.length > 0) {
-          const joinedPresenceRefs = state[key].map((m) => m.presence_ref);
-          const curPresences = currentPresences.filter((m) => joinedPresenceRefs.indexOf(m.presence_ref) < 0);
-          state[key].unshift(...curPresences);
-        }
-        onJoin(key, currentPresences, newPresences);
-      });
-      this.map(leaves, (key, leftPresences) => {
-        let currentPresences = state[key];
-        if (!currentPresences)
-          return;
-        const presenceRefsToRemove = leftPresences.map((m) => m.presence_ref);
-        currentPresences = currentPresences.filter((m) => presenceRefsToRemove.indexOf(m.presence_ref) < 0);
-        state[key] = currentPresences;
-        onLeave(key, currentPresences, leftPresences);
-        if (currentPresences.length === 0)
-          delete state[key];
-      });
-      return state;
-    }
-    static map(obj, func) {
-      return Object.getOwnPropertyNames(obj).map((key) => func(key, obj[key]));
-    }
-    static transformState(state) {
-      state = this.cloneDeep(state);
-      return Object.getOwnPropertyNames(state).reduce((newState, key) => {
-        const presences = state[key];
-        if ("metas" in presences) {
-          newState[key] = presences.metas.map((presence) => {
-            presence["presence_ref"] = presence["phx_ref"];
-            delete presence["phx_ref"];
-            delete presence["phx_ref_prev"];
-            return presence;
-          });
-        } else {
-          newState[key] = presences;
-        }
-        return newState;
-      }, {});
-    }
-    static cloneDeep(obj) {
-      return JSON.parse(JSON.stringify(obj));
     }
     onJoin(callback) {
       this.caller.onJoin = callback;
@@ -1620,24 +2010,945 @@ var require_RealtimePresence = __commonJS((exports2) => {
     onSync(callback) {
       this.caller.onSync = callback;
     }
+    list(by) {
+      return _Presence.list(this.state, by);
+    }
     inPendingSyncState() {
-      return !this.joinRef || this.joinRef !== this.channel._joinRef();
+      return !this.joinRef || this.joinRef !== this.channel.joinRef();
+    }
+    static syncState(currentState, newState, onJoin, onLeave) {
+      let state = this.clone(currentState);
+      let joins = {};
+      let leaves = {};
+      this.map(state, (key, presence) => {
+        if (!newState[key]) {
+          leaves[key] = presence;
+        }
+      });
+      this.map(newState, (key, newPresence) => {
+        let currentPresence = state[key];
+        if (currentPresence) {
+          let newRefs = newPresence.metas.map((m) => m.phx_ref);
+          let curRefs = currentPresence.metas.map((m) => m.phx_ref);
+          let joinedMetas = newPresence.metas.filter((m) => curRefs.indexOf(m.phx_ref) < 0);
+          let leftMetas = currentPresence.metas.filter((m) => newRefs.indexOf(m.phx_ref) < 0);
+          if (joinedMetas.length > 0) {
+            joins[key] = newPresence;
+            joins[key].metas = joinedMetas;
+          }
+          if (leftMetas.length > 0) {
+            leaves[key] = this.clone(currentPresence);
+            leaves[key].metas = leftMetas;
+          }
+        } else {
+          joins[key] = newPresence;
+        }
+      });
+      return this.syncDiff(state, { joins, leaves }, onJoin, onLeave);
+    }
+    static syncDiff(state, diff, onJoin, onLeave) {
+      let { joins, leaves } = this.clone(diff);
+      if (!onJoin) {
+        onJoin = function() {};
+      }
+      if (!onLeave) {
+        onLeave = function() {};
+      }
+      this.map(joins, (key, newPresence) => {
+        let currentPresence = state[key];
+        state[key] = this.clone(newPresence);
+        if (currentPresence) {
+          let joinedRefs = state[key].metas.map((m) => m.phx_ref);
+          let curMetas = currentPresence.metas.filter((m) => joinedRefs.indexOf(m.phx_ref) < 0);
+          state[key].metas.unshift(...curMetas);
+        }
+        onJoin(key, currentPresence, newPresence);
+      });
+      this.map(leaves, (key, leftPresence) => {
+        let currentPresence = state[key];
+        if (!currentPresence) {
+          return;
+        }
+        let refsToRemove = leftPresence.metas.map((m) => m.phx_ref);
+        currentPresence.metas = currentPresence.metas.filter((p) => {
+          return refsToRemove.indexOf(p.phx_ref) < 0;
+        });
+        onLeave(key, currentPresence, leftPresence);
+        if (currentPresence.metas.length === 0) {
+          delete state[key];
+        }
+      });
+      return state;
+    }
+    static list(presences, chooser) {
+      if (!chooser) {
+        chooser = function(key, pres) {
+          return pres;
+        };
+      }
+      return this.map(presences, (key, presence) => {
+        return chooser(key, presence);
+      });
+    }
+    static map(obj, func) {
+      return Object.getOwnPropertyNames(obj).map((key) => func(key, obj[key]));
+    }
+    static clone(obj) {
+      return JSON.parse(JSON.stringify(obj));
+    }
+  };
+  var serializer_default = {
+    HEADER_LENGTH: 1,
+    META_LENGTH: 4,
+    KINDS: { push: 0, reply: 1, broadcast: 2 },
+    encode(msg, callback) {
+      if (msg.payload.constructor === ArrayBuffer) {
+        return callback(this.binaryEncode(msg));
+      } else {
+        let payload = [msg.join_ref, msg.ref, msg.topic, msg.event, msg.payload];
+        return callback(JSON.stringify(payload));
+      }
+    },
+    decode(rawPayload, callback) {
+      if (rawPayload.constructor === ArrayBuffer) {
+        return callback(this.binaryDecode(rawPayload));
+      } else {
+        let [join_ref, ref, topic, event, payload] = JSON.parse(rawPayload);
+        return callback({ join_ref, ref, topic, event, payload });
+      }
+    },
+    binaryEncode(message) {
+      let { join_ref, ref, event, topic, payload } = message;
+      let metaLength = this.META_LENGTH + join_ref.length + ref.length + topic.length + event.length;
+      let header = new ArrayBuffer(this.HEADER_LENGTH + metaLength);
+      let view = new DataView(header);
+      let offset = 0;
+      view.setUint8(offset++, this.KINDS.push);
+      view.setUint8(offset++, join_ref.length);
+      view.setUint8(offset++, ref.length);
+      view.setUint8(offset++, topic.length);
+      view.setUint8(offset++, event.length);
+      Array.from(join_ref, (char) => view.setUint8(offset++, char.charCodeAt(0)));
+      Array.from(ref, (char) => view.setUint8(offset++, char.charCodeAt(0)));
+      Array.from(topic, (char) => view.setUint8(offset++, char.charCodeAt(0)));
+      Array.from(event, (char) => view.setUint8(offset++, char.charCodeAt(0)));
+      var combined = new Uint8Array(header.byteLength + payload.byteLength);
+      combined.set(new Uint8Array(header), 0);
+      combined.set(new Uint8Array(payload), header.byteLength);
+      return combined.buffer;
+    },
+    binaryDecode(buffer) {
+      let view = new DataView(buffer);
+      let kind = view.getUint8(0);
+      let decoder = new TextDecoder;
+      switch (kind) {
+        case this.KINDS.push:
+          return this.decodePush(buffer, view, decoder);
+        case this.KINDS.reply:
+          return this.decodeReply(buffer, view, decoder);
+        case this.KINDS.broadcast:
+          return this.decodeBroadcast(buffer, view, decoder);
+      }
+    },
+    decodePush(buffer, view, decoder) {
+      let joinRefSize = view.getUint8(1);
+      let topicSize = view.getUint8(2);
+      let eventSize = view.getUint8(3);
+      let offset = this.HEADER_LENGTH + this.META_LENGTH - 1;
+      let joinRef = decoder.decode(buffer.slice(offset, offset + joinRefSize));
+      offset = offset + joinRefSize;
+      let topic = decoder.decode(buffer.slice(offset, offset + topicSize));
+      offset = offset + topicSize;
+      let event = decoder.decode(buffer.slice(offset, offset + eventSize));
+      offset = offset + eventSize;
+      let data = buffer.slice(offset, buffer.byteLength);
+      return { join_ref: joinRef, ref: null, topic, event, payload: data };
+    },
+    decodeReply(buffer, view, decoder) {
+      let joinRefSize = view.getUint8(1);
+      let refSize = view.getUint8(2);
+      let topicSize = view.getUint8(3);
+      let eventSize = view.getUint8(4);
+      let offset = this.HEADER_LENGTH + this.META_LENGTH;
+      let joinRef = decoder.decode(buffer.slice(offset, offset + joinRefSize));
+      offset = offset + joinRefSize;
+      let ref = decoder.decode(buffer.slice(offset, offset + refSize));
+      offset = offset + refSize;
+      let topic = decoder.decode(buffer.slice(offset, offset + topicSize));
+      offset = offset + topicSize;
+      let event = decoder.decode(buffer.slice(offset, offset + eventSize));
+      offset = offset + eventSize;
+      let data = buffer.slice(offset, buffer.byteLength);
+      let payload = { status: event, response: data };
+      return { join_ref: joinRef, ref, topic, event: CHANNEL_EVENTS.reply, payload };
+    },
+    decodeBroadcast(buffer, view, decoder) {
+      let topicSize = view.getUint8(1);
+      let eventSize = view.getUint8(2);
+      let offset = this.HEADER_LENGTH + 2;
+      let topic = decoder.decode(buffer.slice(offset, offset + topicSize));
+      offset = offset + topicSize;
+      let event = decoder.decode(buffer.slice(offset, offset + eventSize));
+      offset = offset + eventSize;
+      let data = buffer.slice(offset, buffer.byteLength);
+      return { join_ref: null, ref: null, topic, event, payload: data };
+    }
+  };
+  var Socket = class {
+    constructor(endPoint, opts = {}) {
+      this.stateChangeCallbacks = { open: [], close: [], error: [], message: [] };
+      this.channels = [];
+      this.sendBuffer = [];
+      this.ref = 0;
+      this.fallbackRef = null;
+      this.timeout = opts.timeout || DEFAULT_TIMEOUT;
+      this.transport = opts.transport || global2.WebSocket || LongPoll;
+      this.conn = undefined;
+      this.primaryPassedHealthCheck = false;
+      this.longPollFallbackMs = opts.longPollFallbackMs;
+      this.fallbackTimer = null;
+      let envSessionStorage = null;
+      try {
+        envSessionStorage = global2 && global2.sessionStorage;
+      } catch {}
+      this.sessionStore = opts.sessionStorage || envSessionStorage;
+      this.establishedConnections = 0;
+      this.defaultEncoder = serializer_default.encode.bind(serializer_default);
+      this.defaultDecoder = serializer_default.decode.bind(serializer_default);
+      this.closeWasClean = true;
+      this.disconnecting = false;
+      this.binaryType = opts.binaryType || "arraybuffer";
+      this.connectClock = 1;
+      this.pageHidden = false;
+      this.encode = undefined;
+      this.decode = undefined;
+      if (this.transport !== LongPoll) {
+        this.encode = opts.encode || this.defaultEncoder;
+        this.decode = opts.decode || this.defaultDecoder;
+      } else {
+        this.encode = this.defaultEncoder;
+        this.decode = this.defaultDecoder;
+      }
+      let awaitingConnectionOnPageShow = null;
+      if (phxWindow && phxWindow.addEventListener) {
+        phxWindow.addEventListener("pagehide", (_e) => {
+          if (this.conn) {
+            this.disconnect();
+            awaitingConnectionOnPageShow = this.connectClock;
+          }
+        });
+        phxWindow.addEventListener("pageshow", (_e) => {
+          if (awaitingConnectionOnPageShow === this.connectClock) {
+            awaitingConnectionOnPageShow = null;
+            this.connect();
+          }
+        });
+        phxWindow.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "hidden") {
+            this.pageHidden = true;
+          } else {
+            this.pageHidden = false;
+            if (!this.isConnected() && !this.closeWasClean) {
+              this.teardown(() => this.connect());
+            }
+          }
+        });
+      }
+      this.heartbeatIntervalMs = opts.heartbeatIntervalMs || 30000;
+      this.autoSendHeartbeat = opts.autoSendHeartbeat ?? true;
+      this.heartbeatCallback = opts.heartbeatCallback ?? (() => {});
+      this.rejoinAfterMs = (tries) => {
+        if (opts.rejoinAfterMs) {
+          return opts.rejoinAfterMs(tries);
+        } else {
+          return [1000, 2000, 5000][tries - 1] || 1e4;
+        }
+      };
+      this.reconnectAfterMs = (tries) => {
+        if (opts.reconnectAfterMs) {
+          return opts.reconnectAfterMs(tries);
+        } else {
+          return [10, 50, 100, 150, 200, 250, 500, 1000, 2000][tries - 1] || 5000;
+        }
+      };
+      this.logger = opts.logger || null;
+      if (!this.logger && opts.debug) {
+        this.logger = (kind, msg, data) => {
+          console.log(`${kind}: ${msg}`, data);
+        };
+      }
+      this.longpollerTimeout = opts.longpollerTimeout || 20000;
+      this.params = closure(opts.params || {});
+      this.endPoint = `${endPoint}/${TRANSPORTS.websocket}`;
+      this.vsn = opts.vsn || DEFAULT_VSN;
+      this.heartbeatTimeoutTimer = null;
+      this.heartbeatTimer = null;
+      this.heartbeatSentAt = null;
+      this.pendingHeartbeatRef = null;
+      this.reconnectTimer = new Timer(() => {
+        if (this.pageHidden) {
+          this.log("Not reconnecting as page is hidden!");
+          this.teardown();
+          return;
+        }
+        this.teardown(async () => {
+          if (opts.beforeReconnect)
+            await opts.beforeReconnect();
+          this.connect();
+        });
+      }, this.reconnectAfterMs);
+      this.authToken = opts.authToken;
+    }
+    getLongPollTransport() {
+      return LongPoll;
+    }
+    replaceTransport(newTransport) {
+      this.connectClock++;
+      this.closeWasClean = true;
+      clearTimeout(this.fallbackTimer);
+      this.reconnectTimer.reset();
+      if (this.conn) {
+        this.conn.close();
+        this.conn = null;
+      }
+      this.transport = newTransport;
+    }
+    protocol() {
+      return location.protocol.match(/^https/) ? "wss" : "ws";
+    }
+    endPointURL() {
+      let uri = Ajax.appendParams(Ajax.appendParams(this.endPoint, this.params()), { vsn: this.vsn });
+      if (uri.charAt(0) !== "/") {
+        return uri;
+      }
+      if (uri.charAt(1) === "/") {
+        return `${this.protocol()}:${uri}`;
+      }
+      return `${this.protocol()}://${location.host}${uri}`;
+    }
+    disconnect(callback, code, reason) {
+      this.connectClock++;
+      this.disconnecting = true;
+      this.closeWasClean = true;
+      clearTimeout(this.fallbackTimer);
+      this.reconnectTimer.reset();
+      this.teardown(() => {
+        this.disconnecting = false;
+        callback && callback();
+      }, code, reason);
+    }
+    connect(params) {
+      if (params) {
+        console && console.log("passing params to connect is deprecated. Instead pass :params to the Socket constructor");
+        this.params = closure(params);
+      }
+      if (this.conn && !this.disconnecting) {
+        return;
+      }
+      if (this.longPollFallbackMs && this.transport !== LongPoll) {
+        this.connectWithFallback(LongPoll, this.longPollFallbackMs);
+      } else {
+        this.transportConnect();
+      }
+    }
+    log(kind, msg, data) {
+      this.logger && this.logger(kind, msg, data);
+    }
+    hasLogger() {
+      return this.logger !== null;
+    }
+    onOpen(callback) {
+      let ref = this.makeRef();
+      this.stateChangeCallbacks.open.push([ref, callback]);
+      return ref;
+    }
+    onClose(callback) {
+      let ref = this.makeRef();
+      this.stateChangeCallbacks.close.push([ref, callback]);
+      return ref;
+    }
+    onError(callback) {
+      let ref = this.makeRef();
+      this.stateChangeCallbacks.error.push([ref, callback]);
+      return ref;
+    }
+    onMessage(callback) {
+      let ref = this.makeRef();
+      this.stateChangeCallbacks.message.push([ref, callback]);
+      return ref;
+    }
+    onHeartbeat(callback) {
+      this.heartbeatCallback = callback;
+    }
+    ping(callback) {
+      if (!this.isConnected()) {
+        return false;
+      }
+      let ref = this.makeRef();
+      let startTime = Date.now();
+      this.push({ topic: "phoenix", event: "heartbeat", payload: {}, ref });
+      let onMsgRef = this.onMessage((msg) => {
+        if (msg.ref === ref) {
+          this.off([onMsgRef]);
+          callback(Date.now() - startTime);
+        }
+      });
+      return true;
+    }
+    transportName(transport) {
+      switch (transport) {
+        case LongPoll:
+          return "LongPoll";
+        default:
+          return transport.name;
+      }
+    }
+    transportConnect() {
+      this.connectClock++;
+      this.closeWasClean = false;
+      let protocols = undefined;
+      if (this.authToken) {
+        protocols = ["phoenix", `${AUTH_TOKEN_PREFIX}${btoa(this.authToken).replace(/=/g, "")}`];
+      }
+      this.conn = new this.transport(this.endPointURL(), protocols);
+      this.conn.binaryType = this.binaryType;
+      this.conn.timeout = this.longpollerTimeout;
+      this.conn.onopen = () => this.onConnOpen();
+      this.conn.onerror = (error) => this.onConnError(error);
+      this.conn.onmessage = (event) => this.onConnMessage(event);
+      this.conn.onclose = (event) => this.onConnClose(event);
+    }
+    getSession(key) {
+      return this.sessionStore && this.sessionStore.getItem(key);
+    }
+    storeSession(key, val) {
+      this.sessionStore && this.sessionStore.setItem(key, val);
+    }
+    connectWithFallback(fallbackTransport, fallbackThreshold = 2500) {
+      clearTimeout(this.fallbackTimer);
+      let established = false;
+      let primaryTransport = true;
+      let openRef, errorRef;
+      let fallbackTransportName = this.transportName(fallbackTransport);
+      let fallback = (reason) => {
+        this.log("transport", `falling back to ${fallbackTransportName}...`, reason);
+        this.off([openRef, errorRef]);
+        primaryTransport = false;
+        this.replaceTransport(fallbackTransport);
+        this.transportConnect();
+      };
+      if (this.getSession(`phx:fallback:${fallbackTransportName}`)) {
+        return fallback("memorized");
+      }
+      this.fallbackTimer = setTimeout(fallback, fallbackThreshold);
+      errorRef = this.onError((reason) => {
+        this.log("transport", "error", reason);
+        if (primaryTransport && !established) {
+          clearTimeout(this.fallbackTimer);
+          fallback(reason);
+        }
+      });
+      if (this.fallbackRef) {
+        this.off([this.fallbackRef]);
+      }
+      this.fallbackRef = this.onOpen(() => {
+        established = true;
+        if (!primaryTransport) {
+          let fallbackTransportName2 = this.transportName(fallbackTransport);
+          if (!this.primaryPassedHealthCheck) {
+            this.storeSession(`phx:fallback:${fallbackTransportName2}`, "true");
+          }
+          return this.log("transport", `established ${fallbackTransportName2} fallback`);
+        }
+        clearTimeout(this.fallbackTimer);
+        this.fallbackTimer = setTimeout(fallback, fallbackThreshold);
+        this.ping((rtt) => {
+          this.log("transport", "connected to primary after", rtt);
+          this.primaryPassedHealthCheck = true;
+          clearTimeout(this.fallbackTimer);
+        });
+      });
+      this.transportConnect();
+    }
+    clearHeartbeats() {
+      clearTimeout(this.heartbeatTimer);
+      clearTimeout(this.heartbeatTimeoutTimer);
+    }
+    onConnOpen() {
+      if (this.hasLogger())
+        this.log("transport", `connected to ${this.endPointURL()}`);
+      this.closeWasClean = false;
+      this.disconnecting = false;
+      this.establishedConnections++;
+      this.flushSendBuffer();
+      this.reconnectTimer.reset();
+      if (this.autoSendHeartbeat) {
+        this.resetHeartbeat();
+      }
+      this.triggerStateCallbacks("open");
+    }
+    heartbeatTimeout() {
+      if (this.pendingHeartbeatRef) {
+        this.pendingHeartbeatRef = null;
+        this.heartbeatSentAt = null;
+        if (this.hasLogger()) {
+          this.log("transport", "heartbeat timeout. Attempting to re-establish connection");
+        }
+        try {
+          this.heartbeatCallback("timeout");
+        } catch (e) {
+          this.log("error", "error in heartbeat callback", e);
+        }
+        this.triggerChanError(new Error("heartbeat timeout"));
+        this.closeWasClean = false;
+        this.teardown(() => this.reconnectTimer.scheduleTimeout(), WS_CLOSE_NORMAL, "heartbeat timeout");
+      }
+    }
+    resetHeartbeat() {
+      if (this.conn && this.conn.skipHeartbeat) {
+        return;
+      }
+      this.pendingHeartbeatRef = null;
+      this.clearHeartbeats();
+      this.heartbeatTimer = setTimeout(() => this.sendHeartbeat(), this.heartbeatIntervalMs);
+    }
+    teardown(callback, code, reason) {
+      if (!this.conn) {
+        return callback && callback();
+      }
+      const connToClose = this.conn;
+      this.waitForBufferDone(connToClose, () => {
+        if (code) {
+          connToClose.close(code, reason || "");
+        } else {
+          connToClose.close();
+        }
+        this.waitForSocketClosed(connToClose, () => {
+          if (this.conn === connToClose) {
+            this.conn.onopen = function() {};
+            this.conn.onerror = function() {};
+            this.conn.onmessage = function() {};
+            this.conn.onclose = function() {};
+            this.conn = null;
+          }
+          callback && callback();
+        });
+      });
+    }
+    waitForBufferDone(conn, callback, tries = 1) {
+      if (tries === 5 || !conn.bufferedAmount) {
+        callback();
+        return;
+      }
+      setTimeout(() => {
+        this.waitForBufferDone(conn, callback, tries + 1);
+      }, 150 * tries);
+    }
+    waitForSocketClosed(conn, callback, tries = 1) {
+      if (tries === 5 || conn.readyState === SOCKET_STATES.closed) {
+        callback();
+        return;
+      }
+      setTimeout(() => {
+        this.waitForSocketClosed(conn, callback, tries + 1);
+      }, 150 * tries);
+    }
+    onConnClose(event) {
+      if (this.conn)
+        this.conn.onclose = () => {};
+      if (this.hasLogger())
+        this.log("transport", "close", event);
+      this.triggerChanError(event);
+      this.clearHeartbeats();
+      if (!this.closeWasClean) {
+        this.reconnectTimer.scheduleTimeout();
+      }
+      this.triggerStateCallbacks("close", event);
+    }
+    onConnError(error) {
+      if (this.hasLogger())
+        this.log("transport", "error", error);
+      let transportBefore = this.transport;
+      let establishedBefore = this.establishedConnections;
+      this.triggerStateCallbacks("error", error, transportBefore, establishedBefore);
+      if (transportBefore === this.transport || establishedBefore > 0) {
+        this.triggerChanError(error);
+      }
+    }
+    triggerChanError(reason) {
+      this.channels.forEach((channel) => {
+        if (!(channel.isErrored() || channel.isLeaving() || channel.isClosed())) {
+          channel.trigger(CHANNEL_EVENTS.error, reason);
+        }
+      });
+    }
+    connectionState() {
+      switch (this.conn && this.conn.readyState) {
+        case SOCKET_STATES.connecting:
+          return "connecting";
+        case SOCKET_STATES.open:
+          return "open";
+        case SOCKET_STATES.closing:
+          return "closing";
+        default:
+          return "closed";
+      }
+    }
+    isConnected() {
+      return this.connectionState() === "open";
+    }
+    remove(channel) {
+      this.off(channel.stateChangeRefs);
+      this.channels = this.channels.filter((c) => c !== channel);
+    }
+    off(refs) {
+      for (let key in this.stateChangeCallbacks) {
+        this.stateChangeCallbacks[key] = this.stateChangeCallbacks[key].filter(([ref]) => {
+          return refs.indexOf(ref) === -1;
+        });
+      }
+    }
+    channel(topic, chanParams = {}) {
+      let chan = new Channel(topic, chanParams, this);
+      this.channels.push(chan);
+      return chan;
+    }
+    push(data) {
+      if (this.hasLogger()) {
+        let { topic, event, payload, ref, join_ref } = data;
+        this.log("push", `${topic} ${event} (${join_ref}, ${ref})`, payload);
+      }
+      if (this.isConnected()) {
+        this.encode(data, (result) => this.conn.send(result));
+      } else {
+        this.sendBuffer.push(() => this.encode(data, (result) => this.conn.send(result)));
+      }
+    }
+    makeRef() {
+      let newRef = this.ref + 1;
+      if (newRef === this.ref) {
+        this.ref = 0;
+      } else {
+        this.ref = newRef;
+      }
+      return this.ref.toString();
+    }
+    sendHeartbeat() {
+      if (!this.isConnected()) {
+        try {
+          this.heartbeatCallback("disconnected");
+        } catch (e) {
+          this.log("error", "error in heartbeat callback", e);
+        }
+        return;
+      }
+      if (this.pendingHeartbeatRef) {
+        this.heartbeatTimeout();
+        return;
+      }
+      this.pendingHeartbeatRef = this.makeRef();
+      this.heartbeatSentAt = Date.now();
+      this.push({ topic: "phoenix", event: "heartbeat", payload: {}, ref: this.pendingHeartbeatRef });
+      try {
+        this.heartbeatCallback("sent");
+      } catch (e) {
+        this.log("error", "error in heartbeat callback", e);
+      }
+      this.heartbeatTimeoutTimer = setTimeout(() => this.heartbeatTimeout(), this.heartbeatIntervalMs);
+    }
+    flushSendBuffer() {
+      if (this.isConnected() && this.sendBuffer.length > 0) {
+        this.sendBuffer.forEach((callback) => callback());
+        this.sendBuffer = [];
+      }
+    }
+    onConnMessage(rawMessage) {
+      this.decode(rawMessage.data, (msg) => {
+        let { topic, event, payload, ref, join_ref } = msg;
+        if (ref && ref === this.pendingHeartbeatRef) {
+          const latency = this.heartbeatSentAt ? Date.now() - this.heartbeatSentAt : undefined;
+          this.clearHeartbeats();
+          try {
+            this.heartbeatCallback(payload.status === "ok" ? "ok" : "error", latency);
+          } catch (e) {
+            this.log("error", "error in heartbeat callback", e);
+          }
+          this.pendingHeartbeatRef = null;
+          this.heartbeatSentAt = null;
+          if (this.autoSendHeartbeat) {
+            this.heartbeatTimer = setTimeout(() => this.sendHeartbeat(), this.heartbeatIntervalMs);
+          }
+        }
+        if (this.hasLogger())
+          this.log("receive", `${payload.status || ""} ${topic} ${event} ${ref && "(" + ref + ")" || ""}`.trim(), payload);
+        for (let i = 0;i < this.channels.length; i++) {
+          const channel = this.channels[i];
+          if (!channel.isMember(topic, event, payload, join_ref)) {
+            continue;
+          }
+          channel.trigger(event, payload, ref, join_ref);
+        }
+        this.triggerStateCallbacks("message", msg);
+      });
+    }
+    triggerStateCallbacks(event, ...args) {
+      try {
+        this.stateChangeCallbacks[event].forEach(([_, callback]) => {
+          try {
+            callback(...args);
+          } catch (e) {
+            this.log("error", `error in ${event} callback`, e);
+          }
+        });
+      } catch (e) {
+        this.log("error", `error triggering ${event} callbacks`, e);
+      }
+    }
+    leaveOpenTopic(topic) {
+      let dupChannel = this.channels.find((c) => c.topic === topic && (c.isJoined() || c.isJoining()));
+      if (dupChannel) {
+        if (this.hasLogger())
+          this.log("transport", `leaving duplicate topic "${topic}"`);
+        dupChannel.leave();
+      }
+    }
+  };
+});
+
+// ../../node_modules/.bun/@supabase+realtime-js@2.105.4/node_modules/@supabase/realtime-js/dist/main/phoenix/presenceAdapter.js
+var require_presenceAdapter = __commonJS((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  var phoenix_1 = require_phoenix_cjs();
+
+  class PresenceAdapter {
+    constructor(channel, opts) {
+      const phoenixOptions = phoenixPresenceOptions(opts);
+      this.presence = new phoenix_1.Presence(channel.getChannel(), phoenixOptions);
+      this.presence.onJoin((key, currentPresence, newPresence) => {
+        const onJoinPayload = PresenceAdapter.onJoinPayload(key, currentPresence, newPresence);
+        channel.getChannel().trigger("presence", onJoinPayload);
+      });
+      this.presence.onLeave((key, currentPresence, leftPresence) => {
+        const onLeavePayload = PresenceAdapter.onLeavePayload(key, currentPresence, leftPresence);
+        channel.getChannel().trigger("presence", onLeavePayload);
+      });
+      this.presence.onSync(() => {
+        channel.getChannel().trigger("presence", { event: "sync" });
+      });
+    }
+    get state() {
+      return PresenceAdapter.transformState(this.presence.state);
+    }
+    static transformState(state) {
+      state = cloneState(state);
+      return Object.getOwnPropertyNames(state).reduce((newState, key) => {
+        const presences = state[key];
+        newState[key] = transformState(presences);
+        return newState;
+      }, {});
+    }
+    static onJoinPayload(key, currentPresence, newPresence) {
+      const currentPresences = parseCurrentPresences(currentPresence);
+      const newPresences = transformState(newPresence);
+      return {
+        event: "join",
+        key,
+        currentPresences,
+        newPresences
+      };
+    }
+    static onLeavePayload(key, currentPresence, leftPresence) {
+      const currentPresences = parseCurrentPresences(currentPresence);
+      const leftPresences = transformState(leftPresence);
+      return {
+        event: "leave",
+        key,
+        currentPresences,
+        leftPresences
+      };
+    }
+  }
+  exports2.default = PresenceAdapter;
+  function transformState(presences) {
+    return presences.metas.map((presence) => {
+      presence["presence_ref"] = presence["phx_ref"];
+      delete presence["phx_ref"];
+      delete presence["phx_ref_prev"];
+      return presence;
+    });
+  }
+  function cloneState(state) {
+    return JSON.parse(JSON.stringify(state));
+  }
+  function phoenixPresenceOptions(opts) {
+    return (opts === null || opts === undefined ? undefined : opts.events) && { events: opts.events };
+  }
+  function parseCurrentPresences(currentPresences) {
+    return (currentPresences === null || currentPresences === undefined ? undefined : currentPresences.metas) ? transformState(currentPresences) : [];
+  }
+});
+
+// ../../node_modules/.bun/@supabase+realtime-js@2.105.4/node_modules/@supabase/realtime-js/dist/main/RealtimePresence.js
+var require_RealtimePresence = __commonJS((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.REALTIME_PRESENCE_LISTEN_EVENTS = undefined;
+  var tslib_1 = require_tslib();
+  var presenceAdapter_1 = tslib_1.__importDefault(require_presenceAdapter());
+  var REALTIME_PRESENCE_LISTEN_EVENTS;
+  (function(REALTIME_PRESENCE_LISTEN_EVENTS2) {
+    REALTIME_PRESENCE_LISTEN_EVENTS2["SYNC"] = "sync";
+    REALTIME_PRESENCE_LISTEN_EVENTS2["JOIN"] = "join";
+    REALTIME_PRESENCE_LISTEN_EVENTS2["LEAVE"] = "leave";
+  })(REALTIME_PRESENCE_LISTEN_EVENTS || (exports2.REALTIME_PRESENCE_LISTEN_EVENTS = REALTIME_PRESENCE_LISTEN_EVENTS = {}));
+
+  class RealtimePresence {
+    get state() {
+      return this.presenceAdapter.state;
+    }
+    constructor(channel, opts) {
+      this.channel = channel;
+      this.presenceAdapter = new presenceAdapter_1.default(this.channel.channelAdapter, opts);
     }
   }
   exports2.default = RealtimePresence;
 });
 
-// ../../node_modules/.bun/@supabase+realtime-js@2.89.0/node_modules/@supabase/realtime-js/dist/main/RealtimeChannel.js
+// ../../node_modules/.bun/@supabase+realtime-js@2.105.4/node_modules/@supabase/realtime-js/dist/main/lib/normalizeChannelError.js
+var require_normalizeChannelError = __commonJS((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  exports2.normalizeChannelError = normalizeChannelError;
+  function normalizeChannelError(reason) {
+    if (reason instanceof Error) {
+      return reason;
+    }
+    if (typeof reason === "string") {
+      return new Error(reason);
+    }
+    if (reason && typeof reason === "object") {
+      const obj = reason;
+      if (typeof obj.code === "number") {
+        const detail = typeof obj.reason === "string" && obj.reason ? ` (${obj.reason})` : "";
+        return new Error(`socket closed: ${obj.code}${detail}`, { cause: reason });
+      }
+      return new Error("channel error: transport failure", { cause: reason });
+    }
+    return new Error("channel error: connection lost");
+  }
+});
+
+// ../../node_modules/.bun/@supabase+realtime-js@2.105.4/node_modules/@supabase/realtime-js/dist/main/phoenix/channelAdapter.js
+var require_channelAdapter = __commonJS((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  var constants_1 = require_constants();
+
+  class ChannelAdapter {
+    constructor(socket, topic, params) {
+      const phoenixParams = phoenixChannelParams(params);
+      this.channel = socket.getSocket().channel(topic, phoenixParams);
+      this.socket = socket;
+    }
+    get state() {
+      return this.channel.state;
+    }
+    set state(state) {
+      this.channel.state = state;
+    }
+    get joinedOnce() {
+      return this.channel.joinedOnce;
+    }
+    get joinPush() {
+      return this.channel.joinPush;
+    }
+    get rejoinTimer() {
+      return this.channel.rejoinTimer;
+    }
+    on(event, callback) {
+      return this.channel.on(event, callback);
+    }
+    off(event, refNumber) {
+      this.channel.off(event, refNumber);
+    }
+    subscribe(timeout) {
+      return this.channel.join(timeout);
+    }
+    unsubscribe(timeout) {
+      return this.channel.leave(timeout);
+    }
+    teardown() {
+      this.channel.teardown();
+    }
+    onClose(callback) {
+      this.channel.onClose(callback);
+    }
+    onError(callback) {
+      return this.channel.onError(callback);
+    }
+    push(event, payload, timeout) {
+      let push;
+      try {
+        push = this.channel.push(event, payload, timeout);
+      } catch (error) {
+        throw new Error(`tried to push '${event}' to '${this.channel.topic}' before joining. Use channel.subscribe() before pushing events`);
+      }
+      if (this.channel.pushBuffer.length > constants_1.MAX_PUSH_BUFFER_SIZE) {
+        const removedPush = this.channel.pushBuffer.shift();
+        removedPush.cancelTimeout();
+        this.socket.log("channel", `discarded push due to buffer overflow: ${removedPush.event}`, removedPush.payload());
+      }
+      return push;
+    }
+    updateJoinPayload(payload) {
+      const oldPayload = this.channel.joinPush.payload();
+      this.channel.joinPush.payload = () => Object.assign(Object.assign({}, oldPayload), payload);
+    }
+    canPush() {
+      return this.socket.isConnected() && this.state === constants_1.CHANNEL_STATES.joined;
+    }
+    isJoined() {
+      return this.state === constants_1.CHANNEL_STATES.joined;
+    }
+    isJoining() {
+      return this.state === constants_1.CHANNEL_STATES.joining;
+    }
+    isClosed() {
+      return this.state === constants_1.CHANNEL_STATES.closed;
+    }
+    isLeaving() {
+      return this.state === constants_1.CHANNEL_STATES.leaving;
+    }
+    updateFilterBindings(filterBindings) {
+      this.channel.filterBindings = filterBindings;
+    }
+    updatePayloadTransform(callback) {
+      this.channel.onMessage = callback;
+    }
+    getChannel() {
+      return this.channel;
+    }
+  }
+  exports2.default = ChannelAdapter;
+  function phoenixChannelParams(options) {
+    return {
+      config: Object.assign({
+        broadcast: { ack: false, self: false },
+        presence: { key: "", enabled: false },
+        private: false
+      }, options.config)
+    };
+  }
+});
+
+// ../../node_modules/.bun/@supabase+realtime-js@2.105.4/node_modules/@supabase/realtime-js/dist/main/RealtimeChannel.js
 var require_RealtimeChannel = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.REALTIME_CHANNEL_STATES = exports2.REALTIME_SUBSCRIBE_STATES = exports2.REALTIME_LISTEN_TYPES = exports2.REALTIME_POSTGRES_CHANGES_LISTEN_EVENT = undefined;
   var tslib_1 = require_tslib();
   var constants_1 = require_constants();
-  var push_1 = tslib_1.__importDefault(require_push());
-  var timer_1 = tslib_1.__importDefault(require_timer());
   var RealtimePresence_1 = tslib_1.__importDefault(require_RealtimePresence());
   var Transformers = tslib_1.__importStar(require_transformers());
   var transformers_1 = require_transformers();
+  var normalizeChannelError_1 = require_normalizeChannelError();
+  var channelAdapter_1 = tslib_1.__importDefault(require_channelAdapter());
   var REALTIME_POSTGRES_CHANGES_LISTEN_EVENT;
   (function(REALTIME_POSTGRES_CHANGES_LISTEN_EVENT2) {
     REALTIME_POSTGRES_CHANGES_LISTEN_EVENT2["ALL"] = "*";
@@ -1662,68 +2973,46 @@ var require_RealtimeChannel = __commonJS((exports2) => {
   exports2.REALTIME_CHANNEL_STATES = constants_1.CHANNEL_STATES;
 
   class RealtimeChannel {
+    get state() {
+      return this.channelAdapter.state;
+    }
+    set state(state) {
+      this.channelAdapter.state = state;
+    }
+    get joinedOnce() {
+      return this.channelAdapter.joinedOnce;
+    }
+    get timeout() {
+      return this.socket.timeout;
+    }
+    get joinPush() {
+      return this.channelAdapter.joinPush;
+    }
+    get rejoinTimer() {
+      return this.channelAdapter.rejoinTimer;
+    }
     constructor(topic, params = { config: {} }, socket) {
       var _a, _b;
       this.topic = topic;
       this.params = params;
       this.socket = socket;
       this.bindings = {};
-      this.state = constants_1.CHANNEL_STATES.closed;
-      this.joinedOnce = false;
-      this.pushBuffer = [];
       this.subTopic = topic.replace(/^realtime:/i, "");
       this.params.config = Object.assign({
         broadcast: { ack: false, self: false },
         presence: { key: "", enabled: false },
         private: false
       }, params.config);
-      this.timeout = this.socket.timeout;
-      this.joinPush = new push_1.default(this, constants_1.CHANNEL_EVENTS.join, this.params, this.timeout);
-      this.rejoinTimer = new timer_1.default(() => this._rejoinUntilConnected(), this.socket.reconnectAfterMs);
-      this.joinPush.receive("ok", () => {
-        this.state = constants_1.CHANNEL_STATES.joined;
-        this.rejoinTimer.reset();
-        this.pushBuffer.forEach((pushEvent) => pushEvent.send());
-        this.pushBuffer = [];
-      });
+      this.channelAdapter = new channelAdapter_1.default(this.socket.socketAdapter, topic, this.params);
+      this.presence = new RealtimePresence_1.default(this);
       this._onClose(() => {
-        this.rejoinTimer.reset();
-        this.socket.log("channel", `close ${this.topic} ${this._joinRef()}`);
-        this.state = constants_1.CHANNEL_STATES.closed;
         this.socket._remove(this);
       });
-      this._onError((reason) => {
-        if (this._isLeaving() || this._isClosed()) {
-          return;
-        }
-        this.socket.log("channel", `error ${this.topic}`, reason);
-        this.state = constants_1.CHANNEL_STATES.errored;
-        this.rejoinTimer.scheduleTimeout();
-      });
-      this.joinPush.receive("timeout", () => {
-        if (!this._isJoining()) {
-          return;
-        }
-        this.socket.log("channel", `timeout ${this.topic}`, this.joinPush.timeout);
-        this.state = constants_1.CHANNEL_STATES.errored;
-        this.rejoinTimer.scheduleTimeout();
-      });
-      this.joinPush.receive("error", (reason) => {
-        if (this._isLeaving() || this._isClosed()) {
-          return;
-        }
-        this.socket.log("channel", `error ${this.topic}`, reason);
-        this.state = constants_1.CHANNEL_STATES.errored;
-        this.rejoinTimer.scheduleTimeout();
-      });
-      this._on(constants_1.CHANNEL_EVENTS.reply, {}, (payload, ref) => {
-        this._trigger(this._replyEventName(ref), payload);
-      });
-      this.presence = new RealtimePresence_1.default(this);
-      this.broadcastEndpointURL = (0, transformers_1.httpEndpointURL)(this.socket.endPoint);
+      this._updateFilterTransform();
+      this.broadcastEndpointURL = (0, transformers_1.httpEndpointURL)(this.socket.socketAdapter.endPointURL());
       this.private = this.params.config.private || false;
       if (!this.private && ((_b = (_a = this.params.config) === null || _a === undefined ? undefined : _a.broadcast) === null || _b === undefined ? undefined : _b.replay)) {
-        throw `tried to use replay on public channel '${this.topic}'. It must be a private channel.`;
+        throw new Error(`tried to use replay on public channel '${this.topic}'. It must be a private channel.`);
       }
     }
     subscribe(callback, timeout = this.timeout) {
@@ -1731,7 +3020,7 @@ var require_RealtimeChannel = __commonJS((exports2) => {
       if (!this.socket.isConnected()) {
         this.socket.connect();
       }
-      if (this.state == constants_1.CHANNEL_STATES.closed) {
+      if (this.channelAdapter.isClosed()) {
         const { config: { broadcast, presence, private: isPrivate } } = this.params;
         const postgres_changes = (_b = (_a = this.bindings.postgres_changes) === null || _a === undefined ? undefined : _a.map((r) => r.filter)) !== null && _b !== undefined ? _b : [];
         const presence_enabled = !!this.bindings[REALTIME_LISTEN_TYPES.PRESENCE] && this.bindings[REALTIME_LISTEN_TYPES.PRESENCE].length > 0 || ((_c = this.params.config.presence) === null || _c === undefined ? undefined : _c.enabled) === true;
@@ -1745,50 +3034,53 @@ var require_RealtimeChannel = __commonJS((exports2) => {
         if (this.socket.accessTokenValue) {
           accessTokenPayload.access_token = this.socket.accessTokenValue;
         }
-        this._onError((e) => callback === null || callback === undefined ? undefined : callback(REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR, e));
+        this._onError((reason) => {
+          callback === null || callback === undefined || callback(REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR, (0, normalizeChannelError_1.normalizeChannelError)(reason));
+        });
         this._onClose(() => callback === null || callback === undefined ? undefined : callback(REALTIME_SUBSCRIBE_STATES.CLOSED));
         this.updateJoinPayload(Object.assign({ config }, accessTokenPayload));
-        this.joinedOnce = true;
-        this._rejoin(timeout);
-        this.joinPush.receive("ok", async ({ postgres_changes: postgres_changes2 }) => {
-          var _a2;
+        this._updateFilterMessage();
+        this.channelAdapter.subscribe(timeout).receive("ok", async ({ postgres_changes: postgres_changes2 }) => {
           if (!this.socket._isManualToken()) {
             this.socket.setAuth();
           }
           if (postgres_changes2 === undefined) {
             callback === null || callback === undefined || callback(REALTIME_SUBSCRIBE_STATES.SUBSCRIBED);
             return;
-          } else {
-            const clientPostgresBindings = this.bindings.postgres_changes;
-            const bindingsLen = (_a2 = clientPostgresBindings === null || clientPostgresBindings === undefined ? undefined : clientPostgresBindings.length) !== null && _a2 !== undefined ? _a2 : 0;
-            const newPostgresBindings = [];
-            for (let i = 0;i < bindingsLen; i++) {
-              const clientPostgresBinding = clientPostgresBindings[i];
-              const { filter: { event, schema, table, filter } } = clientPostgresBinding;
-              const serverPostgresFilter = postgres_changes2 && postgres_changes2[i];
-              if (serverPostgresFilter && serverPostgresFilter.event === event && RealtimeChannel.isFilterValueEqual(serverPostgresFilter.schema, schema) && RealtimeChannel.isFilterValueEqual(serverPostgresFilter.table, table) && RealtimeChannel.isFilterValueEqual(serverPostgresFilter.filter, filter)) {
-                newPostgresBindings.push(Object.assign(Object.assign({}, clientPostgresBinding), { id: serverPostgresFilter.id }));
-              } else {
-                this.unsubscribe();
-                this.state = constants_1.CHANNEL_STATES.errored;
-                callback === null || callback === undefined || callback(REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR, new Error("mismatch between server and client bindings for postgres changes"));
-                return;
-              }
-            }
-            this.bindings.postgres_changes = newPostgresBindings;
-            callback && callback(REALTIME_SUBSCRIBE_STATES.SUBSCRIBED);
-            return;
           }
+          this._updatePostgresBindings(postgres_changes2, callback);
         }).receive("error", (error) => {
           this.state = constants_1.CHANNEL_STATES.errored;
-          callback === null || callback === undefined || callback(REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR, new Error(JSON.stringify(Object.values(error).join(", ") || "error")));
-          return;
+          const message = Object.values(error).join(", ") || "error";
+          callback === null || callback === undefined || callback(REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR, new Error(message, { cause: error }));
         }).receive("timeout", () => {
           callback === null || callback === undefined || callback(REALTIME_SUBSCRIBE_STATES.TIMED_OUT);
-          return;
         });
       }
       return this;
+    }
+    _updatePostgresBindings(postgres_changes, callback) {
+      var _a;
+      const clientPostgresBindings = this.bindings.postgres_changes;
+      const bindingsLen = (_a = clientPostgresBindings === null || clientPostgresBindings === undefined ? undefined : clientPostgresBindings.length) !== null && _a !== undefined ? _a : 0;
+      const newPostgresBindings = [];
+      for (let i = 0;i < bindingsLen; i++) {
+        const clientPostgresBinding = clientPostgresBindings[i];
+        const { filter: { event, schema, table, filter } } = clientPostgresBinding;
+        const serverPostgresFilter = postgres_changes && postgres_changes[i];
+        if (serverPostgresFilter && serverPostgresFilter.event === event && RealtimeChannel.isFilterValueEqual(serverPostgresFilter.schema, schema) && RealtimeChannel.isFilterValueEqual(serverPostgresFilter.table, table) && RealtimeChannel.isFilterValueEqual(serverPostgresFilter.filter, filter)) {
+          newPostgresBindings.push(Object.assign(Object.assign({}, clientPostgresBinding), { id: serverPostgresFilter.id }));
+        } else {
+          this.unsubscribe();
+          this.state = constants_1.CHANNEL_STATES.errored;
+          callback === null || callback === undefined || callback(REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR, new Error("mismatch between server and client bindings for postgres changes"));
+          return;
+        }
+      }
+      this.bindings.postgres_changes = newPostgresBindings;
+      if (this.state != constants_1.CHANNEL_STATES.errored && callback) {
+        callback(REALTIME_SUBSCRIBE_STATES.SUBSCRIBED);
+      }
     }
     presenceState() {
       return this.presence.state;
@@ -1807,16 +3099,18 @@ var require_RealtimeChannel = __commonJS((exports2) => {
       }, opts);
     }
     on(type, filter, callback) {
-      if (this.state === constants_1.CHANNEL_STATES.joined && type === REALTIME_LISTEN_TYPES.PRESENCE) {
-        this.socket.log("channel", `resubscribe to ${this.topic} due to change in presence callbacks on joined channel`);
-        this.unsubscribe().then(async () => await this.subscribe());
+      const stateCheck = this.channelAdapter.isJoined() || this.channelAdapter.isJoining();
+      const typeCheck = type === REALTIME_LISTEN_TYPES.PRESENCE || type === REALTIME_LISTEN_TYPES.POSTGRES_CHANGES;
+      if (stateCheck && typeCheck) {
+        this.socket.log("channel", `cannot add \`${type}\` callbacks for ${this.topic} after \`subscribe()\`.`);
+        throw new Error(`cannot add \`${type}\` callbacks for ${this.topic} after \`subscribe()\`.`);
       }
       return this._on(type, filter, callback);
     }
     async httpSend(event, payload, opts = {}) {
       var _a;
       if (payload === undefined || payload === null) {
-        return Promise.reject("Payload is required for httpSend()");
+        return Promise.reject(new Error("Payload is required for httpSend()"));
       }
       const headers = {
         apikey: this.socket.apiKey ? this.socket.apiKey : "",
@@ -1852,7 +3146,7 @@ var require_RealtimeChannel = __commonJS((exports2) => {
     }
     async send(args, opts = {}) {
       var _a, _b;
-      if (!this._canPush() && args.type === "broadcast") {
+      if (!this.channelAdapter.canPush() && args.type === "broadcast") {
         console.warn("Realtime send() is automatically falling back to REST API. " + "This behavior will be deprecated in the future. " + "Please use httpSend() explicitly for REST delivery.");
         const { event, payload: endpoint_payload } = args;
         const headers = {
@@ -1881,7 +3175,7 @@ var require_RealtimeChannel = __commonJS((exports2) => {
           await ((_b = response.body) === null || _b === undefined ? undefined : _b.cancel());
           return response.ok ? "ok" : "error";
         } catch (error) {
-          if (error.name === "AbortError") {
+          if (error instanceof Error && error.name === "AbortError") {
             return "timed out";
           } else {
             return "error";
@@ -1890,7 +3184,7 @@ var require_RealtimeChannel = __commonJS((exports2) => {
       } else {
         return new Promise((resolve) => {
           var _a2, _b2, _c;
-          const push = this._push(args.type, args, opts.timeout || this.timeout);
+          const push = this.channelAdapter.push(args.type, args, opts.timeout || this.timeout);
           if (args.type === "broadcast" && !((_c = (_b2 = (_a2 = this.params) === null || _a2 === undefined ? undefined : _a2.config) === null || _b2 === undefined ? undefined : _b2.broadcast) === null || _c === undefined ? undefined : _c.ack)) {
             resolve("ok");
           }
@@ -1901,42 +3195,15 @@ var require_RealtimeChannel = __commonJS((exports2) => {
       }
     }
     updateJoinPayload(payload) {
-      this.joinPush.updatePayload(payload);
+      this.channelAdapter.updateJoinPayload(payload);
     }
-    unsubscribe(timeout = this.timeout) {
-      this.state = constants_1.CHANNEL_STATES.leaving;
-      const onClose = () => {
-        this.socket.log("channel", `leave ${this.topic}`);
-        this._trigger(constants_1.CHANNEL_EVENTS.close, "leave", this._joinRef());
-      };
-      this.joinPush.destroy();
-      let leavePush = null;
+    async unsubscribe(timeout = this.timeout) {
       return new Promise((resolve) => {
-        leavePush = new push_1.default(this, constants_1.CHANNEL_EVENTS.leave, {}, timeout);
-        leavePush.receive("ok", () => {
-          onClose();
-          resolve("ok");
-        }).receive("timeout", () => {
-          onClose();
-          resolve("timed out");
-        }).receive("error", () => {
-          resolve("error");
-        });
-        leavePush.send();
-        if (!this._canPush()) {
-          leavePush.trigger("ok", {});
-        }
-      }).finally(() => {
-        leavePush === null || leavePush === undefined || leavePush.destroy();
+        this.channelAdapter.unsubscribe(timeout).receive("ok", () => resolve("ok")).receive("timeout", () => resolve("timed out")).receive("error", () => resolve("error"));
       });
     }
     teardown() {
-      this.pushBuffer.forEach((push) => push.destroy());
-      this.pushBuffer = [];
-      this.rejoinTimer.reset();
-      this.joinPush.destroy();
-      this.state = constants_1.CHANNEL_STATES.closed;
-      this.bindings = {};
+      this.channelAdapter.teardown();
     }
     async _fetchWithTimeout(url, options, timeout) {
       const controller = new AbortController;
@@ -1945,166 +3212,92 @@ var require_RealtimeChannel = __commonJS((exports2) => {
       clearTimeout(id);
       return response;
     }
-    _push(event, payload, timeout = this.timeout) {
-      if (!this.joinedOnce) {
-        throw `tried to push '${event}' to '${this.topic}' before joining. Use channel.subscribe() before pushing events`;
-      }
-      let pushEvent = new push_1.default(this, event, payload, timeout);
-      if (this._canPush()) {
-        pushEvent.send();
-      } else {
-        this._addToPushBuffer(pushEvent);
-      }
-      return pushEvent;
-    }
-    _addToPushBuffer(pushEvent) {
-      pushEvent.startTimeout();
-      this.pushBuffer.push(pushEvent);
-      if (this.pushBuffer.length > constants_1.MAX_PUSH_BUFFER_SIZE) {
-        const removedPush = this.pushBuffer.shift();
-        if (removedPush) {
-          removedPush.destroy();
-          this.socket.log("channel", `discarded push due to buffer overflow: ${removedPush.event}`, removedPush.payload);
-        }
-      }
-    }
-    _onMessage(_event, payload, _ref) {
-      return payload;
-    }
-    _isMember(topic) {
-      return this.topic === topic;
-    }
-    _joinRef() {
-      return this.joinPush.ref;
-    }
-    _trigger(type, payload, ref) {
-      var _a, _b;
-      const typeLower = type.toLocaleLowerCase();
-      const { close, error, leave, join: join3 } = constants_1.CHANNEL_EVENTS;
-      const events = [close, error, leave, join3];
-      if (ref && events.indexOf(typeLower) >= 0 && ref !== this._joinRef()) {
-        return;
-      }
-      let handledPayload = this._onMessage(typeLower, payload, ref);
-      if (payload && !handledPayload) {
-        throw "channel onMessage callbacks must return the payload, modified or unmodified";
-      }
-      if (["insert", "update", "delete"].includes(typeLower)) {
-        (_a = this.bindings.postgres_changes) === null || _a === undefined || _a.filter((bind) => {
-          var _a2, _b2, _c;
-          return ((_a2 = bind.filter) === null || _a2 === undefined ? undefined : _a2.event) === "*" || ((_c = (_b2 = bind.filter) === null || _b2 === undefined ? undefined : _b2.event) === null || _c === undefined ? undefined : _c.toLocaleLowerCase()) === typeLower;
-        }).map((bind) => bind.callback(handledPayload, ref));
-      } else {
-        (_b = this.bindings[typeLower]) === null || _b === undefined || _b.filter((bind) => {
-          var _a2, _b2, _c, _d, _e, _f;
-          if (["broadcast", "presence", "postgres_changes"].includes(typeLower)) {
-            if ("id" in bind) {
-              const bindId = bind.id;
-              const bindEvent = (_a2 = bind.filter) === null || _a2 === undefined ? undefined : _a2.event;
-              return bindId && ((_b2 = payload.ids) === null || _b2 === undefined ? undefined : _b2.includes(bindId)) && (bindEvent === "*" || (bindEvent === null || bindEvent === undefined ? undefined : bindEvent.toLocaleLowerCase()) === ((_c = payload.data) === null || _c === undefined ? undefined : _c.type.toLocaleLowerCase()));
-            } else {
-              const bindEvent = (_e = (_d = bind === null || bind === undefined ? undefined : bind.filter) === null || _d === undefined ? undefined : _d.event) === null || _e === undefined ? undefined : _e.toLocaleLowerCase();
-              return bindEvent === "*" || bindEvent === ((_f = payload === null || payload === undefined ? undefined : payload.event) === null || _f === undefined ? undefined : _f.toLocaleLowerCase());
-            }
-          } else {
-            return bind.type.toLocaleLowerCase() === typeLower;
-          }
-        }).map((bind) => {
-          if (typeof handledPayload === "object" && "ids" in handledPayload) {
-            const postgresChanges = handledPayload.data;
-            const { schema, table, commit_timestamp, type: type2, errors } = postgresChanges;
-            const enrichedPayload = {
-              schema,
-              table,
-              commit_timestamp,
-              eventType: type2,
-              new: {},
-              old: {},
-              errors
-            };
-            handledPayload = Object.assign(Object.assign({}, enrichedPayload), this._getPayloadRecords(postgresChanges));
-          }
-          bind.callback(handledPayload, ref);
-        });
-      }
-    }
-    _isClosed() {
-      return this.state === constants_1.CHANNEL_STATES.closed;
-    }
-    _isJoined() {
-      return this.state === constants_1.CHANNEL_STATES.joined;
-    }
-    _isJoining() {
-      return this.state === constants_1.CHANNEL_STATES.joining;
-    }
-    _isLeaving() {
-      return this.state === constants_1.CHANNEL_STATES.leaving;
-    }
-    _replyEventName(ref) {
-      return `chan_reply_${ref}`;
-    }
     _on(type, filter, callback) {
       const typeLower = type.toLocaleLowerCase();
+      const ref = this.channelAdapter.on(type, callback);
       const binding = {
         type: typeLower,
         filter,
-        callback
+        callback,
+        ref
       };
       if (this.bindings[typeLower]) {
         this.bindings[typeLower].push(binding);
       } else {
         this.bindings[typeLower] = [binding];
       }
+      this._updateFilterMessage();
       return this;
     }
-    _off(type, filter) {
-      const typeLower = type.toLocaleLowerCase();
-      if (this.bindings[typeLower]) {
-        this.bindings[typeLower] = this.bindings[typeLower].filter((bind) => {
-          var _a;
-          return !(((_a = bind.type) === null || _a === undefined ? undefined : _a.toLocaleLowerCase()) === typeLower && RealtimeChannel.isEqual(bind.filter, filter));
-        });
-      }
-      return this;
+    _onClose(callback) {
+      this.channelAdapter.onClose(callback);
     }
-    static isEqual(obj1, obj2) {
-      if (Object.keys(obj1).length !== Object.keys(obj2).length) {
-        return false;
-      }
-      for (const k in obj1) {
-        if (obj1[k] !== obj2[k]) {
+    _onError(callback) {
+      this.channelAdapter.onError(callback);
+    }
+    _updateFilterMessage() {
+      this.channelAdapter.updateFilterBindings((binding, payload, ref) => {
+        var _a, _b, _c, _d, _e, _f, _g;
+        const typeLower = binding.event.toLocaleLowerCase();
+        if (this._notThisChannelEvent(typeLower, ref)) {
           return false;
         }
+        const bind = (_a = this.bindings[typeLower]) === null || _a === undefined ? undefined : _a.find((bind2) => bind2.ref === binding.ref);
+        if (!bind) {
+          return true;
+        }
+        if (["broadcast", "presence", "postgres_changes"].includes(typeLower)) {
+          if ("id" in bind) {
+            const bindId = bind.id;
+            const bindEvent = (_b = bind.filter) === null || _b === undefined ? undefined : _b.event;
+            return bindId && ((_c = payload.ids) === null || _c === undefined ? undefined : _c.includes(bindId)) && (bindEvent === "*" || (bindEvent === null || bindEvent === undefined ? undefined : bindEvent.toLocaleLowerCase()) === ((_d = payload.data) === null || _d === undefined ? undefined : _d.type.toLocaleLowerCase()));
+          } else {
+            const bindEvent = (_f = (_e = bind === null || bind === undefined ? undefined : bind.filter) === null || _e === undefined ? undefined : _e.event) === null || _f === undefined ? undefined : _f.toLocaleLowerCase();
+            return bindEvent === "*" || bindEvent === ((_g = payload === null || payload === undefined ? undefined : payload.event) === null || _g === undefined ? undefined : _g.toLocaleLowerCase());
+          }
+        } else {
+          return bind.type.toLocaleLowerCase() === typeLower;
+        }
+      });
+    }
+    _notThisChannelEvent(event, ref) {
+      const { close, error, leave, join: join3 } = constants_1.CHANNEL_EVENTS;
+      const events = [close, error, leave, join3];
+      return ref && events.includes(event) && ref !== this.joinPush.ref;
+    }
+    _updateFilterTransform() {
+      this.channelAdapter.updatePayloadTransform((event, payload, ref) => {
+        if (typeof payload === "object" && "ids" in payload) {
+          const postgresChanges = payload.data;
+          const { schema, table, commit_timestamp, type, errors } = postgresChanges;
+          const enrichedPayload = {
+            schema,
+            table,
+            commit_timestamp,
+            eventType: type,
+            new: {},
+            old: {},
+            errors
+          };
+          return Object.assign(Object.assign({}, enrichedPayload), this._getPayloadRecords(postgresChanges));
+        }
+        return payload;
+      });
+    }
+    copyBindings(other) {
+      if (this.joinedOnce) {
+        throw new Error("cannot copy bindings into joined channel");
       }
-      return true;
+      for (const kind in other.bindings) {
+        for (const binding of other.bindings[kind]) {
+          this._on(binding.type, binding.filter, binding.callback);
+        }
+      }
     }
     static isFilterValueEqual(serverValue, clientValue) {
       const normalizedServer = serverValue !== null && serverValue !== undefined ? serverValue : undefined;
       const normalizedClient = clientValue !== null && clientValue !== undefined ? clientValue : undefined;
       return normalizedServer === normalizedClient;
-    }
-    _rejoinUntilConnected() {
-      this.rejoinTimer.scheduleTimeout();
-      if (this.socket.isConnected()) {
-        this._rejoin();
-      }
-    }
-    _onClose(callback) {
-      this._on(constants_1.CHANNEL_EVENTS.close, {}, callback);
-    }
-    _onError(callback) {
-      this._on(constants_1.CHANNEL_EVENTS.error, {}, (reason) => callback(reason));
-    }
-    _canPush() {
-      return this.socket.isConnected() && this._isJoined();
-    }
-    _rejoin(timeout = this.timeout) {
-      if (this._isLeaving()) {
-        return;
-      }
-      this.socket._leaveOpenTopic(this.topic);
-      this.state = constants_1.CHANNEL_STATES.joining;
-      this.joinPush.resend(timeout);
     }
     _getPayloadRecords(payload) {
       const records = {
@@ -2123,17 +3316,129 @@ var require_RealtimeChannel = __commonJS((exports2) => {
   exports2.default = RealtimeChannel;
 });
 
-// ../../node_modules/.bun/@supabase+realtime-js@2.89.0/node_modules/@supabase/realtime-js/dist/main/RealtimeClient.js
+// ../../node_modules/.bun/@supabase+realtime-js@2.105.4/node_modules/@supabase/realtime-js/dist/main/phoenix/socketAdapter.js
+var require_socketAdapter = __commonJS((exports2) => {
+  Object.defineProperty(exports2, "__esModule", { value: true });
+  var phoenix_1 = require_phoenix_cjs();
+  var constants_1 = require_constants();
+
+  class SocketAdapter {
+    constructor(endPoint, options) {
+      this.socket = new phoenix_1.Socket(endPoint, options);
+    }
+    get timeout() {
+      return this.socket.timeout;
+    }
+    get endPoint() {
+      return this.socket.endPoint;
+    }
+    get transport() {
+      return this.socket.transport;
+    }
+    get heartbeatIntervalMs() {
+      return this.socket.heartbeatIntervalMs;
+    }
+    get heartbeatCallback() {
+      return this.socket.heartbeatCallback;
+    }
+    set heartbeatCallback(callback) {
+      this.socket.heartbeatCallback = callback;
+    }
+    get heartbeatTimer() {
+      return this.socket.heartbeatTimer;
+    }
+    get pendingHeartbeatRef() {
+      return this.socket.pendingHeartbeatRef;
+    }
+    get reconnectTimer() {
+      return this.socket.reconnectTimer;
+    }
+    get vsn() {
+      return this.socket.vsn;
+    }
+    get encode() {
+      return this.socket.encode;
+    }
+    get decode() {
+      return this.socket.decode;
+    }
+    get reconnectAfterMs() {
+      return this.socket.reconnectAfterMs;
+    }
+    get sendBuffer() {
+      return this.socket.sendBuffer;
+    }
+    get stateChangeCallbacks() {
+      return this.socket.stateChangeCallbacks;
+    }
+    connect() {
+      this.socket.connect();
+    }
+    disconnect(callback, code, reason, timeout = 1e4) {
+      return new Promise((resolve) => {
+        setTimeout(() => resolve("timeout"), timeout);
+        this.socket.disconnect(() => {
+          callback();
+          resolve("ok");
+        }, code, reason);
+      });
+    }
+    push(data) {
+      this.socket.push(data);
+    }
+    log(kind, msg, data) {
+      this.socket.log(kind, msg, data);
+    }
+    makeRef() {
+      return this.socket.makeRef();
+    }
+    onOpen(callback) {
+      this.socket.onOpen(callback);
+    }
+    onClose(callback) {
+      this.socket.onClose(callback);
+    }
+    onError(callback) {
+      this.socket.onError(callback);
+    }
+    onMessage(callback) {
+      this.socket.onMessage(callback);
+    }
+    isConnected() {
+      return this.socket.isConnected();
+    }
+    isConnecting() {
+      return this.socket.connectionState() == constants_1.CONNECTION_STATE.connecting;
+    }
+    isDisconnecting() {
+      return this.socket.connectionState() == constants_1.CONNECTION_STATE.closing;
+    }
+    connectionState() {
+      return this.socket.connectionState();
+    }
+    endPointURL() {
+      return this.socket.endPointURL();
+    }
+    sendHeartbeat() {
+      this.socket.sendHeartbeat();
+    }
+    getSocket() {
+      return this.socket;
+    }
+  }
+  exports2.default = SocketAdapter;
+});
+
+// ../../node_modules/.bun/@supabase+realtime-js@2.105.4/node_modules/@supabase/realtime-js/dist/main/RealtimeClient.js
 var require_RealtimeClient = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   var tslib_1 = require_tslib();
   var websocket_factory_1 = tslib_1.__importDefault(require_websocket_factory());
   var constants_1 = require_constants();
   var serializer_1 = tslib_1.__importDefault(require_serializer());
-  var timer_1 = tslib_1.__importDefault(require_timer());
   var transformers_1 = require_transformers();
   var RealtimeChannel_1 = tslib_1.__importDefault(require_RealtimeChannel());
-  var noop = () => {};
+  var socketAdapter_1 = tslib_1.__importDefault(require_socketAdapter());
   var CONNECTION_TIMEOUTS = {
     HEARTBEAT_INTERVAL: 25000,
     RECONNECT_DELAY: 10,
@@ -2141,6 +3446,38 @@ var require_RealtimeClient = __commonJS((exports2) => {
   };
   var RECONNECT_INTERVALS = [1000, 2000, 5000, 1e4];
   var DEFAULT_RECONNECT_FALLBACK = 1e4;
+  function createMemorySessionStorage() {
+    const store = new Map;
+    return {
+      get length() {
+        return store.size;
+      },
+      clear() {
+        store.clear();
+      },
+      getItem(key) {
+        return store.has(key) ? store.get(key) : null;
+      },
+      key(index) {
+        var _a;
+        return (_a = Array.from(store.keys())[index]) !== null && _a !== undefined ? _a : null;
+      },
+      removeItem(key) {
+        store.delete(key);
+      },
+      setItem(key, value) {
+        store.set(key, String(value));
+      }
+    };
+  }
+  function resolveSessionStorage() {
+    try {
+      if (typeof globalThis !== "undefined" && globalThis.sessionStorage) {
+        return globalThis.sessionStorage;
+      }
+    } catch (_a) {}
+    return createMemorySessionStorage();
+  }
   var WORKER_SCRIPT = `
   addEventListener("message", (e) => {
     if (e.data.event === "start") {
@@ -2149,39 +3486,71 @@ var require_RealtimeClient = __commonJS((exports2) => {
   });`;
 
   class RealtimeClient {
+    get endPoint() {
+      return this.socketAdapter.endPoint;
+    }
+    get timeout() {
+      return this.socketAdapter.timeout;
+    }
+    get transport() {
+      return this.socketAdapter.transport;
+    }
+    get heartbeatCallback() {
+      return this.socketAdapter.heartbeatCallback;
+    }
+    get heartbeatIntervalMs() {
+      return this.socketAdapter.heartbeatIntervalMs;
+    }
+    get heartbeatTimer() {
+      if (this.worker) {
+        return this._workerHeartbeatTimer;
+      }
+      return this.socketAdapter.heartbeatTimer;
+    }
+    get pendingHeartbeatRef() {
+      if (this.worker) {
+        return this._pendingWorkerHeartbeatRef;
+      }
+      return this.socketAdapter.pendingHeartbeatRef;
+    }
+    get reconnectTimer() {
+      return this.socketAdapter.reconnectTimer;
+    }
+    get vsn() {
+      return this.socketAdapter.vsn;
+    }
+    get encode() {
+      return this.socketAdapter.encode;
+    }
+    get decode() {
+      return this.socketAdapter.decode;
+    }
+    get reconnectAfterMs() {
+      return this.socketAdapter.reconnectAfterMs;
+    }
+    get sendBuffer() {
+      return this.socketAdapter.sendBuffer;
+    }
+    get stateChangeCallbacks() {
+      return this.socketAdapter.stateChangeCallbacks;
+    }
     constructor(endPoint, options) {
       var _a;
-      this.accessTokenValue = null;
-      this.apiKey = null;
-      this._manuallySetToken = false;
       this.channels = new Array;
-      this.endPoint = "";
+      this.accessTokenValue = null;
+      this.accessToken = null;
+      this.apiKey = null;
       this.httpEndpoint = "";
       this.headers = {};
       this.params = {};
-      this.timeout = constants_1.DEFAULT_TIMEOUT;
-      this.transport = null;
-      this.heartbeatIntervalMs = CONNECTION_TIMEOUTS.HEARTBEAT_INTERVAL;
-      this.heartbeatTimer = undefined;
-      this.pendingHeartbeatRef = null;
-      this.heartbeatCallback = noop;
       this.ref = 0;
-      this.reconnectTimer = null;
-      this.vsn = constants_1.DEFAULT_VSN;
-      this.logger = noop;
-      this.conn = null;
-      this.sendBuffer = [];
       this.serializer = new serializer_1.default;
-      this.stateChangeCallbacks = {
-        open: [],
-        close: [],
-        error: [],
-        message: []
-      };
-      this.accessToken = null;
-      this._connectionState = "disconnected";
-      this._wasManualDisconnect = false;
+      this._manuallySetToken = false;
       this._authPromise = null;
+      this._workerHeartbeatTimer = undefined;
+      this._pendingWorkerHeartbeatRef = null;
+      this._pendingDisconnectTimer = null;
+      this._disconnectOnEmptyChannelsAfterMs = 0;
       this._resolveFetch = (customFetch) => {
         if (customFetch) {
           return (...args) => customFetch(...args);
@@ -2192,30 +3561,25 @@ var require_RealtimeClient = __commonJS((exports2) => {
         throw new Error("API key is required to connect to Realtime");
       }
       this.apiKey = options.params.apikey;
-      this.endPoint = `${endPoint}/${constants_1.TRANSPORTS.websocket}`;
+      const socketAdapterOptions = this._initializeOptions(options);
+      this.socketAdapter = new socketAdapter_1.default(endPoint, socketAdapterOptions);
       this.httpEndpoint = (0, transformers_1.httpEndpointURL)(endPoint);
-      this._initializeOptions(options);
-      this._setupReconnectionTimer();
       this.fetch = this._resolveFetch(options === null || options === undefined ? undefined : options.fetch);
     }
     connect() {
-      if (this.isConnecting() || this.isDisconnecting() || this.conn !== null && this.isConnected()) {
+      if (this.isConnecting() || this.isDisconnecting() || this.isConnected()) {
         return;
       }
-      this._setConnectionState("connecting");
       if (this.accessToken && !this._authPromise) {
         this._setAuthSafely("connect");
       }
-      if (this.transport) {
-        this.conn = new this.transport(this.endpointURL());
-      } else {
-        try {
-          this.conn = websocket_factory_1.default.createWebSocket(this.endpointURL());
-        } catch (error) {
-          this._setConnectionState("disconnected");
-          const errorMessage = error.message;
-          if (errorMessage.includes("Node.js")) {
-            throw new Error(`${errorMessage}
+      this._setupConnectionHandlers();
+      try {
+        this.socketAdapter.connect();
+      } catch (error) {
+        const errorMessage = error.message;
+        if (errorMessage.includes("Node.js")) {
+          throw new Error(`${errorMessage}
 
 ` + `To use Realtime in Node.js, you need to provide a WebSocket implementation:
 
@@ -2229,85 +3593,65 @@ var require_RealtimeClient = __commonJS((exports2) => {
 ` + `    ...options,
 ` + `    transport: ws
 ` + "  })");
-          }
-          throw new Error(`WebSocket not available: ${errorMessage}`);
         }
+        throw new Error(`WebSocket not available: ${errorMessage}`);
       }
-      this._setupConnectionHandlers();
+      this._handleNodeJsRaceCondition();
     }
     endpointURL() {
-      return this._appendParams(this.endPoint, Object.assign({}, this.params, { vsn: this.vsn }));
+      return this.socketAdapter.endPointURL();
     }
-    disconnect(code, reason) {
+    async disconnect(code, reason) {
+      this._cancelPendingDisconnect();
       if (this.isDisconnecting()) {
-        return;
+        return "ok";
       }
-      this._setConnectionState("disconnecting", true);
-      if (this.conn) {
-        const fallbackTimer = setTimeout(() => {
-          this._setConnectionState("disconnected");
-        }, 100);
-        this.conn.onclose = () => {
-          clearTimeout(fallbackTimer);
-          this._setConnectionState("disconnected");
-        };
-        if (typeof this.conn.close === "function") {
-          if (code) {
-            this.conn.close(code, reason !== null && reason !== undefined ? reason : "");
-          } else {
-            this.conn.close();
-          }
-        }
-        this._teardownConnection();
-      } else {
-        this._setConnectionState("disconnected");
-      }
+      return await this.socketAdapter.disconnect(() => {
+        clearInterval(this._workerHeartbeatTimer);
+        this._terminateWorker();
+      }, code, reason);
     }
     getChannels() {
       return this.channels;
     }
     async removeChannel(channel) {
       const status = await channel.unsubscribe();
-      if (this.channels.length === 0) {
-        this.disconnect();
+      if (status === "ok") {
+        channel.teardown();
       }
       return status;
     }
     async removeAllChannels() {
-      const values_1 = await Promise.all(this.channels.map((channel) => channel.unsubscribe()));
-      this.channels = [];
-      this.disconnect();
-      return values_1;
+      const promises = this.channels.map(async (channel) => {
+        const result2 = await channel.unsubscribe();
+        channel.teardown();
+        return result2;
+      });
+      const result = await Promise.all(promises);
+      await this.disconnect();
+      return result;
     }
     log(kind, msg, data) {
-      this.logger(kind, msg, data);
+      this.socketAdapter.log(kind, msg, data);
     }
     connectionState() {
-      switch (this.conn && this.conn.readyState) {
-        case constants_1.SOCKET_STATES.connecting:
-          return constants_1.CONNECTION_STATE.Connecting;
-        case constants_1.SOCKET_STATES.open:
-          return constants_1.CONNECTION_STATE.Open;
-        case constants_1.SOCKET_STATES.closing:
-          return constants_1.CONNECTION_STATE.Closing;
-        default:
-          return constants_1.CONNECTION_STATE.Closed;
-      }
+      return this.socketAdapter.connectionState() || constants_1.CONNECTION_STATE.closed;
     }
     isConnected() {
-      return this.connectionState() === constants_1.CONNECTION_STATE.Open;
+      return this.socketAdapter.isConnected();
     }
     isConnecting() {
-      return this._connectionState === "connecting";
+      return this.socketAdapter.isConnecting();
     }
     isDisconnecting() {
-      return this._connectionState === "disconnecting";
+      return this.socketAdapter.isDisconnecting();
     }
     channel(topic, params = { config: {} }) {
       const realtimeTopic = `realtime:${topic}`;
       const exists = this.getChannels().find((c) => c.topic === realtimeTopic);
       if (!exists) {
         const chan = new RealtimeChannel_1.default(`realtime:${topic}`, params, this);
+        this._cancelPendingDisconnect();
         this.channels.push(chan);
         return chan;
       } else {
@@ -2315,19 +3659,7 @@ var require_RealtimeClient = __commonJS((exports2) => {
       }
     }
     push(data) {
-      const { topic, event, payload, ref } = data;
-      const callback = () => {
-        this.encode(data, (result) => {
-          var _a;
-          (_a = this.conn) === null || _a === undefined || _a.send(result);
-        });
-      };
-      this.log("push", `${topic} ${event} (${ref})`, payload);
-      if (this.isConnected()) {
-        callback();
-      } else {
-        this.sendBuffer.push(callback);
-      }
+      this.socketAdapter.push(data);
     }
     async setAuth(token = null) {
       this._authPromise = this._performAuth(token);
@@ -2341,238 +3673,42 @@ var require_RealtimeClient = __commonJS((exports2) => {
       return this._manuallySetToken;
     }
     async sendHeartbeat() {
-      var _a;
-      if (!this.isConnected()) {
-        try {
-          this.heartbeatCallback("disconnected");
-        } catch (e) {
-          this.log("error", "error in heartbeat callback", e);
-        }
-        return;
-      }
-      if (this.pendingHeartbeatRef) {
-        this.pendingHeartbeatRef = null;
-        this.log("transport", "heartbeat timeout. Attempting to re-establish connection");
-        try {
-          this.heartbeatCallback("timeout");
-        } catch (e) {
-          this.log("error", "error in heartbeat callback", e);
-        }
-        this._wasManualDisconnect = false;
-        (_a = this.conn) === null || _a === undefined || _a.close(constants_1.WS_CLOSE_NORMAL, "heartbeat timeout");
-        setTimeout(() => {
-          var _a2;
-          if (!this.isConnected()) {
-            (_a2 = this.reconnectTimer) === null || _a2 === undefined || _a2.scheduleTimeout();
-          }
-        }, CONNECTION_TIMEOUTS.HEARTBEAT_TIMEOUT_FALLBACK);
-        return;
-      }
-      this.pendingHeartbeatRef = this._makeRef();
-      this.push({
-        topic: "phoenix",
-        event: "heartbeat",
-        payload: {},
-        ref: this.pendingHeartbeatRef
-      });
-      try {
-        this.heartbeatCallback("sent");
-      } catch (e) {
-        this.log("error", "error in heartbeat callback", e);
-      }
-      this._setAuthSafely("heartbeat");
+      this.socketAdapter.sendHeartbeat();
     }
     onHeartbeat(callback) {
-      this.heartbeatCallback = callback;
-    }
-    flushSendBuffer() {
-      if (this.isConnected() && this.sendBuffer.length > 0) {
-        this.sendBuffer.forEach((callback) => callback());
-        this.sendBuffer = [];
-      }
+      this.socketAdapter.heartbeatCallback = this._wrapHeartbeatCallback(callback);
     }
     _makeRef() {
-      let newRef = this.ref + 1;
-      if (newRef === this.ref) {
-        this.ref = 0;
-      } else {
-        this.ref = newRef;
-      }
-      return this.ref.toString();
-    }
-    _leaveOpenTopic(topic) {
-      let dupChannel = this.channels.find((c) => c.topic === topic && (c._isJoined() || c._isJoining()));
-      if (dupChannel) {
-        this.log("transport", `leaving duplicate topic "${topic}"`);
-        dupChannel.unsubscribe();
-      }
+      return this.socketAdapter.makeRef();
     }
     _remove(channel) {
       this.channels = this.channels.filter((c) => c.topic !== channel.topic);
-    }
-    _onConnMessage(rawMessage) {
-      this.decode(rawMessage.data, (msg) => {
-        if (msg.topic === "phoenix" && msg.event === "phx_reply") {
-          try {
-            this.heartbeatCallback(msg.payload.status === "ok" ? "ok" : "error");
-          } catch (e) {
-            this.log("error", "error in heartbeat callback", e);
-          }
-        }
-        if (msg.ref && msg.ref === this.pendingHeartbeatRef) {
-          this.pendingHeartbeatRef = null;
-        }
-        const { topic, event, payload, ref } = msg;
-        const refString = ref ? `(${ref})` : "";
-        const status = payload.status || "";
-        this.log("receive", `${status} ${topic} ${event} ${refString}`.trim(), payload);
-        this.channels.filter((channel) => channel._isMember(topic)).forEach((channel) => channel._trigger(event, payload, ref));
-        this._triggerStateCallbacks("message", msg);
-      });
-    }
-    _clearTimer(timer) {
-      var _a;
-      if (timer === "heartbeat" && this.heartbeatTimer) {
-        clearInterval(this.heartbeatTimer);
-        this.heartbeatTimer = undefined;
-      } else if (timer === "reconnect") {
-        (_a = this.reconnectTimer) === null || _a === undefined || _a.reset();
+      if (this.channels.length === 0) {
+        this.log("transport", "no channels remaining, scheduling disconnect");
+        this._schedulePendingDisconnect();
       }
     }
-    _clearAllTimers() {
-      this._clearTimer("heartbeat");
-      this._clearTimer("reconnect");
-    }
-    _setupConnectionHandlers() {
-      if (!this.conn)
+    _schedulePendingDisconnect() {
+      this._cancelPendingDisconnect();
+      if (this._disconnectOnEmptyChannelsAfterMs === 0) {
+        this.log("transport", "disconnecting immediately - no channels");
+        this.disconnect();
         return;
-      if ("binaryType" in this.conn) {
-        this.conn.binaryType = "arraybuffer";
       }
-      this.conn.onopen = () => this._onConnOpen();
-      this.conn.onerror = (error) => this._onConnError(error);
-      this.conn.onmessage = (event) => this._onConnMessage(event);
-      this.conn.onclose = (event) => this._onConnClose(event);
-      if (this.conn.readyState === constants_1.SOCKET_STATES.open) {
-        this._onConnOpen();
-      }
-    }
-    _teardownConnection() {
-      if (this.conn) {
-        if (this.conn.readyState === constants_1.SOCKET_STATES.open || this.conn.readyState === constants_1.SOCKET_STATES.connecting) {
-          try {
-            this.conn.close();
-          } catch (e) {
-            this.log("error", "Error closing connection", e);
-          }
+      this._pendingDisconnectTimer = setTimeout(() => {
+        this._pendingDisconnectTimer = null;
+        if (this.channels.length === 0) {
+          this.log("transport", "deferred disconnect fired - no channels, disconnecting");
+          this.disconnect();
         }
-        this.conn.onopen = null;
-        this.conn.onerror = null;
-        this.conn.onmessage = null;
-        this.conn.onclose = null;
-        this.conn = null;
-      }
-      this._clearAllTimers();
-      this._terminateWorker();
-      this.channels.forEach((channel) => channel.teardown());
+      }, this._disconnectOnEmptyChannelsAfterMs);
+      this.log("transport", `deferred disconnect scheduled in ${this._disconnectOnEmptyChannelsAfterMs}ms`);
     }
-    _onConnOpen() {
-      this._setConnectionState("connected");
-      this.log("transport", `connected to ${this.endpointURL()}`);
-      const authPromise = this._authPromise || (this.accessToken && !this.accessTokenValue ? this.setAuth() : Promise.resolve());
-      authPromise.then(() => {
-        this.flushSendBuffer();
-      }).catch((e) => {
-        this.log("error", "error waiting for auth on connect", e);
-        this.flushSendBuffer();
-      });
-      this._clearTimer("reconnect");
-      if (!this.worker) {
-        this._startHeartbeat();
-      } else {
-        if (!this.workerRef) {
-          this._startWorkerHeartbeat();
-        }
-      }
-      this._triggerStateCallbacks("open");
-    }
-    _startHeartbeat() {
-      this.heartbeatTimer && clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), this.heartbeatIntervalMs);
-    }
-    _startWorkerHeartbeat() {
-      if (this.workerUrl) {
-        this.log("worker", `starting worker for from ${this.workerUrl}`);
-      } else {
-        this.log("worker", `starting default worker`);
-      }
-      const objectUrl = this._workerObjectUrl(this.workerUrl);
-      this.workerRef = new Worker(objectUrl);
-      this.workerRef.onerror = (error) => {
-        this.log("worker", "worker error", error.message);
-        this._terminateWorker();
-      };
-      this.workerRef.onmessage = (event) => {
-        if (event.data.event === "keepAlive") {
-          this.sendHeartbeat();
-        }
-      };
-      this.workerRef.postMessage({
-        event: "start",
-        interval: this.heartbeatIntervalMs
-      });
-    }
-    _terminateWorker() {
-      if (this.workerRef) {
-        this.log("worker", "terminating worker");
-        this.workerRef.terminate();
-        this.workerRef = undefined;
-      }
-    }
-    _onConnClose(event) {
-      var _a;
-      this._setConnectionState("disconnected");
-      this.log("transport", "close", event);
-      this._triggerChanError();
-      this._clearTimer("heartbeat");
-      if (!this._wasManualDisconnect) {
-        (_a = this.reconnectTimer) === null || _a === undefined || _a.scheduleTimeout();
-      }
-      this._triggerStateCallbacks("close", event);
-    }
-    _onConnError(error) {
-      this._setConnectionState("disconnected");
-      this.log("transport", `${error}`);
-      this._triggerChanError();
-      this._triggerStateCallbacks("error", error);
-    }
-    _triggerChanError() {
-      this.channels.forEach((channel) => channel._trigger(constants_1.CHANNEL_EVENTS.error));
-    }
-    _appendParams(url, params) {
-      if (Object.keys(params).length === 0) {
-        return url;
-      }
-      const prefix = url.match(/\?/) ? "&" : "?";
-      const query = new URLSearchParams(params);
-      return `${url}${prefix}${query}`;
-    }
-    _workerObjectUrl(url) {
-      let result_url;
-      if (url) {
-        result_url = url;
-      } else {
-        const blob = new Blob([WORKER_SCRIPT], { type: "application/javascript" });
-        result_url = URL.createObjectURL(blob);
-      }
-      return result_url;
-    }
-    _setConnectionState(state, manual = false) {
-      this._connectionState = state;
-      if (state === "connecting") {
-        this._wasManualDisconnect = false;
-      } else if (state === "disconnecting") {
-        this._wasManualDisconnect = manual;
+    _cancelPendingDisconnect() {
+      if (this._pendingDisconnectTimer !== null) {
+        this.log("transport", "pending disconnect cancelled - channel activity detected");
+        clearTimeout(this._pendingDisconnectTimer);
+        this._pendingDisconnectTimer = null;
       }
     }
     async _performAuth(token = null) {
@@ -2604,8 +3740,8 @@ var require_RealtimeClient = __commonJS((exports2) => {
             version: constants_1.DEFAULT_VERSION
           };
           tokenToSend && channel.updateJoinPayload(payload);
-          if (channel.joinedOnce && channel._isJoined()) {
-            channel._push(constants_1.CHANNEL_EVENTS.access_token, {
+          if (channel.joinedOnce && channel.channelAdapter.isJoined()) {
+            channel.channelAdapter.push(constants_1.CHANNEL_EVENTS.access_token, {
               access_token: tokenToSend
             });
           }
@@ -2624,77 +3760,143 @@ var require_RealtimeClient = __commonJS((exports2) => {
         });
       }
     }
-    _triggerStateCallbacks(event, data) {
-      try {
-        this.stateChangeCallbacks[event].forEach((callback) => {
-          try {
-            callback(data);
-          } catch (e) {
-            this.log("error", `error in ${event} callback`, e);
-          }
+    _setupConnectionHandlers() {
+      this.socketAdapter.onOpen(() => {
+        const authPromise = this._authPromise || (this.accessToken && !this.accessTokenValue ? this.setAuth() : Promise.resolve());
+        authPromise.catch((e) => {
+          this.log("error", "error waiting for auth on connect", e);
         });
-      } catch (e) {
-        this.log("error", `error triggering ${event} callbacks`, e);
+        if (this.worker && !this.workerRef) {
+          this._startWorkerHeartbeat();
+        }
+      });
+      this.socketAdapter.onClose(() => {
+        if (this.worker && this.workerRef) {
+          this._terminateWorker();
+        }
+      });
+      this.socketAdapter.onMessage((message) => {
+        if (message.ref && message.ref === this._pendingWorkerHeartbeatRef) {
+          this._pendingWorkerHeartbeatRef = null;
+        }
+      });
+    }
+    _handleNodeJsRaceCondition() {
+      if (this.socketAdapter.isConnected()) {
+        this.socketAdapter.getSocket().onConnOpen();
       }
     }
-    _setupReconnectionTimer() {
-      this.reconnectTimer = new timer_1.default(async () => {
-        setTimeout(async () => {
-          await this._waitForAuthIfNeeded();
-          if (!this.isConnected()) {
-            this.connect();
-          }
-        }, CONNECTION_TIMEOUTS.RECONNECT_DELAY);
-      }, this.reconnectAfterMs);
+    _wrapHeartbeatCallback(heartbeatCallback) {
+      return (status, latency) => {
+        if (status == "sent")
+          this._setAuthSafely();
+        if (heartbeatCallback)
+          heartbeatCallback(status, latency);
+      };
+    }
+    _startWorkerHeartbeat() {
+      if (this.workerUrl) {
+        this.log("worker", `starting worker for from ${this.workerUrl}`);
+      } else {
+        this.log("worker", `starting default worker`);
+      }
+      const objectUrl = this._workerObjectUrl(this.workerUrl);
+      this.workerRef = new Worker(objectUrl);
+      this.workerRef.onerror = (error) => {
+        this.log("worker", "worker error", error.message);
+        this._terminateWorker();
+        this.disconnect();
+      };
+      this.workerRef.onmessage = (event) => {
+        if (event.data.event === "keepAlive") {
+          this.sendHeartbeat();
+        }
+      };
+      this.workerRef.postMessage({
+        event: "start",
+        interval: this.heartbeatIntervalMs
+      });
+    }
+    _terminateWorker() {
+      if (this.workerRef) {
+        this.log("worker", "terminating worker");
+        this.workerRef.terminate();
+        this.workerRef = undefined;
+      }
+    }
+    _workerObjectUrl(url) {
+      let result_url;
+      if (url) {
+        result_url = url;
+      } else {
+        const blob = new Blob([WORKER_SCRIPT], { type: "application/javascript" });
+        result_url = URL.createObjectURL(blob);
+      }
+      return result_url;
     }
     _initializeOptions(options) {
       var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
-      this.transport = (_a = options === null || options === undefined ? undefined : options.transport) !== null && _a !== undefined ? _a : null;
-      this.timeout = (_b = options === null || options === undefined ? undefined : options.timeout) !== null && _b !== undefined ? _b : constants_1.DEFAULT_TIMEOUT;
-      this.heartbeatIntervalMs = (_c = options === null || options === undefined ? undefined : options.heartbeatIntervalMs) !== null && _c !== undefined ? _c : CONNECTION_TIMEOUTS.HEARTBEAT_INTERVAL;
-      this.worker = (_d = options === null || options === undefined ? undefined : options.worker) !== null && _d !== undefined ? _d : false;
-      this.accessToken = (_e = options === null || options === undefined ? undefined : options.accessToken) !== null && _e !== undefined ? _e : null;
-      this.heartbeatCallback = (_f = options === null || options === undefined ? undefined : options.heartbeatCallback) !== null && _f !== undefined ? _f : noop;
-      this.vsn = (_g = options === null || options === undefined ? undefined : options.vsn) !== null && _g !== undefined ? _g : constants_1.DEFAULT_VSN;
-      if (options === null || options === undefined ? undefined : options.params)
-        this.params = options.params;
-      if (options === null || options === undefined ? undefined : options.logger)
-        this.logger = options.logger;
-      if ((options === null || options === undefined ? undefined : options.logLevel) || (options === null || options === undefined ? undefined : options.log_level)) {
-        this.logLevel = options.logLevel || options.log_level;
-        this.params = Object.assign(Object.assign({}, this.params), { log_level: this.logLevel });
-      }
-      this.reconnectAfterMs = (_h = options === null || options === undefined ? undefined : options.reconnectAfterMs) !== null && _h !== undefined ? _h : (tries) => {
+      this.worker = (_a = options === null || options === undefined ? undefined : options.worker) !== null && _a !== undefined ? _a : false;
+      this.accessToken = (_b = options === null || options === undefined ? undefined : options.accessToken) !== null && _b !== undefined ? _b : null;
+      const result = {};
+      result.timeout = (_c = options === null || options === undefined ? undefined : options.timeout) !== null && _c !== undefined ? _c : constants_1.DEFAULT_TIMEOUT;
+      result.heartbeatIntervalMs = (_d = options === null || options === undefined ? undefined : options.heartbeatIntervalMs) !== null && _d !== undefined ? _d : CONNECTION_TIMEOUTS.HEARTBEAT_INTERVAL;
+      this._disconnectOnEmptyChannelsAfterMs = (_e = options === null || options === undefined ? undefined : options.disconnectOnEmptyChannelsAfterMs) !== null && _e !== undefined ? _e : 2 * ((_f = options === null || options === undefined ? undefined : options.heartbeatIntervalMs) !== null && _f !== undefined ? _f : CONNECTION_TIMEOUTS.HEARTBEAT_INTERVAL);
+      result.transport = (_g = options === null || options === undefined ? undefined : options.transport) !== null && _g !== undefined ? _g : websocket_factory_1.default.getWebSocketConstructor();
+      result.params = options === null || options === undefined ? undefined : options.params;
+      result.logger = options === null || options === undefined ? undefined : options.logger;
+      result.heartbeatCallback = this._wrapHeartbeatCallback(options === null || options === undefined ? undefined : options.heartbeatCallback);
+      result.sessionStorage = (_h = options === null || options === undefined ? undefined : options.sessionStorage) !== null && _h !== undefined ? _h : resolveSessionStorage();
+      result.reconnectAfterMs = (_j = options === null || options === undefined ? undefined : options.reconnectAfterMs) !== null && _j !== undefined ? _j : (tries) => {
         return RECONNECT_INTERVALS[tries - 1] || DEFAULT_RECONNECT_FALLBACK;
       };
-      switch (this.vsn) {
+      let defaultEncode;
+      let defaultDecode;
+      const vsn = (_k = options === null || options === undefined ? undefined : options.vsn) !== null && _k !== undefined ? _k : constants_1.DEFAULT_VSN;
+      switch (vsn) {
         case constants_1.VSN_1_0_0:
-          this.encode = (_j = options === null || options === undefined ? undefined : options.encode) !== null && _j !== undefined ? _j : (payload, callback) => {
+          defaultEncode = (payload, callback) => {
             return callback(JSON.stringify(payload));
           };
-          this.decode = (_k = options === null || options === undefined ? undefined : options.decode) !== null && _k !== undefined ? _k : (payload, callback) => {
+          defaultDecode = (payload, callback) => {
             return callback(JSON.parse(payload));
           };
           break;
         case constants_1.VSN_2_0_0:
-          this.encode = (_l = options === null || options === undefined ? undefined : options.encode) !== null && _l !== undefined ? _l : this.serializer.encode.bind(this.serializer);
-          this.decode = (_m = options === null || options === undefined ? undefined : options.decode) !== null && _m !== undefined ? _m : this.serializer.decode.bind(this.serializer);
+          defaultEncode = this.serializer.encode.bind(this.serializer);
+          defaultDecode = this.serializer.decode.bind(this.serializer);
           break;
         default:
-          throw new Error(`Unsupported serializer version: ${this.vsn}`);
+          throw new Error(`Unsupported serializer version: ${result.vsn}`);
+      }
+      result.vsn = vsn;
+      result.encode = (_l = options === null || options === undefined ? undefined : options.encode) !== null && _l !== undefined ? _l : defaultEncode;
+      result.decode = (_m = options === null || options === undefined ? undefined : options.decode) !== null && _m !== undefined ? _m : defaultDecode;
+      result.beforeReconnect = this._reconnectAuth.bind(this);
+      if ((options === null || options === undefined ? undefined : options.logLevel) || (options === null || options === undefined ? undefined : options.log_level)) {
+        this.logLevel = options.logLevel || options.log_level;
+        result.params = Object.assign(Object.assign({}, result.params), { log_level: this.logLevel });
       }
       if (this.worker) {
         if (typeof window !== "undefined" && !window.Worker) {
           throw new Error("Web Worker is not supported");
         }
         this.workerUrl = options === null || options === undefined ? undefined : options.workerUrl;
+        result.autoSendHeartbeat = !this.worker;
+      }
+      return result;
+    }
+    async _reconnectAuth() {
+      await this._waitForAuthIfNeeded();
+      if (!this.isConnected()) {
+        this.connect();
       }
     }
   }
   exports2.default = RealtimeClient;
 });
 
-// ../../node_modules/.bun/@supabase+realtime-js@2.89.0/node_modules/@supabase/realtime-js/dist/main/index.js
+// ../../node_modules/.bun/@supabase+realtime-js@2.105.4/node_modules/@supabase/realtime-js/dist/main/index.js
 var require_main2 = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.WebSocketFactory = exports2.REALTIME_CHANNEL_STATES = exports2.REALTIME_SUBSCRIBE_STATES = exports2.REALTIME_PRESENCE_LISTEN_EVENTS = exports2.REALTIME_POSTGRES_CHANGES_LISTEN_EVENT = exports2.REALTIME_LISTEN_TYPES = exports2.RealtimeClient = exports2.RealtimeChannel = exports2.RealtimePresence = undefined;
@@ -2724,14 +3926,14 @@ var require_main2 = __commonJS((exports2) => {
   exports2.WebSocketFactory = websocket_factory_1.default;
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/lib/version.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/lib/version.js
 var require_version2 = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.version = undefined;
-  exports2.version = "2.89.0";
+  exports2.version = "2.105.4";
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/lib/constants.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/lib/constants.js
 var require_constants2 = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.JWKS_TTL = exports2.BASE64URL_REGEX = exports2.API_VERSIONS = exports2.API_VERSION_HEADER_NAME = exports2.NETWORK_FAILURE = exports2.DEFAULT_HEADERS = exports2.AUDIENCE = exports2.STORAGE_KEY = exports2.GOTRUE_URL = exports2.EXPIRY_MARGIN_MS = exports2.AUTO_REFRESH_TICK_THRESHOLD = exports2.AUTO_REFRESH_TICK_DURATION_MS = undefined;
@@ -2758,7 +3960,7 @@ var require_constants2 = __commonJS((exports2) => {
   exports2.JWKS_TTL = 10 * 60 * 1000;
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/lib/errors.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/lib/errors.js
 var require_errors = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.AuthInvalidJwtError = exports2.AuthWeakPasswordError = exports2.AuthRetryableFetchError = exports2.AuthPKCECodeVerifierMissingError = exports2.AuthPKCEGrantCodeExchangeError = exports2.AuthImplicitGrantRedirectError = exports2.AuthInvalidCredentialsError = exports2.AuthInvalidTokenResponseError = exports2.AuthSessionMissingError = exports2.CustomAuthError = exports2.AuthUnknownError = exports2.AuthApiError = exports2.AuthError = undefined;
@@ -2777,6 +3979,14 @@ var require_errors = __commonJS((exports2) => {
       this.name = "AuthError";
       this.status = status;
       this.code = code;
+    }
+    toJSON() {
+      return {
+        name: this.name,
+        message: this.message,
+        status: this.status,
+        code: this.code
+      };
     }
   }
   exports2.AuthError = AuthError;
@@ -2846,12 +4056,7 @@ var require_errors = __commonJS((exports2) => {
       this.details = details;
     }
     toJSON() {
-      return {
-        name: this.name,
-        message: this.message,
-        status: this.status,
-        details: this.details
-      };
+      return Object.assign(Object.assign({}, super.toJSON()), { details: this.details });
     }
   }
   exports2.AuthImplicitGrantRedirectError = AuthImplicitGrantRedirectError;
@@ -2866,12 +4071,7 @@ var require_errors = __commonJS((exports2) => {
       this.details = details;
     }
     toJSON() {
-      return {
-        name: this.name,
-        message: this.message,
-        status: this.status,
-        details: this.details
-      };
+      return Object.assign(Object.assign({}, super.toJSON()), { details: this.details });
     }
   }
   exports2.AuthPKCEGrantCodeExchangeError = AuthPKCEGrantCodeExchangeError;
@@ -2901,6 +4101,9 @@ var require_errors = __commonJS((exports2) => {
       super(message, "AuthWeakPasswordError", status, "weak_password");
       this.reasons = reasons;
     }
+    toJSON() {
+      return Object.assign(Object.assign({}, super.toJSON()), { reasons: this.reasons });
+    }
   }
   exports2.AuthWeakPasswordError = AuthWeakPasswordError;
   function isAuthWeakPasswordError(error) {
@@ -2915,7 +4118,7 @@ var require_errors = __commonJS((exports2) => {
   exports2.AuthInvalidJwtError = AuthInvalidJwtError;
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/lib/base64url.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/lib/base64url.js
 var require_base64url = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.byteToBase64URL = byteToBase64URL;
@@ -3103,7 +4306,7 @@ var require_base64url = __commonJS((exports2) => {
   }
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/lib/helpers.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/lib/helpers.js
 var require_helpers = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.Deferred = exports2.removeItemAsync = exports2.getItemAsync = exports2.setItemAsync = exports2.looksLikeFetchResponse = exports2.resolveFetch = exports2.supportsLocalStorage = exports2.isBrowser = undefined;
@@ -3111,7 +4314,7 @@ var require_helpers = __commonJS((exports2) => {
   exports2.generateCallbackId = generateCallbackId;
   exports2.parseParametersFromURL = parseParametersFromURL;
   exports2.decodeJWT = decodeJWT;
-  exports2.sleep = sleep;
+  exports2.sleep = sleep2;
   exports2.retryable = retryable;
   exports2.generatePKCEVerifier = generatePKCEVerifier;
   exports2.generatePKCEChallenge = generatePKCEChallenge;
@@ -3120,6 +4323,7 @@ var require_helpers = __commonJS((exports2) => {
   exports2.validateExp = validateExp;
   exports2.getAlgorithm = getAlgorithm;
   exports2.validateUUID = validateUUID;
+  exports2.assertPasskeyExperimentalEnabled = assertPasskeyExperimentalEnabled;
   exports2.userNotAvailableProxy = userNotAvailableProxy;
   exports2.insecureUserWarningProxy = insecureUserWarningProxy;
   exports2.deepClone = deepClone;
@@ -3175,7 +4379,7 @@ var require_helpers = __commonJS((exports2) => {
         hashSearchParams.forEach((value, key) => {
           result[key] = value;
         });
-      } catch (e) {}
+      } catch (_e) {}
     }
     url.searchParams.forEach((value, key) => {
       result[key] = value;
@@ -3205,7 +4409,7 @@ var require_helpers = __commonJS((exports2) => {
     try {
       return JSON.parse(value);
     } catch (_a) {
-      return value;
+      return null;
     }
   };
   exports2.getItemAsync = getItemAsync;
@@ -3245,7 +4449,7 @@ var require_helpers = __commonJS((exports2) => {
     };
     return data;
   }
-  async function sleep(time) {
+  async function sleep2(time) {
     return await new Promise((accept) => {
       setTimeout(() => accept(null), time);
     });
@@ -3309,7 +4513,7 @@ var require_helpers = __commonJS((exports2) => {
     const codeVerifier = generatePKCEVerifier();
     let storedCodeVerifier = codeVerifier;
     if (isPasswordRecovery) {
-      storedCodeVerifier += "/PASSWORD_RECOVERY";
+      storedCodeVerifier += "/recovery";
     }
     await (0, exports2.setItemAsync)(storage, `${storageKey}-code-verifier`, storedCodeVerifier);
     const codeChallenge = await generatePKCEChallenge(codeVerifier);
@@ -3328,7 +4532,7 @@ var require_helpers = __commonJS((exports2) => {
     try {
       const date = new Date(`${apiVersion}T00:00:00.0Z`);
       return date;
-    } catch (e) {
+    } catch (_e) {
       return null;
     }
   }
@@ -3362,6 +4566,11 @@ var require_helpers = __commonJS((exports2) => {
   function validateUUID(str) {
     if (!UUID_REGEX2.test(str)) {
       throw new Error("@supabase/auth-js: Expected parameter to be UUID but is not");
+    }
+  }
+  function assertPasskeyExperimentalEnabled(experimental) {
+    if (!experimental.passkey) {
+      throw new Error("@supabase/auth-js: the passkey API is experimental and disabled by default. Enable it by passing `auth: { experimental: { passkey: true } }` to createClient (or to the GoTrueClient constructor).");
     }
   }
   function userNotAvailableProxy() {
@@ -3412,7 +4621,7 @@ var require_helpers = __commonJS((exports2) => {
   }
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/lib/fetch.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/lib/fetch.js
 var require_fetch = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.handleError = handleError2;
@@ -3427,8 +4636,21 @@ var require_fetch = __commonJS((exports2) => {
   var constants_1 = require_constants2();
   var helpers_1 = require_helpers();
   var errors_1 = require_errors();
-  var _getErrorMessage2 = (err) => err.msg || err.message || err.error_description || err.error || JSON.stringify(err);
-  var NETWORK_ERROR_CODES = [502, 503, 504];
+  var _getErrorMessage2 = (err) => {
+    if (typeof err === "object" && err !== null) {
+      const e = err;
+      if (typeof e.msg === "string")
+        return e.msg;
+      if (typeof e.message === "string")
+        return e.message;
+      if (typeof e.error_description === "string")
+        return e.error_description;
+      if (typeof e.error === "string")
+        return e.error;
+    }
+    return JSON.stringify(err);
+  };
+  var NETWORK_ERROR_CODES = [502, 503, 504, 520, 521, 522, 523, 524, 530];
   async function handleError2(error) {
     var _a;
     if (!(0, helpers_1.looksLikeFetchResponse)(error)) {
@@ -3560,18 +4782,18 @@ var require_fetch = __commonJS((exports2) => {
     return data;
   }
   function hasSession(data) {
-    return data.access_token && data.refresh_token && data.expires_in;
+    return !!data.access_token && !!data.refresh_token && !!data.expires_in;
   }
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/lib/types.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/lib/types.js
 var require_types2 = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.SIGN_OUT_SCOPES = undefined;
   exports2.SIGN_OUT_SCOPES = ["global", "local", "others"];
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/GoTrueAdminApi.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/GoTrueAdminApi.js
 var require_GoTrueAdminApi = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   var tslib_1 = require_tslib();
@@ -3581,10 +4803,11 @@ var require_GoTrueAdminApi = __commonJS((exports2) => {
   var errors_1 = require_errors();
 
   class GoTrueAdminApi {
-    constructor({ url = "", headers = {}, fetch: fetch2 }) {
+    constructor({ url = "", headers = {}, fetch: fetch2, experimental }) {
       this.url = url;
       this.headers = headers;
       this.fetch = (0, helpers_1.resolveFetch)(fetch2);
+      this.experimental = experimental !== null && experimental !== undefined ? experimental : {};
       this.mfa = {
         listFactors: this._listFactors.bind(this),
         deleteFactor: this._deleteFactor.bind(this)
@@ -3596,6 +4819,17 @@ var require_GoTrueAdminApi = __commonJS((exports2) => {
         updateClient: this._updateOAuthClient.bind(this),
         deleteClient: this._deleteOAuthClient.bind(this),
         regenerateClientSecret: this._regenerateOAuthClientSecret.bind(this)
+      };
+      this.customProviders = {
+        listProviders: this._listCustomProviders.bind(this),
+        createProvider: this._createCustomProvider.bind(this),
+        getProvider: this._getCustomProvider.bind(this),
+        updateProvider: this._updateCustomProvider.bind(this),
+        deleteProvider: this._deleteCustomProvider.bind(this)
+      };
+      this.passkey = {
+        listPasskeys: this._adminListPasskeys.bind(this),
+        deletePasskey: this._adminDeletePasskey.bind(this)
       };
     }
     async signOut(jwt, scope = types_1.SIGN_OUT_SCOPES[0]) {
@@ -3894,11 +5128,119 @@ var require_GoTrueAdminApi = __commonJS((exports2) => {
         throw error;
       }
     }
+    async _listCustomProviders(params) {
+      try {
+        const query = {};
+        if (params === null || params === undefined ? undefined : params.type) {
+          query.type = params.type;
+        }
+        return await (0, fetch_1._request)(this.fetch, "GET", `${this.url}/admin/custom-providers`, {
+          headers: this.headers,
+          query,
+          xform: (data) => {
+            var _a;
+            return { data: { providers: (_a = data === null || data === undefined ? undefined : data.providers) !== null && _a !== undefined ? _a : [] }, error: null };
+          }
+        });
+      } catch (error) {
+        if ((0, errors_1.isAuthError)(error)) {
+          return { data: { providers: [] }, error };
+        }
+        throw error;
+      }
+    }
+    async _createCustomProvider(params) {
+      try {
+        return await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/admin/custom-providers`, {
+          body: params,
+          headers: this.headers,
+          xform: (provider) => {
+            return { data: provider, error: null };
+          }
+        });
+      } catch (error) {
+        if ((0, errors_1.isAuthError)(error)) {
+          return { data: null, error };
+        }
+        throw error;
+      }
+    }
+    async _getCustomProvider(identifier) {
+      try {
+        return await (0, fetch_1._request)(this.fetch, "GET", `${this.url}/admin/custom-providers/${identifier}`, {
+          headers: this.headers,
+          xform: (provider) => {
+            return { data: provider, error: null };
+          }
+        });
+      } catch (error) {
+        if ((0, errors_1.isAuthError)(error)) {
+          return { data: null, error };
+        }
+        throw error;
+      }
+    }
+    async _updateCustomProvider(identifier, params) {
+      try {
+        return await (0, fetch_1._request)(this.fetch, "PUT", `${this.url}/admin/custom-providers/${identifier}`, {
+          body: params,
+          headers: this.headers,
+          xform: (provider) => {
+            return { data: provider, error: null };
+          }
+        });
+      } catch (error) {
+        if ((0, errors_1.isAuthError)(error)) {
+          return { data: null, error };
+        }
+        throw error;
+      }
+    }
+    async _deleteCustomProvider(identifier) {
+      try {
+        await (0, fetch_1._request)(this.fetch, "DELETE", `${this.url}/admin/custom-providers/${identifier}`, {
+          headers: this.headers,
+          noResolveJson: true
+        });
+        return { data: null, error: null };
+      } catch (error) {
+        if ((0, errors_1.isAuthError)(error)) {
+          return { data: null, error };
+        }
+        throw error;
+      }
+    }
+    async _adminListPasskeys(params) {
+      (0, helpers_1.assertPasskeyExperimentalEnabled)(this.experimental);
+      (0, helpers_1.validateUUID)(params.userId);
+      try {
+        return await (0, fetch_1._request)(this.fetch, "GET", `${this.url}/admin/users/${params.userId}/passkeys`, { headers: this.headers, xform: (data) => ({ data, error: null }) });
+      } catch (error) {
+        if ((0, errors_1.isAuthError)(error)) {
+          return { data: null, error };
+        }
+        throw error;
+      }
+    }
+    async _adminDeletePasskey(params) {
+      (0, helpers_1.assertPasskeyExperimentalEnabled)(this.experimental);
+      (0, helpers_1.validateUUID)(params.userId);
+      (0, helpers_1.validateUUID)(params.passkeyId);
+      try {
+        await (0, fetch_1._request)(this.fetch, "DELETE", `${this.url}/admin/users/${params.userId}/passkeys/${params.passkeyId}`, { headers: this.headers, noResolveJson: true });
+        return { data: null, error: null };
+      } catch (error) {
+        if ((0, errors_1.isAuthError)(error)) {
+          return { data: null, error };
+        }
+        throw error;
+      }
+    }
   }
   exports2.default = GoTrueAdminApi;
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/lib/local-storage.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/lib/local-storage.js
 var require_local_storage = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.memoryLocalStorageAdapter = memoryLocalStorageAdapter;
@@ -3917,7 +5259,7 @@ var require_local_storage = __commonJS((exports2) => {
   }
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/lib/locks.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/lib/locks.js
 var require_locks = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.ProcessLockAcquireTimeoutError = exports2.NavigatorLockAcquireTimeoutError = exports2.LockAcquireTimeoutError = exports2.internals = undefined;
@@ -3948,86 +5290,150 @@ var require_locks = __commonJS((exports2) => {
       console.log("@supabase/gotrue-js: navigatorLock: acquire lock", name, acquireTimeout);
     }
     const abortController = new globalThis.AbortController;
+    let acquireTimeoutTimer;
     if (acquireTimeout > 0) {
-      setTimeout(() => {
+      acquireTimeoutTimer = setTimeout(() => {
         abortController.abort();
         if (exports2.internals.debug) {
           console.log("@supabase/gotrue-js: navigatorLock acquire timed out", name);
         }
       }, acquireTimeout);
     }
-    return await Promise.resolve().then(() => globalThis.navigator.locks.request(name, acquireTimeout === 0 ? {
-      mode: "exclusive",
-      ifAvailable: true
-    } : {
-      mode: "exclusive",
-      signal: abortController.signal
-    }, async (lock) => {
-      if (lock) {
-        if (exports2.internals.debug) {
-          console.log("@supabase/gotrue-js: navigatorLock: acquired", name, lock.name);
-        }
-        try {
-          return await fn();
-        } finally {
+    await Promise.resolve();
+    try {
+      return await globalThis.navigator.locks.request(name, acquireTimeout === 0 ? {
+        mode: "exclusive",
+        ifAvailable: true
+      } : {
+        mode: "exclusive",
+        signal: abortController.signal
+      }, async (lock) => {
+        if (lock) {
+          clearTimeout(acquireTimeoutTimer);
           if (exports2.internals.debug) {
-            console.log("@supabase/gotrue-js: navigatorLock: released", name, lock.name);
+            console.log("@supabase/gotrue-js: navigatorLock: acquired", name, lock.name);
           }
-        }
-      } else {
-        if (acquireTimeout === 0) {
-          if (exports2.internals.debug) {
-            console.log("@supabase/gotrue-js: navigatorLock: not immediately available", name);
-          }
-          throw new NavigatorLockAcquireTimeoutError(`Acquiring an exclusive Navigator LockManager lock "${name}" immediately failed`);
-        } else {
-          if (exports2.internals.debug) {
-            try {
-              const result = await globalThis.navigator.locks.query();
-              console.log("@supabase/gotrue-js: Navigator LockManager state", JSON.stringify(result, null, "  "));
-            } catch (e) {
-              console.warn("@supabase/gotrue-js: Error when querying Navigator LockManager state", e);
+          try {
+            return await fn();
+          } finally {
+            if (exports2.internals.debug) {
+              console.log("@supabase/gotrue-js: navigatorLock: released", name, lock.name);
             }
           }
-          console.warn("@supabase/gotrue-js: Navigator LockManager returned a null lock when using #request without ifAvailable set to true, it appears this browser is not following the LockManager spec https://developer.mozilla.org/en-US/docs/Web/API/LockManager/request");
-          return await fn();
+        } else {
+          if (acquireTimeout === 0) {
+            if (exports2.internals.debug) {
+              console.log("@supabase/gotrue-js: navigatorLock: not immediately available", name);
+            }
+            throw new NavigatorLockAcquireTimeoutError(`Acquiring an exclusive Navigator LockManager lock "${name}" immediately failed`);
+          } else {
+            if (exports2.internals.debug) {
+              try {
+                const result = await globalThis.navigator.locks.query();
+                console.log("@supabase/gotrue-js: Navigator LockManager state", JSON.stringify(result, null, "  "));
+              } catch (e) {
+                console.warn("@supabase/gotrue-js: Error when querying Navigator LockManager state", e);
+              }
+            }
+            console.warn("@supabase/gotrue-js: Navigator LockManager returned a null lock when using #request without ifAvailable set to true, it appears this browser is not following the LockManager spec https://developer.mozilla.org/en-US/docs/Web/API/LockManager/request");
+            clearTimeout(acquireTimeoutTimer);
+            return await fn();
+          }
+        }
+      });
+    } catch (e) {
+      if (acquireTimeout > 0) {
+        clearTimeout(acquireTimeoutTimer);
+      }
+      if (e !== null && typeof e === "object" && "name" in e && e.name === "AbortError" && acquireTimeout > 0) {
+        if (abortController.signal.aborted) {
+          if (exports2.internals.debug) {
+            console.log("@supabase/gotrue-js: navigatorLock: acquire timeout, recovering by stealing lock", name);
+          }
+          console.warn(`@supabase/gotrue-js: Lock "${name}" was not released within ${acquireTimeout}ms. ` + "This may indicate an orphaned lock from a component unmount (e.g., React Strict Mode). " + "Forcefully acquiring the lock to recover.");
+          return await Promise.resolve().then(() => globalThis.navigator.locks.request(name, {
+            mode: "exclusive",
+            steal: true
+          }, async (lock) => {
+            if (lock) {
+              if (exports2.internals.debug) {
+                console.log("@supabase/gotrue-js: navigatorLock: recovered (stolen)", name, lock.name);
+              }
+              try {
+                return await fn();
+              } finally {
+                if (exports2.internals.debug) {
+                  console.log("@supabase/gotrue-js: navigatorLock: released (stolen)", name, lock.name);
+                }
+              }
+            } else {
+              console.warn("@supabase/gotrue-js: Navigator LockManager returned null lock even with steal: true");
+              return await fn();
+            }
+          }));
+        } else {
+          if (exports2.internals.debug) {
+            console.log("@supabase/gotrue-js: navigatorLock: lock was stolen by another request", name);
+          }
+          throw new NavigatorLockAcquireTimeoutError(`Lock "${name}" was released because another request stole it`);
         }
       }
-    }));
+      throw e;
+    }
   }
   var PROCESS_LOCKS = {};
   async function processLock(name, acquireTimeout, fn) {
     var _a;
     const previousOperation = (_a = PROCESS_LOCKS[name]) !== null && _a !== undefined ? _a : Promise.resolve();
-    const currentOperation = Promise.race([
-      previousOperation.catch(() => {
-        return null;
-      }),
-      acquireTimeout >= 0 ? new Promise((_, reject) => {
-        setTimeout(() => {
-          reject(new ProcessLockAcquireTimeoutError(`Acquiring process lock with name "${name}" timed out`));
-        }, acquireTimeout);
-      }) : null
-    ].filter((x) => x)).catch((e) => {
-      if (e && e.isAcquireTimeout) {
-        throw e;
-      }
-      return null;
-    }).then(async () => {
-      return await fn();
-    });
-    PROCESS_LOCKS[name] = currentOperation.catch(async (e) => {
-      if (e && e.isAcquireTimeout) {
+    const previousOperationHandled = (async () => {
+      try {
         await previousOperation;
         return null;
+      } catch (e) {
+        return null;
       }
-      throw e;
-    });
+    })();
+    const currentOperation = (async () => {
+      let timeoutId = null;
+      try {
+        const timeoutPromise = acquireTimeout >= 0 ? new Promise((_, reject) => {
+          timeoutId = setTimeout(() => {
+            console.warn(`@supabase/gotrue-js: Lock "${name}" acquisition timed out after ${acquireTimeout}ms. ` + "This may be caused by another operation holding the lock. " + "Consider increasing lockAcquireTimeout or checking for stuck operations.");
+            reject(new ProcessLockAcquireTimeoutError(`Acquiring process lock with name "${name}" timed out`));
+          }, acquireTimeout);
+        }) : null;
+        await Promise.race([previousOperationHandled, timeoutPromise].filter((x) => x));
+        if (timeoutId !== null) {
+          clearTimeout(timeoutId);
+        }
+      } catch (e) {
+        if (timeoutId !== null) {
+          clearTimeout(timeoutId);
+        }
+        if (e instanceof LockAcquireTimeoutError) {
+          throw e;
+        }
+      }
+      return await fn();
+    })();
+    PROCESS_LOCKS[name] = (async () => {
+      try {
+        return await currentOperation;
+      } catch (e) {
+        if (e instanceof LockAcquireTimeoutError) {
+          try {
+            await previousOperation;
+          } catch (prevError) {}
+          return null;
+        }
+        throw e;
+      }
+    })();
     return await currentOperation;
   }
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/lib/polyfills.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/lib/polyfills.js
 var require_polyfills = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.polyfillGlobalThis = polyfillGlobalThis;
@@ -4051,7 +5457,7 @@ var require_polyfills = __commonJS((exports2) => {
   }
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/lib/web3/ethereum.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/lib/web3/ethereum.js
 var require_ethereum = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.getAddress = getAddress;
@@ -4128,7 +5534,7 @@ ${suffix}`;
   }
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/lib/webauthn.errors.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/lib/webauthn.errors.js
 var require_webauthn_errors = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.WebAuthnUnknownError = exports2.WebAuthnError = undefined;
@@ -4144,6 +5550,13 @@ var require_webauthn_errors = __commonJS((exports2) => {
       this.__isWebAuthnError = true;
       this.name = (_a = name !== null && name !== undefined ? name : cause instanceof Error ? cause.name : undefined) !== null && _a !== undefined ? _a : "Unknown Error";
       this.code = code;
+    }
+    toJSON() {
+      return {
+        name: this.name,
+        message: this.message,
+        code: this.code
+      };
     }
   }
   exports2.WebAuthnError = WebAuthnError;
@@ -4308,7 +5721,7 @@ var require_webauthn_errors = __commonJS((exports2) => {
   }
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/lib/webauthn.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/lib/webauthn.js
 var require_webauthn = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.WebAuthnApi = exports2.DEFAULT_REQUEST_OPTIONS = exports2.DEFAULT_CREATION_OPTIONS = exports2.webAuthnAbortService = exports2.WebAuthnAbortService = exports2.identifyAuthenticationError = exports2.identifyRegistrationError = exports2.isWebAuthnError = exports2.WebAuthnError = undefined;
@@ -4317,6 +5730,7 @@ var require_webauthn = __commonJS((exports2) => {
   exports2.serializeCredentialCreationResponse = serializeCredentialCreationResponse;
   exports2.serializeCredentialRequestResponse = serializeCredentialRequestResponse;
   exports2.isValidDomain = isValidDomain;
+  exports2.browserSupportsWebAuthn = browserSupportsWebAuthn;
   exports2.createCredential = createCredential;
   exports2.getCredential = getCredential;
   exports2.mergeCredentialCreationOptions = mergeCredentialCreationOptions;
@@ -4526,7 +5940,7 @@ var require_webauthn = __commonJS((exports2) => {
     attestation: "direct"
   };
   function deepMerge(...sources) {
-    const isObject = (val) => val !== null && typeof val === "object" && !Array.isArray(val);
+    const isObject2 = (val) => val !== null && typeof val === "object" && !Array.isArray(val);
     const isArrayBufferLike = (val) => val instanceof ArrayBuffer || ArrayBuffer.isView(val);
     const result = {};
     for (const source of sources) {
@@ -4540,9 +5954,9 @@ var require_webauthn = __commonJS((exports2) => {
           result[key] = value;
         } else if (isArrayBufferLike(value)) {
           result[key] = value;
-        } else if (isObject(value)) {
+        } else if (isObject2(value)) {
           const existing = result[key];
-          if (isObject(existing)) {
+          if (isObject2(existing)) {
             result[key] = deepMerge(existing, value);
           } else {
             result[key] = deepMerge(value);
@@ -4574,6 +5988,7 @@ var require_webauthn = __commonJS((exports2) => {
       return this.client.mfa.enroll(Object.assign(Object.assign({}, params), { factorType: "webauthn" }));
     }
     async _challenge({ factorId, webauthn, friendlyName, signal }, overrides) {
+      var _a;
       try {
         const { data: challengeResponse, error: challengeError } = await this.client.mfa.challenge({
           factorId,
@@ -4586,7 +6001,15 @@ var require_webauthn = __commonJS((exports2) => {
         if (challengeResponse.webauthn.type === "create") {
           const { user } = challengeResponse.webauthn.credential_options.publicKey;
           if (!user.name) {
-            user.name = `${user.id}:${friendlyName}`;
+            const nameToUse = friendlyName;
+            if (!nameToUse) {
+              const currentUser = await this.client.getUser();
+              const userData = currentUser.data.user;
+              const fallbackName = ((_a = userData === null || userData === undefined ? undefined : userData.user_metadata) === null || _a === undefined ? undefined : _a.name) || (userData === null || userData === undefined ? undefined : userData.email) || (userData === null || userData === undefined ? undefined : userData.id) || "User";
+              user.name = `${user.id}:${fallbackName}`;
+            } else {
+              user.name = `${user.id}:${nameToUse}`;
+            }
           }
           if (!user.displayName) {
             user.displayName = user.name;
@@ -4752,7 +6175,7 @@ var require_webauthn = __commonJS((exports2) => {
   exports2.WebAuthnApi = WebAuthnApi;
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/GoTrueClient.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/GoTrueClient.js
 var require_GoTrueClient = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   var tslib_1 = require_tslib();
@@ -4779,7 +6202,10 @@ var require_GoTrueClient = __commonJS((exports2) => {
     flowType: "implicit",
     debug: false,
     hasCustomAuthorizationHeader: false,
-    throwOnError: false
+    throwOnError: false,
+    lockAcquireTimeout: 5000,
+    skipAutoInitialize: false,
+    experimental: {}
   };
   async function lockNoOp(name, acquireTimeout, fn) {
     return await fn();
@@ -4802,11 +6228,12 @@ var require_GoTrueClient = __commonJS((exports2) => {
       GLOBAL_JWKS[this.storageKey] = Object.assign(Object.assign({}, GLOBAL_JWKS[this.storageKey]), { cachedAt: value });
     }
     constructor(options) {
-      var _a, _b, _c;
+      var _a, _b, _c, _d;
       this.userStorage = null;
       this.memoryStorage = null;
       this.stateChangeEmitters = new Map;
       this.autoRefreshTicker = null;
+      this.autoRefreshTickTimeout = null;
       this.visibilityChangedCallback = null;
       this.refreshingDeferred = null;
       this.initializePromise = null;
@@ -4834,10 +6261,12 @@ var require_GoTrueClient = __commonJS((exports2) => {
       }
       this.persistSession = settings.persistSession;
       this.autoRefreshToken = settings.autoRefreshToken;
+      this.experimental = (_b = settings.experimental) !== null && _b !== undefined ? _b : {};
       this.admin = new GoTrueAdminApi_1.default({
         url: settings.url,
         headers: settings.headers,
-        fetch: settings.fetch
+        fetch: settings.fetch,
+        experimental: this.experimental
       });
       this.url = settings.url;
       this.headers = settings.headers;
@@ -4847,9 +6276,10 @@ var require_GoTrueClient = __commonJS((exports2) => {
       this.flowType = settings.flowType;
       this.hasCustomAuthorizationHeader = settings.hasCustomAuthorizationHeader;
       this.throwOnError = settings.throwOnError;
+      this.lockAcquireTimeout = settings.lockAcquireTimeout;
       if (settings.lock) {
         this.lock = settings.lock;
-      } else if (this.persistSession && (0, helpers_1.isBrowser)() && ((_b = globalThis === null || globalThis === undefined ? undefined : globalThis.navigator) === null || _b === undefined ? undefined : _b.locks)) {
+      } else if (this.persistSession && (0, helpers_1.isBrowser)() && ((_c = globalThis === null || globalThis === undefined ? undefined : globalThis.navigator) === null || _c === undefined ? undefined : _c.locks)) {
         this.lock = locks_1.navigatorLock;
       } else {
         this.lock = lockNoOp;
@@ -4875,6 +6305,15 @@ var require_GoTrueClient = __commonJS((exports2) => {
         listGrants: this._listOAuthGrants.bind(this),
         revokeGrant: this._revokeOAuthGrant.bind(this)
       };
+      this.passkey = {
+        startRegistration: this._startPasskeyRegistration.bind(this),
+        verifyRegistration: this._verifyPasskeyRegistration.bind(this),
+        startAuthentication: this._startPasskeyAuthentication.bind(this),
+        verifyAuthentication: this._verifyPasskeyAuthentication.bind(this),
+        list: this._listPasskeys.bind(this),
+        update: this._updatePasskey.bind(this),
+        delete: this._deletePasskey.bind(this)
+      };
       if (this.persistSession) {
         if (settings.storage) {
           this.storage = settings.storage;
@@ -4899,12 +6338,20 @@ var require_GoTrueClient = __commonJS((exports2) => {
         } catch (e) {
           console.error("Failed to create a new BroadcastChannel, multi-tab state changes will not be available", e);
         }
-        (_c = this.broadcastChannel) === null || _c === undefined || _c.addEventListener("message", async (event) => {
+        (_d = this.broadcastChannel) === null || _d === undefined || _d.addEventListener("message", async (event) => {
           this._debug("received broadcast notification from other tab or client", event);
-          await this._notifyAllSubscribers(event.data.event, event.data.session, false);
+          try {
+            await this._notifyAllSubscribers(event.data.event, event.data.session, false);
+          } catch (error) {
+            this._debug("#broadcastChannel", "error", error);
+          }
         });
       }
-      this.initialize();
+      if (!settings.skipAutoInitialize) {
+        this.initialize().catch((error) => {
+          this._debug("#initialize()", "error", error);
+        });
+      }
     }
     isThrowOnErrorEnabled() {
       return this.throwOnError;
@@ -4929,7 +6376,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
         return await this.initializePromise;
       }
       this.initializePromise = (async () => {
-        return await this._acquireLock(-1, async () => {
+        return await this._acquireLock(this.lockAcquireTimeout, async () => {
           return await this._initialize();
         });
       })();
@@ -4958,7 +6405,6 @@ var require_GoTrueClient = __commonJS((exports2) => {
                 return { error };
               }
             }
-            await this._removeSession();
             return { error };
           }
           const { session, redirectType } = data;
@@ -5137,7 +6583,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
     }
     async exchangeCodeForSession(authCode) {
       await this.initializePromise;
-      return this._acquireLock(-1, async () => {
+      return this._acquireLock(this.lockAcquireTimeout, async () => {
         return this._exchangeCodeForSession(authCode);
       });
     }
@@ -5153,7 +6599,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
       }
     }
     async signInWithEthereum(credentials) {
-      var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
+      var _a, _b, _c, _d, _f, _g, _h, _j, _k, _l, _m;
       let message;
       let signature;
       if ("message" in credentials) {
@@ -5202,11 +6648,11 @@ var require_GoTrueClient = __commonJS((exports2) => {
           version: "1",
           chainId,
           nonce: (_c = options === null || options === undefined ? undefined : options.signInWithEthereum) === null || _c === undefined ? undefined : _c.nonce,
-          issuedAt: (_e = (_d = options === null || options === undefined ? undefined : options.signInWithEthereum) === null || _d === undefined ? undefined : _d.issuedAt) !== null && _e !== undefined ? _e : new Date,
-          expirationTime: (_f = options === null || options === undefined ? undefined : options.signInWithEthereum) === null || _f === undefined ? undefined : _f.expirationTime,
-          notBefore: (_g = options === null || options === undefined ? undefined : options.signInWithEthereum) === null || _g === undefined ? undefined : _g.notBefore,
-          requestId: (_h = options === null || options === undefined ? undefined : options.signInWithEthereum) === null || _h === undefined ? undefined : _h.requestId,
-          resources: (_j = options === null || options === undefined ? undefined : options.signInWithEthereum) === null || _j === undefined ? undefined : _j.resources
+          issuedAt: (_f = (_d = options === null || options === undefined ? undefined : options.signInWithEthereum) === null || _d === undefined ? undefined : _d.issuedAt) !== null && _f !== undefined ? _f : new Date,
+          expirationTime: (_g = options === null || options === undefined ? undefined : options.signInWithEthereum) === null || _g === undefined ? undefined : _g.expirationTime,
+          notBefore: (_h = options === null || options === undefined ? undefined : options.signInWithEthereum) === null || _h === undefined ? undefined : _h.notBefore,
+          requestId: (_j = options === null || options === undefined ? undefined : options.signInWithEthereum) === null || _j === undefined ? undefined : _j.requestId,
+          resources: (_k = options === null || options === undefined ? undefined : options.signInWithEthereum) === null || _k === undefined ? undefined : _k.resources
         };
         message = (0, ethereum_1.createSiweMessage)(siweMessage);
         signature = await resolvedWallet.request({
@@ -5221,7 +6667,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
             chain: "ethereum",
             message,
             signature
-          }, ((_k = credentials.options) === null || _k === undefined ? undefined : _k.captchaToken) ? { gotrue_meta_security: { captcha_token: (_l = credentials.options) === null || _l === undefined ? undefined : _l.captchaToken } } : null),
+          }, ((_l = credentials.options) === null || _l === undefined ? undefined : _l.captchaToken) ? { gotrue_meta_security: { captcha_token: (_m = credentials.options) === null || _m === undefined ? undefined : _m.captchaToken } } : null),
           xform: fetch_1._sessionResponse
         });
         if (error) {
@@ -5244,7 +6690,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
       }
     }
     async signInWithSolana(credentials) {
-      var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
+      var _a, _b, _c, _d, _f, _g, _h, _j, _k, _l, _m, _o;
       let message;
       let signature;
       if ("message" in credentials) {
@@ -5301,11 +6747,11 @@ var require_GoTrueClient = __commonJS((exports2) => {
             `URI: ${url.href}`,
             `Issued At: ${(_c = (_b = options === null || options === undefined ? undefined : options.signInWithSolana) === null || _b === undefined ? undefined : _b.issuedAt) !== null && _c !== undefined ? _c : new Date().toISOString()}`,
             ...((_d = options === null || options === undefined ? undefined : options.signInWithSolana) === null || _d === undefined ? undefined : _d.notBefore) ? [`Not Before: ${options.signInWithSolana.notBefore}`] : [],
-            ...((_e = options === null || options === undefined ? undefined : options.signInWithSolana) === null || _e === undefined ? undefined : _e.expirationTime) ? [`Expiration Time: ${options.signInWithSolana.expirationTime}`] : [],
-            ...((_f = options === null || options === undefined ? undefined : options.signInWithSolana) === null || _f === undefined ? undefined : _f.chainId) ? [`Chain ID: ${options.signInWithSolana.chainId}`] : [],
-            ...((_g = options === null || options === undefined ? undefined : options.signInWithSolana) === null || _g === undefined ? undefined : _g.nonce) ? [`Nonce: ${options.signInWithSolana.nonce}`] : [],
-            ...((_h = options === null || options === undefined ? undefined : options.signInWithSolana) === null || _h === undefined ? undefined : _h.requestId) ? [`Request ID: ${options.signInWithSolana.requestId}`] : [],
-            ...((_k = (_j = options === null || options === undefined ? undefined : options.signInWithSolana) === null || _j === undefined ? undefined : _j.resources) === null || _k === undefined ? undefined : _k.length) ? [
+            ...((_f = options === null || options === undefined ? undefined : options.signInWithSolana) === null || _f === undefined ? undefined : _f.expirationTime) ? [`Expiration Time: ${options.signInWithSolana.expirationTime}`] : [],
+            ...((_g = options === null || options === undefined ? undefined : options.signInWithSolana) === null || _g === undefined ? undefined : _g.chainId) ? [`Chain ID: ${options.signInWithSolana.chainId}`] : [],
+            ...((_h = options === null || options === undefined ? undefined : options.signInWithSolana) === null || _h === undefined ? undefined : _h.nonce) ? [`Nonce: ${options.signInWithSolana.nonce}`] : [],
+            ...((_j = options === null || options === undefined ? undefined : options.signInWithSolana) === null || _j === undefined ? undefined : _j.requestId) ? [`Request ID: ${options.signInWithSolana.requestId}`] : [],
+            ...((_l = (_k = options === null || options === undefined ? undefined : options.signInWithSolana) === null || _k === undefined ? undefined : _k.resources) === null || _l === undefined ? undefined : _l.length) ? [
               "Resources",
               ...options.signInWithSolana.resources.map((resource) => `- ${resource}`)
             ] : []
@@ -5321,7 +6767,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
       try {
         const { data, error } = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/token?grant_type=web3`, {
           headers: this.headers,
-          body: Object.assign({ chain: "solana", message, signature: (0, base64url_1.bytesToBase64URL)(signature) }, ((_l = credentials.options) === null || _l === undefined ? undefined : _l.captchaToken) ? { gotrue_meta_security: { captcha_token: (_m = credentials.options) === null || _m === undefined ? undefined : _m.captchaToken } } : null),
+          body: Object.assign({ chain: "solana", message, signature: (0, base64url_1.bytesToBase64URL)(signature) }, ((_m = credentials.options) === null || _m === undefined ? undefined : _m.captchaToken) ? { gotrue_meta_security: { captcha_token: (_o = credentials.options) === null || _o === undefined ? undefined : _o.captchaToken } } : null),
           xform: fetch_1._sessionResponse
         });
         if (error) {
@@ -5371,7 +6817,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
         }
         if (data.session) {
           await this._saveSession(data.session);
-          await this._notifyAllSubscribers("SIGNED_IN", data.session);
+          await this._notifyAllSubscribers(redirectType === "recovery" ? "PASSWORD_RECOVERY" : "SIGNED_IN", data.session);
         }
         return this._returnResult({ data: Object.assign(Object.assign({}, data), { redirectType: redirectType !== null && redirectType !== undefined ? redirectType : null }), error });
       } catch (error) {
@@ -5419,7 +6865,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
       }
     }
     async signInWithOtp(credentials) {
-      var _a, _b, _c, _d, _e;
+      var _a, _b, _c, _d, _f;
       try {
         if ("email" in credentials) {
           const { email, options } = credentials;
@@ -5451,7 +6897,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
               data: (_c = options === null || options === undefined ? undefined : options.data) !== null && _c !== undefined ? _c : {},
               create_user: (_d = options === null || options === undefined ? undefined : options.shouldCreateUser) !== null && _d !== undefined ? _d : true,
               gotrue_meta_security: { captcha_token: options === null || options === undefined ? undefined : options.captchaToken },
-              channel: (_e = options === null || options === undefined ? undefined : options.channel) !== null && _e !== undefined ? _e : "sms"
+              channel: (_f = options === null || options === undefined ? undefined : options.channel) !== null && _f !== undefined ? _f : "sms"
             }
           });
           return this._returnResult({
@@ -5505,7 +6951,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
       }
     }
     async signInWithSSO(params) {
-      var _a, _b, _c, _d, _e;
+      var _a, _b, _c, _d, _f;
       try {
         let codeChallenge = null;
         let codeChallengeMethod = null;
@@ -5517,7 +6963,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
           headers: this.headers,
           xform: fetch_1._ssoResponse
         });
-        if (((_d = result.data) === null || _d === undefined ? undefined : _d.url) && (0, helpers_1.isBrowser)() && !((_e = params.options) === null || _e === undefined ? undefined : _e.skipBrowserRedirect)) {
+        if (((_d = result.data) === null || _d === undefined ? undefined : _d.url) && (0, helpers_1.isBrowser)() && !((_f = params.options) === null || _f === undefined ? undefined : _f.skipBrowserRedirect)) {
           window.location.assign(result.data.url);
         }
         return this._returnResult(result);
@@ -5531,7 +6977,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
     }
     async reauthenticate() {
       await this.initializePromise;
-      return await this._acquireLock(-1, async () => {
+      return await this._acquireLock(this.lockAcquireTimeout, async () => {
         return await this._reauthenticate();
       });
     }
@@ -5596,7 +7042,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
     }
     async getSession() {
       await this.initializePromise;
-      const result = await this._acquireLock(-1, async () => {
+      const result = await this._acquireLock(this.lockAcquireTimeout, async () => {
         return this._useSession(async (result2) => {
           return result2;
         });
@@ -5615,7 +7061,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
           this.pendingInLock.push((async () => {
             try {
               await result;
-            } catch (e) {}
+            } catch (_e) {}
           })());
           return result;
         }
@@ -5708,7 +7154,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
         return await this._getUser(jwt);
       }
       await this.initializePromise;
-      const result = await this._acquireLock(-1, async () => {
+      const result = await this._acquireLock(this.lockAcquireTimeout, async () => {
         return await this._getUser();
       });
       if (result.data.user) {
@@ -5753,7 +7199,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
     }
     async updateUser(attributes, options = {}) {
       await this.initializePromise;
-      return await this._acquireLock(-1, async () => {
+      return await this._acquireLock(this.lockAcquireTimeout, async () => {
         return await this._updateUser(attributes, options);
       });
     }
@@ -5798,7 +7244,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
     }
     async setSession(currentSession) {
       await this.initializePromise;
-      return await this._acquireLock(-1, async () => {
+      return await this._acquireLock(this.lockAcquireTimeout, async () => {
         return await this._setSession(currentSession);
       });
     }
@@ -5828,7 +7274,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
         } else {
           const { data, error } = await this._getUser(currentSession.access_token);
           if (error) {
-            throw error;
+            return this._returnResult({ data: { user: null, session: null }, error });
           }
           session = {
             access_token: currentSession.access_token,
@@ -5851,7 +7297,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
     }
     async refreshSession(currentSession) {
       await this.initializePromise;
-      return await this._acquireLock(-1, async () => {
+      return await this._acquireLock(this.lockAcquireTimeout, async () => {
         return await this._refreshSession(currentSession);
       });
     }
@@ -5886,6 +7332,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
       }
     }
     async _getSessionFromURL(params, callbackUrlType) {
+      var _a;
       try {
         if (!(0, helpers_1.isBrowser)())
           throw new errors_1.AuthImplicitGrantRedirectError("No browser detected.");
@@ -5918,7 +7365,10 @@ var require_GoTrueClient = __commonJS((exports2) => {
           const url = new URL(window.location.href);
           url.searchParams.delete("code");
           window.history.replaceState(window.history.state, "", url.toString());
-          return { data: { session: data2.session, redirectType: null }, error: null };
+          return {
+            data: { session: data2.session, redirectType: (_a = data2.redirectType) !== null && _a !== undefined ? _a : null },
+            error: null
+          };
         }
         const { provider_token, provider_refresh_token, access_token, refresh_token, expires_in, expires_at, token_type } = params;
         if (!access_token || !expires_in || !refresh_token || !token_type) {
@@ -5975,7 +7425,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
     }
     async signOut(options = { scope: "global" }) {
       await this.initializePromise;
-      return await this._acquireLock(-1, async () => {
+      return await this._acquireLock(this.lockAcquireTimeout, async () => {
         return await this._signOut(options);
       });
     }
@@ -5983,14 +7433,14 @@ var require_GoTrueClient = __commonJS((exports2) => {
       return await this._useSession(async (result) => {
         var _a;
         const { data, error: sessionError } = result;
-        if (sessionError) {
+        if (sessionError && !(0, errors_1.isAuthSessionMissingError)(sessionError)) {
           return this._returnResult({ error: sessionError });
         }
         const accessToken = (_a = data.session) === null || _a === undefined ? undefined : _a.access_token;
         if (accessToken) {
           const { error } = await this.admin.signOut(accessToken, scope);
           if (error) {
-            if (!((0, errors_1.isAuthApiError)(error) && (error.status === 404 || error.status === 401 || error.status === 403))) {
+            if (!((0, errors_1.isAuthApiError)(error) && (error.status === 404 || error.status === 401 || error.status === 403) || (0, errors_1.isAuthSessionMissingError)(error))) {
               return this._returnResult({ error });
             }
           }
@@ -6016,7 +7466,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
       this.stateChangeEmitters.set(id, subscription);
       (async () => {
         await this.initializePromise;
-        await this._acquireLock(-1, async () => {
+        await this._acquireLock(this.lockAcquireTimeout, async () => {
           this._emitInitialSession(id);
         });
       })();
@@ -6034,7 +7484,11 @@ var require_GoTrueClient = __commonJS((exports2) => {
         } catch (err) {
           await ((_b = this.stateChangeEmitters.get(id)) === null || _b === undefined ? undefined : _b.callback("INITIAL_SESSION", null));
           this._debug("INITIAL_SESSION", "callback id", id, "error", err);
-          console.error(err);
+          if ((0, errors_1.isAuthSessionMissingError)(err)) {
+            console.warn(err);
+          } else {
+            console.error(err);
+          }
         }
       });
     }
@@ -6087,7 +7541,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
       var _a;
       try {
         const { data, error } = await this._useSession(async (result) => {
-          var _a2, _b, _c, _d, _e;
+          var _a2, _b, _c, _d, _f;
           const { data: data2, error: error2 } = result;
           if (error2)
             throw error2;
@@ -6099,7 +7553,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
           });
           return await (0, fetch_1._request)(this.fetch, "GET", url, {
             headers: this.headers,
-            jwt: (_e = (_d = data2.session) === null || _d === undefined ? undefined : _d.access_token) !== null && _e !== undefined ? _e : undefined
+            jwt: (_f = (_d = data2.session) === null || _d === undefined ? undefined : _d.access_token) !== null && _f !== undefined ? _f : undefined
           });
         });
         if (error)
@@ -6417,10 +7871,16 @@ var require_GoTrueClient = __commonJS((exports2) => {
       } else if (typeof Deno !== "undefined" && typeof Deno.unrefTimer === "function") {
         Deno.unrefTimer(ticker);
       }
-      setTimeout(async () => {
+      const timeout = setTimeout(async () => {
         await this.initializePromise;
         await this._autoRefreshTokenTick();
       }, 0);
+      this.autoRefreshTickTimeout = timeout;
+      if (timeout && typeof timeout === "object" && typeof timeout.unref === "function") {
+        timeout.unref();
+      } else if (typeof Deno !== "undefined" && typeof Deno.unrefTimer === "function") {
+        Deno.unrefTimer(timeout);
+      }
     }
     async _stopAutoRefresh() {
       this._debug("#_stopAutoRefresh()");
@@ -6428,6 +7888,11 @@ var require_GoTrueClient = __commonJS((exports2) => {
       this.autoRefreshTicker = null;
       if (ticker) {
         clearInterval(ticker);
+      }
+      const timeout = this.autoRefreshTickTimeout;
+      this.autoRefreshTickTimeout = null;
+      if (timeout) {
+        clearTimeout(timeout);
       }
     }
     async startAutoRefresh() {
@@ -6465,7 +7930,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
           }
         });
       } catch (e) {
-        if (e.isAcquireTimeout || e instanceof locks_1.LockAcquireTimeoutError) {
+        if (e instanceof locks_1.LockAcquireTimeoutError) {
           this._debug("auto refresh token tick lock not available");
         } else {
           throw e;
@@ -6481,7 +7946,13 @@ var require_GoTrueClient = __commonJS((exports2) => {
         return false;
       }
       try {
-        this.visibilityChangedCallback = async () => await this._onVisibilityChanged(false);
+        this.visibilityChangedCallback = async () => {
+          try {
+            await this._onVisibilityChanged(false);
+          } catch (error) {
+            this._debug("#visibilityChangedCallback", "error", error);
+          }
+        };
         window === null || window === undefined || window.addEventListener("visibilitychange", this.visibilityChangedCallback);
         await this._onVisibilityChanged(true);
       } catch (error) {
@@ -6497,7 +7968,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
         }
         if (!calledFromInitialize) {
           await this.initializePromise;
-          await this._acquireLock(-1, async () => {
+          await this._acquireLock(this.lockAcquireTimeout, async () => {
             if (document.visibilityState !== "visible") {
               this._debug(methodName, "acquired the lock to recover the session, but the browser visibilityState is no longer visible, aborting");
               return;
@@ -6586,7 +8057,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
       }
     }
     async _verify(params) {
-      return this._acquireLock(-1, async () => {
+      return this._acquireLock(this.lockAcquireTimeout, async () => {
         try {
           return await this._useSession(async (result) => {
             var _a;
@@ -6618,7 +8089,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
       });
     }
     async _challenge(params) {
-      return this._acquireLock(-1, async () => {
+      return this._acquireLock(this.lockAcquireTimeout, async () => {
         try {
           return await this._useSession(async (result) => {
             var _a;
@@ -6695,8 +8166,33 @@ var require_GoTrueClient = __commonJS((exports2) => {
         error: null
       };
     }
-    async _getAuthenticatorAssuranceLevel() {
-      var _a, _b;
+    async _getAuthenticatorAssuranceLevel(jwt) {
+      var _a, _b, _c, _d;
+      if (jwt) {
+        try {
+          const { payload: payload2 } = (0, helpers_1.decodeJWT)(jwt);
+          let currentLevel2 = null;
+          if (payload2.aal) {
+            currentLevel2 = payload2.aal;
+          }
+          let nextLevel2 = currentLevel2;
+          const { data: { user }, error: userError } = await this.getUser(jwt);
+          if (userError) {
+            return this._returnResult({ data: null, error: userError });
+          }
+          const verifiedFactors2 = (_b = (_a = user === null || user === undefined ? undefined : user.factors) === null || _a === undefined ? undefined : _a.filter((factor) => factor.status === "verified")) !== null && _b !== undefined ? _b : [];
+          if (verifiedFactors2.length > 0) {
+            nextLevel2 = "aal2";
+          }
+          const currentAuthenticationMethods2 = payload2.amr || [];
+          return { data: { currentLevel: currentLevel2, nextLevel: nextLevel2, currentAuthenticationMethods: currentAuthenticationMethods2 }, error: null };
+        } catch (error) {
+          if ((0, errors_1.isAuthError)(error)) {
+            return this._returnResult({ data: null, error });
+          }
+          throw error;
+        }
+      }
       const { data: { session }, error: sessionError } = await this.getSession();
       if (sessionError) {
         return this._returnResult({ data: null, error: sessionError });
@@ -6713,7 +8209,7 @@ var require_GoTrueClient = __commonJS((exports2) => {
         currentLevel = payload.aal;
       }
       let nextLevel = currentLevel;
-      const verifiedFactors = (_b = (_a = session.user.factors) === null || _a === undefined ? undefined : _a.filter((factor) => factor.status === "verified")) !== null && _b !== undefined ? _b : [];
+      const verifiedFactors = (_d = (_c = session.user.factors) === null || _c === undefined ? undefined : _c.filter((factor) => factor.status === "verified")) !== null && _d !== undefined ? _d : [];
       if (verifiedFactors.length > 0) {
         nextLevel = "aal2";
       }
@@ -6930,12 +8426,280 @@ var require_GoTrueClient = __commonJS((exports2) => {
         throw error;
       }
     }
+    async signInWithPasskey(credentials) {
+      var _a, _b, _c;
+      (0, helpers_1.assertPasskeyExperimentalEnabled)(this.experimental);
+      try {
+        if (!(0, webauthn_1.browserSupportsWebAuthn)()) {
+          return this._returnResult({
+            data: null,
+            error: new errors_1.AuthUnknownError("Browser does not support WebAuthn", null)
+          });
+        }
+        const { data: options, error: optionsError } = await this._startPasskeyAuthentication({
+          options: { captchaToken: (_a = credentials === null || credentials === undefined ? undefined : credentials.options) === null || _a === undefined ? undefined : _a.captchaToken }
+        });
+        if (optionsError || !options) {
+          return this._returnResult({ data: null, error: optionsError });
+        }
+        const publicKeyOptions = (0, webauthn_1.deserializeCredentialRequestOptions)(options.options);
+        const signal = (_c = (_b = credentials === null || credentials === undefined ? undefined : credentials.options) === null || _b === undefined ? undefined : _b.signal) !== null && _c !== undefined ? _c : webauthn_1.webAuthnAbortService.createNewAbortSignal();
+        const { data: credential, error: credentialError } = await (0, webauthn_1.getCredential)({
+          publicKey: publicKeyOptions,
+          signal
+        });
+        if (credentialError || !credential) {
+          return this._returnResult({
+            data: null,
+            error: credentialError !== null && credentialError !== undefined ? credentialError : new errors_1.AuthUnknownError("WebAuthn ceremony failed", null)
+          });
+        }
+        const serialized = (0, webauthn_1.serializeCredentialRequestResponse)(credential);
+        return this._verifyPasskeyAuthentication({
+          challengeId: options.challenge_id,
+          credential: serialized
+        });
+      } catch (error) {
+        if ((0, errors_1.isAuthError)(error)) {
+          return this._returnResult({ data: null, error });
+        }
+        throw error;
+      }
+    }
+    async registerPasskey(credentials) {
+      var _a, _b;
+      (0, helpers_1.assertPasskeyExperimentalEnabled)(this.experimental);
+      try {
+        if (!(0, webauthn_1.browserSupportsWebAuthn)()) {
+          return this._returnResult({
+            data: null,
+            error: new errors_1.AuthUnknownError("Browser does not support WebAuthn", null)
+          });
+        }
+        const { data: options, error: optionsError } = await this._startPasskeyRegistration();
+        if (optionsError || !options) {
+          return this._returnResult({ data: null, error: optionsError });
+        }
+        const publicKeyOptions = (0, webauthn_1.deserializeCredentialCreationOptions)(options.options);
+        const signal = (_b = (_a = credentials === null || credentials === undefined ? undefined : credentials.options) === null || _a === undefined ? undefined : _a.signal) !== null && _b !== undefined ? _b : webauthn_1.webAuthnAbortService.createNewAbortSignal();
+        const { data: credential, error: credentialError } = await (0, webauthn_1.createCredential)({
+          publicKey: publicKeyOptions,
+          signal
+        });
+        if (credentialError || !credential) {
+          return this._returnResult({
+            data: null,
+            error: credentialError !== null && credentialError !== undefined ? credentialError : new errors_1.AuthUnknownError("WebAuthn ceremony failed", null)
+          });
+        }
+        const serialized = (0, webauthn_1.serializeCredentialCreationResponse)(credential);
+        return this._verifyPasskeyRegistration({
+          challengeId: options.challenge_id,
+          credential: serialized
+        });
+      } catch (error) {
+        if ((0, errors_1.isAuthError)(error)) {
+          return this._returnResult({ data: null, error });
+        }
+        throw error;
+      }
+    }
+    async _startPasskeyRegistration() {
+      (0, helpers_1.assertPasskeyExperimentalEnabled)(this.experimental);
+      try {
+        return await this._useSession(async (result) => {
+          const { data: { session }, error: sessionError } = result;
+          if (sessionError) {
+            return this._returnResult({ data: null, error: sessionError });
+          }
+          if (!session) {
+            return this._returnResult({ data: null, error: new errors_1.AuthSessionMissingError });
+          }
+          const { data, error } = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/passkeys/registration/options`, {
+            headers: this.headers,
+            jwt: session.access_token,
+            body: {}
+          });
+          if (error) {
+            return this._returnResult({ data: null, error });
+          }
+          return this._returnResult({ data, error: null });
+        });
+      } catch (error) {
+        if ((0, errors_1.isAuthError)(error)) {
+          return this._returnResult({ data: null, error });
+        }
+        throw error;
+      }
+    }
+    async _verifyPasskeyRegistration(params) {
+      (0, helpers_1.assertPasskeyExperimentalEnabled)(this.experimental);
+      try {
+        return await this._useSession(async (result) => {
+          const { data: { session }, error: sessionError } = result;
+          if (sessionError) {
+            return this._returnResult({ data: null, error: sessionError });
+          }
+          if (!session) {
+            return this._returnResult({ data: null, error: new errors_1.AuthSessionMissingError });
+          }
+          const { data, error } = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/passkeys/registration/verify`, {
+            headers: this.headers,
+            jwt: session.access_token,
+            body: {
+              challenge_id: params.challengeId,
+              credential: params.credential
+            }
+          });
+          if (error) {
+            return this._returnResult({ data: null, error });
+          }
+          return this._returnResult({ data, error: null });
+        });
+      } catch (error) {
+        if ((0, errors_1.isAuthError)(error)) {
+          return this._returnResult({ data: null, error });
+        }
+        throw error;
+      }
+    }
+    async _startPasskeyAuthentication(params) {
+      var _a;
+      (0, helpers_1.assertPasskeyExperimentalEnabled)(this.experimental);
+      try {
+        const { data, error } = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/passkeys/authentication/options`, {
+          headers: this.headers,
+          body: {
+            gotrue_meta_security: { captcha_token: (_a = params === null || params === undefined ? undefined : params.options) === null || _a === undefined ? undefined : _a.captchaToken }
+          }
+        });
+        if (error) {
+          return this._returnResult({ data: null, error });
+        }
+        return this._returnResult({ data, error: null });
+      } catch (error) {
+        if ((0, errors_1.isAuthError)(error)) {
+          return this._returnResult({ data: null, error });
+        }
+        throw error;
+      }
+    }
+    async _verifyPasskeyAuthentication(params) {
+      (0, helpers_1.assertPasskeyExperimentalEnabled)(this.experimental);
+      try {
+        const { data, error } = await (0, fetch_1._request)(this.fetch, "POST", `${this.url}/passkeys/authentication/verify`, {
+          headers: this.headers,
+          body: {
+            challenge_id: params.challengeId,
+            credential: params.credential
+          },
+          xform: fetch_1._sessionResponse
+        });
+        if (error) {
+          return this._returnResult({ data: null, error });
+        }
+        if (data.session) {
+          await this._saveSession(data.session);
+          await this._notifyAllSubscribers("SIGNED_IN", data.session);
+        }
+        return this._returnResult({ data, error: null });
+      } catch (error) {
+        if ((0, errors_1.isAuthError)(error)) {
+          return this._returnResult({ data: null, error });
+        }
+        throw error;
+      }
+    }
+    async _listPasskeys() {
+      (0, helpers_1.assertPasskeyExperimentalEnabled)(this.experimental);
+      try {
+        return await this._useSession(async (result) => {
+          const { data: { session }, error: sessionError } = result;
+          if (sessionError) {
+            return this._returnResult({ data: null, error: sessionError });
+          }
+          if (!session) {
+            return this._returnResult({ data: null, error: new errors_1.AuthSessionMissingError });
+          }
+          const { data, error } = await (0, fetch_1._request)(this.fetch, "GET", `${this.url}/passkeys`, {
+            headers: this.headers,
+            jwt: session.access_token,
+            xform: (data2) => ({ data: data2, error: null })
+          });
+          if (error) {
+            return this._returnResult({ data: null, error });
+          }
+          return this._returnResult({ data, error: null });
+        });
+      } catch (error) {
+        if ((0, errors_1.isAuthError)(error)) {
+          return this._returnResult({ data: null, error });
+        }
+        throw error;
+      }
+    }
+    async _updatePasskey(params) {
+      (0, helpers_1.assertPasskeyExperimentalEnabled)(this.experimental);
+      try {
+        return await this._useSession(async (result) => {
+          const { data: { session }, error: sessionError } = result;
+          if (sessionError) {
+            return this._returnResult({ data: null, error: sessionError });
+          }
+          if (!session) {
+            return this._returnResult({ data: null, error: new errors_1.AuthSessionMissingError });
+          }
+          const { data, error } = await (0, fetch_1._request)(this.fetch, "PATCH", `${this.url}/passkeys/${params.passkeyId}`, {
+            headers: this.headers,
+            jwt: session.access_token,
+            body: { friendly_name: params.friendlyName }
+          });
+          if (error) {
+            return this._returnResult({ data: null, error });
+          }
+          return this._returnResult({ data, error: null });
+        });
+      } catch (error) {
+        if ((0, errors_1.isAuthError)(error)) {
+          return this._returnResult({ data: null, error });
+        }
+        throw error;
+      }
+    }
+    async _deletePasskey(params) {
+      (0, helpers_1.assertPasskeyExperimentalEnabled)(this.experimental);
+      try {
+        return await this._useSession(async (result) => {
+          const { data: { session }, error: sessionError } = result;
+          if (sessionError) {
+            return this._returnResult({ data: null, error: sessionError });
+          }
+          if (!session) {
+            return this._returnResult({ data: null, error: new errors_1.AuthSessionMissingError });
+          }
+          const { error } = await (0, fetch_1._request)(this.fetch, "DELETE", `${this.url}/passkeys/${params.passkeyId}`, {
+            headers: this.headers,
+            jwt: session.access_token,
+            noResolveJson: true
+          });
+          if (error) {
+            return this._returnResult({ data: null, error });
+          }
+          return this._returnResult({ data: null, error: null });
+        });
+      } catch (error) {
+        if ((0, errors_1.isAuthError)(error)) {
+          return this._returnResult({ data: null, error });
+        }
+        throw error;
+      }
+    }
   }
   GoTrueClient.nextInstanceID = {};
   exports2.default = GoTrueClient;
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/AuthAdminApi.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/AuthAdminApi.js
 var require_AuthAdminApi = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   var tslib_1 = require_tslib();
@@ -6944,7 +8708,7 @@ var require_AuthAdminApi = __commonJS((exports2) => {
   exports2.default = AuthAdminApi;
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/AuthClient.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/AuthClient.js
 var require_AuthClient = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   var tslib_1 = require_tslib();
@@ -6953,7 +8717,7 @@ var require_AuthClient = __commonJS((exports2) => {
   exports2.default = AuthClient;
 });
 
-// ../../node_modules/.bun/@supabase+auth-js@2.89.0/node_modules/@supabase/auth-js/dist/main/index.js
+// ../../node_modules/.bun/@supabase+auth-js@2.105.4/node_modules/@supabase/auth-js/dist/main/index.js
 var require_main3 = __commonJS((exports2) => {
   Object.defineProperty(exports2, "__esModule", { value: true });
   exports2.processLock = exports2.lockInternals = exports2.NavigatorLockAcquireTimeoutError = exports2.navigatorLock = exports2.AuthClient = exports2.AuthAdminApi = exports2.GoTrueClient = exports2.GoTrueAdminApi = undefined;
@@ -6986,6 +8750,7 @@ var require_main3 = __commonJS((exports2) => {
 // ../../packages/plugin-common/src/analytics/events.ts
 var AUTH_DEVICE_CODE_INITIATION_FAILED = "auth_device_code_initiation_failed";
 var AUTH_DEVICE_CODE_POLLING_FAILED = "auth_device_code_polling_failed";
+var AUTH_AGENT_PROVISIONING_FAILED = "auth_agent_provisioning_failed";
 var AUTH_SESSION_LOAD_FAILED = "auth_session_load_failed";
 var AUTH_SESSION_CLEAR_FAILED = "auth_session_clear_failed";
 var AUTH_SESSION_SAVE_FAILED = "auth_session_save_failed";
@@ -7027,6 +8792,7 @@ var SUPABASE_SESSION_WRITE_FAILED = "supabase_session_write_failed";
 var ERROR_TYPES = [
   AUTH_DEVICE_CODE_INITIATION_FAILED,
   AUTH_DEVICE_CODE_POLLING_FAILED,
+  AUTH_AGENT_PROVISIONING_FAILED,
   AUTH_SESSION_CLEAR_FAILED,
   AUTH_SESSION_LOAD_FAILED,
   AUTH_SESSION_SAVE_FAILED,
@@ -7276,6 +9042,20 @@ var EVENTS = {
   WORKSPACE_SETTINGS_VIEWED: "Workspace Settings Viewed",
   TEAM_SETTINGS_VIEWED: "Team Settings Viewed",
   CLI_SIGNED_IN: "CLI Signed In",
+  TRIAL_STARTED: "Trial Started",
+  PLAN_SELECTED: "Plan Selected",
+  PAYMENT_SETUP_COMPLETED: "Payment Setup Completed",
+  PAYMENT_SETUP_FAILED: "Payment Setup Failed",
+  SUBSCRIPTION_CREATED: "Subscription Created",
+  SUBSCRIPTION_UPDATED: "Subscription Updated",
+  SUBSCRIPTION_UPGRADED: "Subscription Upgraded",
+  SUBSCRIPTION_DOWNGRADED: "Subscription Downgraded",
+  SUBSCRIPTION_CANCELED: "Subscription Canceled",
+  USER_CHURNED: "User Churned",
+  PAYMENT_SUCCEEDED: "Payment Succeeded",
+  PAYMENT_FAILED: "Payment Failed",
+  BILLING_PORTAL_OPENED: "Billing Portal Opened",
+  SUBSCRIPTION_GATE_SHOWN: "Subscription Gate Shown",
   ADMIN_IMPERSONATION_STARTED: "Admin Impersonation Started",
   ADMIN_IMPERSONATION_ENDED: "Admin Impersonation Ended"
 };
@@ -7330,7 +9110,7 @@ class GA4ServerProvider {
   }
 }
 
-// ../../node_modules/.bun/posthog-node@5.11.0/node_modules/posthog-node/dist/extensions/error-tracking/modifiers/module.node.mjs
+// ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/extensions/error-tracking/modifiers/module.node.mjs
 import { dirname, posix, sep } from "path";
 function createModulerModifier() {
   const getModuleFromFileName = createGetModuleFromFilename();
@@ -7366,7 +9146,7 @@ function normalizeWindowsPath(path) {
   return path.replace(/^[A-Z]:/, "").replace(/\\/g, "/");
 }
 
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/featureFlagUtils.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/featureFlagUtils.mjs
 var normalizeFlagsResponse = (flagsResponse) => {
   if ("flags" in flagsResponse) {
     const featureFlags = getFlagValuesFromFlags(flagsResponse.flags);
@@ -7437,7 +9217,305 @@ var parsePayload = (response) => {
   }
 };
 
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/vendor/uuidv7.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/types.mjs
+var types_PostHogPersistedProperty = /* @__PURE__ */ function(PostHogPersistedProperty) {
+  PostHogPersistedProperty["AnonymousId"] = "anonymous_id";
+  PostHogPersistedProperty["DistinctId"] = "distinct_id";
+  PostHogPersistedProperty["Props"] = "props";
+  PostHogPersistedProperty["EnablePersonProcessing"] = "enable_person_processing";
+  PostHogPersistedProperty["PersonMode"] = "person_mode";
+  PostHogPersistedProperty["FeatureFlagDetails"] = "feature_flag_details";
+  PostHogPersistedProperty["FeatureFlags"] = "feature_flags";
+  PostHogPersistedProperty["FeatureFlagPayloads"] = "feature_flag_payloads";
+  PostHogPersistedProperty["BootstrapFeatureFlagDetails"] = "bootstrap_feature_flag_details";
+  PostHogPersistedProperty["BootstrapFeatureFlags"] = "bootstrap_feature_flags";
+  PostHogPersistedProperty["BootstrapFeatureFlagPayloads"] = "bootstrap_feature_flag_payloads";
+  PostHogPersistedProperty["OverrideFeatureFlags"] = "override_feature_flags";
+  PostHogPersistedProperty["Queue"] = "queue";
+  PostHogPersistedProperty["LogsQueue"] = "logs_queue";
+  PostHogPersistedProperty["OptedOut"] = "opted_out";
+  PostHogPersistedProperty["SessionId"] = "session_id";
+  PostHogPersistedProperty["SessionStartTimestamp"] = "session_start_timestamp";
+  PostHogPersistedProperty["SessionLastTimestamp"] = "session_timestamp";
+  PostHogPersistedProperty["PersonProperties"] = "person_properties";
+  PostHogPersistedProperty["GroupProperties"] = "group_properties";
+  PostHogPersistedProperty["InstalledAppBuild"] = "installed_app_build";
+  PostHogPersistedProperty["InstalledAppVersion"] = "installed_app_version";
+  PostHogPersistedProperty["SessionReplay"] = "session_replay";
+  PostHogPersistedProperty["SurveyLastSeenDate"] = "survey_last_seen_date";
+  PostHogPersistedProperty["SurveysSeen"] = "surveys_seen";
+  PostHogPersistedProperty["Surveys"] = "surveys";
+  PostHogPersistedProperty["RemoteConfig"] = "remote_config";
+  PostHogPersistedProperty["FlagsEndpointWasHit"] = "flags_endpoint_was_hit";
+  PostHogPersistedProperty["DeviceId"] = "device_id";
+  return PostHogPersistedProperty;
+}({});
+
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/gzip.mjs
+function isGzipSupported() {
+  return "CompressionStream" in globalThis && "TextEncoder" in globalThis && "Response" in globalThis && typeof Response.prototype.blob == "function";
+}
+var NATIVE_GZIP_VALIDATION_ERROR = "NativeGzipValidationError";
+var GZIP_MAGIC_FIRST_BYTE = 31;
+var GZIP_MAGIC_SECOND_BYTE = 139;
+var GZIP_DEFLATE_METHOD = 8;
+var hasGzipMagic = (bytes) => bytes.length >= 2 && bytes[0] === GZIP_MAGIC_FIRST_BYTE && bytes[1] === GZIP_MAGIC_SECOND_BYTE;
+var crc32Table;
+var getCrc32Table = () => {
+  if (crc32Table)
+    return crc32Table;
+  crc32Table = [];
+  for (let i = 0;i < 256; i++) {
+    let crc = i;
+    for (let j = 0;j < 8; j++)
+      crc = 1 & crc ? 3988292384 ^ crc >>> 1 : crc >>> 1;
+    crc32Table[i] = crc >>> 0;
+  }
+  return crc32Table;
+};
+var crc32 = (bytes) => {
+  const table = getCrc32Table();
+  let crc = 4294967295;
+  for (let i = 0;i < bytes.length; i++)
+    crc = table[(crc ^ bytes[i]) & 255] ^ crc >>> 8;
+  return (4294967295 ^ crc) >>> 0;
+};
+var throwNativeGzipValidationError = (reason) => {
+  const error = new Error(`Native gzip produced invalid output: ${reason}`);
+  error.name = NATIVE_GZIP_VALIDATION_ERROR;
+  throw error;
+};
+var validateNativeGzip = async (compressed, inputBytes) => {
+  if (compressed.size < 18)
+    throwNativeGzipValidationError("too-short");
+  const header = new Uint8Array(await compressed.slice(0, 10).arrayBuffer());
+  if (!hasGzipMagic(header) || header[2] !== GZIP_DEFLATE_METHOD)
+    throwNativeGzipValidationError("invalid-header");
+  const trailer = new DataView(await compressed.slice(compressed.size - 8).arrayBuffer());
+  if (trailer.getUint32(0, true) !== crc32(inputBytes))
+    throwNativeGzipValidationError("invalid-crc");
+  const inputSize = inputBytes.length >>> 0;
+  if (trailer.getUint32(4, true) !== inputSize)
+    throwNativeGzipValidationError("invalid-size");
+};
+async function gzipCompress(input, isDebug = true, options) {
+  try {
+    const inputBytes = new TextEncoder().encode(input);
+    const compressedStream = new CompressionStream("gzip");
+    const writer = compressedStream.writable.getWriter();
+    const writePromise = writer.write(inputBytes).then(() => writer.close()).catch(async (err) => {
+      try {
+        await writer.abort(err);
+      } catch {}
+      throw err;
+    });
+    const responsePromise = new Response(compressedStream.readable).blob();
+    const [compressed] = await Promise.all([
+      responsePromise,
+      writePromise
+    ]);
+    await validateNativeGzip(compressed, inputBytes);
+    return compressed;
+  } catch (error) {
+    if (options?.rethrow)
+      throw error;
+    if (isDebug)
+      console.error("Failed to gzip compress data", error);
+    return null;
+  }
+}
+
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/utils/bot-detection.mjs
+var DEFAULT_BLOCKED_UA_STRS = [
+  "amazonbot",
+  "amazonproductbot",
+  "app.hypefactors.com",
+  "applebot",
+  "archive.org_bot",
+  "awariobot",
+  "backlinksextendedbot",
+  "baiduspider",
+  "bingbot",
+  "bingpreview",
+  "chrome-lighthouse",
+  "dataforseobot",
+  "deepscan",
+  "duckduckbot",
+  "facebookexternal",
+  "facebookcatalog",
+  "http://yandex.com/bots",
+  "hubspot",
+  "ia_archiver",
+  "leikibot",
+  "linkedinbot",
+  "meta-externalagent",
+  "mj12bot",
+  "msnbot",
+  "nessus",
+  "petalbot",
+  "pinterest",
+  "prerender",
+  "rogerbot",
+  "screaming frog",
+  "sebot-wa",
+  "sitebulb",
+  "slackbot",
+  "slurp",
+  "trendictionbot",
+  "turnitin",
+  "twitterbot",
+  "vercel-screenshot",
+  "vercelbot",
+  "yahoo! slurp",
+  "yandexbot",
+  "zoombot",
+  "bot.htm",
+  "bot.php",
+  "(bot;",
+  "bot/",
+  "crawler",
+  "ahrefsbot",
+  "ahrefssiteaudit",
+  "semrushbot",
+  "siteauditbot",
+  "splitsignalbot",
+  "gptbot",
+  "oai-searchbot",
+  "chatgpt-user",
+  "perplexitybot",
+  "better uptime bot",
+  "sentryuptimebot",
+  "uptimerobot",
+  "headlesschrome",
+  "cypress",
+  "google-hoteladsverifier",
+  "adsbot-google",
+  "apis-google",
+  "duplexweb-google",
+  "feedfetcher-google",
+  "google favicon",
+  "google web preview",
+  "google-read-aloud",
+  "googlebot",
+  "googleother",
+  "google-cloudvertexbot",
+  "googleweblight",
+  "mediapartners-google",
+  "storebot-google",
+  "google-inspectiontool",
+  "bytespider"
+];
+var isBlockedUA = function(ua, customBlockedUserAgents = []) {
+  if (!ua)
+    return false;
+  const uaLower = ua.toLowerCase();
+  return DEFAULT_BLOCKED_UA_STRS.concat(customBlockedUserAgents).some((blockedUA) => {
+    const blockedUaLower = blockedUA.toLowerCase();
+    return uaLower.indexOf(blockedUaLower) !== -1;
+  });
+};
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/utils/type-utils.mjs
+var nativeIsArray = Array.isArray;
+var ObjProto = Object.prototype;
+var type_utils_hasOwnProperty = ObjProto.hasOwnProperty;
+var type_utils_toString = ObjProto.toString;
+var isArray = nativeIsArray || function(obj) {
+  return type_utils_toString.call(obj) === "[object Array]";
+};
+var isObject = (x) => x === Object(x) && !isArray(x);
+var isUndefined = (x) => x === undefined;
+var isString = (x) => type_utils_toString.call(x) == "[object String]";
+var isEmptyString = (x) => isString(x) && x.trim().length === 0;
+var isNumber = (x) => type_utils_toString.call(x) == "[object Number]" && x === x;
+var isPlainError = (x) => x instanceof Error;
+function isPrimitive(value) {
+  return value === null || typeof value != "object";
+}
+function isBuiltin(candidate, className) {
+  return Object.prototype.toString.call(candidate) === `[object ${className}]`;
+}
+function isErrorEvent(event) {
+  return isBuiltin(event, "ErrorEvent");
+}
+function isEvent(candidate) {
+  return typeof Event != "undefined" && isInstanceOf(candidate, Event);
+}
+function isPlainObject(candidate) {
+  return isBuiltin(candidate, "Object");
+}
+function isInstanceOf(candidate, base) {
+  try {
+    return candidate instanceof base;
+  } catch {
+    return false;
+  }
+}
+
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/utils/number-utils.mjs
+function clampToRange(value, min, max, logger, fallbackValue) {
+  if (min > max) {
+    logger.warn("min cannot be greater than max.");
+    min = max;
+  }
+  if (isNumber(value))
+    if (value > max) {
+      logger.warn(" cannot be  greater than max: " + max + ". Using max value instead.");
+      return max;
+    } else {
+      if (!(value < min))
+        return value;
+      logger.warn(" cannot be less than min: " + min + ". Using min value instead.");
+      return min;
+    }
+  logger.warn(" must be a number. using max or fallback. max: " + max + ", fallback: " + fallbackValue);
+  return clampToRange(fallbackValue || max, min, max, logger);
+}
+
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/utils/bucketed-rate-limiter.mjs
+var ONE_DAY_IN_MS = 86400000;
+
+class BucketedRateLimiter {
+  constructor(options) {
+    this._buckets = {};
+    this._onBucketRateLimited = options._onBucketRateLimited;
+    this._bucketSize = clampToRange(options.bucketSize, 0, 100, options._logger);
+    this._refillRate = clampToRange(options.refillRate, 0, this._bucketSize, options._logger);
+    this._refillInterval = clampToRange(options.refillInterval, 0, ONE_DAY_IN_MS, options._logger);
+  }
+  _applyRefill(bucket, now) {
+    const elapsedMs = now - bucket.lastAccess;
+    const refillIntervals = Math.floor(elapsedMs / this._refillInterval);
+    if (refillIntervals > 0) {
+      const tokensToAdd = refillIntervals * this._refillRate;
+      bucket.tokens = Math.min(bucket.tokens + tokensToAdd, this._bucketSize);
+      bucket.lastAccess = bucket.lastAccess + refillIntervals * this._refillInterval;
+    }
+  }
+  consumeRateLimit(key) {
+    const now = Date.now();
+    const keyStr = String(key);
+    let bucket = this._buckets[keyStr];
+    if (bucket)
+      this._applyRefill(bucket, now);
+    else {
+      bucket = {
+        tokens: this._bucketSize,
+        lastAccess: now
+      };
+      this._buckets[keyStr] = bucket;
+    }
+    if (bucket.tokens === 0)
+      return true;
+    bucket.tokens--;
+    if (bucket.tokens === 0)
+      this._onBucketRateLimited?.(key);
+    return bucket.tokens === 0;
+  }
+  stop() {
+    this._buckets = {};
+  }
+}
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/vendor/uuidv7.mjs
 /*! For license information please see uuidv7.mjs.LICENSE.txt */
 var DIGITS = "0123456789abcdef";
 
@@ -7615,226 +9693,7 @@ var defaultGenerator;
 var uuidv7 = () => uuidv7obj().toString();
 var uuidv7obj = () => (defaultGenerator || (defaultGenerator = new V7Generator)).generate();
 
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/utils/bot-detection.mjs
-var DEFAULT_BLOCKED_UA_STRS = [
-  "amazonbot",
-  "amazonproductbot",
-  "app.hypefactors.com",
-  "applebot",
-  "archive.org_bot",
-  "awariobot",
-  "backlinksextendedbot",
-  "baiduspider",
-  "bingbot",
-  "bingpreview",
-  "chrome-lighthouse",
-  "dataforseobot",
-  "deepscan",
-  "duckduckbot",
-  "facebookexternal",
-  "facebookcatalog",
-  "http://yandex.com/bots",
-  "hubspot",
-  "ia_archiver",
-  "leikibot",
-  "linkedinbot",
-  "meta-externalagent",
-  "mj12bot",
-  "msnbot",
-  "nessus",
-  "petalbot",
-  "pinterest",
-  "prerender",
-  "rogerbot",
-  "screaming frog",
-  "sebot-wa",
-  "sitebulb",
-  "slackbot",
-  "slurp",
-  "trendictionbot",
-  "turnitin",
-  "twitterbot",
-  "vercel-screenshot",
-  "vercelbot",
-  "yahoo! slurp",
-  "yandexbot",
-  "zoombot",
-  "bot.htm",
-  "bot.php",
-  "(bot;",
-  "bot/",
-  "crawler",
-  "ahrefsbot",
-  "ahrefssiteaudit",
-  "semrushbot",
-  "siteauditbot",
-  "splitsignalbot",
-  "gptbot",
-  "oai-searchbot",
-  "chatgpt-user",
-  "perplexitybot",
-  "better uptime bot",
-  "sentryuptimebot",
-  "uptimerobot",
-  "headlesschrome",
-  "cypress",
-  "google-hoteladsverifier",
-  "adsbot-google",
-  "apis-google",
-  "duplexweb-google",
-  "feedfetcher-google",
-  "google favicon",
-  "google web preview",
-  "google-read-aloud",
-  "googlebot",
-  "googleother",
-  "google-cloudvertexbot",
-  "googleweblight",
-  "mediapartners-google",
-  "storebot-google",
-  "google-inspectiontool",
-  "bytespider"
-];
-var isBlockedUA = function(ua, customBlockedUserAgents = []) {
-  if (!ua)
-    return false;
-  const uaLower = ua.toLowerCase();
-  return DEFAULT_BLOCKED_UA_STRS.concat(customBlockedUserAgents).some((blockedUA) => {
-    const blockedUaLower = blockedUA.toLowerCase();
-    return uaLower.indexOf(blockedUaLower) !== -1;
-  });
-};
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/types.mjs
-var types_PostHogPersistedProperty = /* @__PURE__ */ function(PostHogPersistedProperty) {
-  PostHogPersistedProperty["AnonymousId"] = "anonymous_id";
-  PostHogPersistedProperty["DistinctId"] = "distinct_id";
-  PostHogPersistedProperty["Props"] = "props";
-  PostHogPersistedProperty["FeatureFlagDetails"] = "feature_flag_details";
-  PostHogPersistedProperty["FeatureFlags"] = "feature_flags";
-  PostHogPersistedProperty["FeatureFlagPayloads"] = "feature_flag_payloads";
-  PostHogPersistedProperty["BootstrapFeatureFlagDetails"] = "bootstrap_feature_flag_details";
-  PostHogPersistedProperty["BootstrapFeatureFlags"] = "bootstrap_feature_flags";
-  PostHogPersistedProperty["BootstrapFeatureFlagPayloads"] = "bootstrap_feature_flag_payloads";
-  PostHogPersistedProperty["OverrideFeatureFlags"] = "override_feature_flags";
-  PostHogPersistedProperty["Queue"] = "queue";
-  PostHogPersistedProperty["OptedOut"] = "opted_out";
-  PostHogPersistedProperty["SessionId"] = "session_id";
-  PostHogPersistedProperty["SessionStartTimestamp"] = "session_start_timestamp";
-  PostHogPersistedProperty["SessionLastTimestamp"] = "session_timestamp";
-  PostHogPersistedProperty["PersonProperties"] = "person_properties";
-  PostHogPersistedProperty["GroupProperties"] = "group_properties";
-  PostHogPersistedProperty["InstalledAppBuild"] = "installed_app_build";
-  PostHogPersistedProperty["InstalledAppVersion"] = "installed_app_version";
-  PostHogPersistedProperty["SessionReplay"] = "session_replay";
-  PostHogPersistedProperty["SurveyLastSeenDate"] = "survey_last_seen_date";
-  PostHogPersistedProperty["SurveysSeen"] = "surveys_seen";
-  PostHogPersistedProperty["Surveys"] = "surveys";
-  PostHogPersistedProperty["RemoteConfig"] = "remote_config";
-  PostHogPersistedProperty["FlagsEndpointWasHit"] = "flags_endpoint_was_hit";
-  return PostHogPersistedProperty;
-}({});
-
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/utils/type-utils.mjs
-var nativeIsArray = Array.isArray;
-var ObjProto = Object.prototype;
-var type_utils_hasOwnProperty = ObjProto.hasOwnProperty;
-var type_utils_toString = ObjProto.toString;
-var isArray = nativeIsArray || function(obj) {
-  return type_utils_toString.call(obj) === "[object Array]";
-};
-var isUndefined = (x) => x === undefined;
-var isString = (x) => type_utils_toString.call(x) == "[object String]";
-var isEmptyString = (x) => isString(x) && x.trim().length === 0;
-var isNumber = (x) => type_utils_toString.call(x) == "[object Number]";
-var isPlainError = (x) => x instanceof Error;
-function isInstanceOf(candidate, base) {
-  try {
-    return candidate instanceof base;
-  } catch {
-    return false;
-  }
-}
-function isPrimitive(value) {
-  return value === null || typeof value != "object";
-}
-function isBuiltin(candidate, className) {
-  return Object.prototype.toString.call(candidate) === `[object ${className}]`;
-}
-function isErrorEvent(event) {
-  return isBuiltin(event, "ErrorEvent");
-}
-function isEvent(candidate) {
-  return !isUndefined(Event) && isInstanceOf(candidate, Event);
-}
-function isPlainObject(candidate) {
-  return isBuiltin(candidate, "Object");
-}
-
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/utils/number-utils.mjs
-function clampToRange(value, min, max, logger, fallbackValue) {
-  if (min > max) {
-    logger.warn("min cannot be greater than max.");
-    min = max;
-  }
-  if (isNumber(value))
-    if (value > max) {
-      logger.warn(" cannot be  greater than max: " + max + ". Using max value instead.");
-      return max;
-    } else {
-      if (!(value < min))
-        return value;
-      logger.warn(" cannot be less than min: " + min + ". Using min value instead.");
-      return min;
-    }
-  logger.warn(" must be a number. using max or fallback. max: " + max + ", fallback: " + fallbackValue);
-  return clampToRange(fallbackValue || max, min, max, logger);
-}
-
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/utils/bucketed-rate-limiter.mjs
-var ONE_DAY_IN_MS = 86400000;
-
-class BucketedRateLimiter {
-  constructor(options) {
-    this._buckets = {};
-    this._onBucketRateLimited = options._onBucketRateLimited;
-    this._bucketSize = clampToRange(options.bucketSize, 0, 100, options._logger);
-    this._refillRate = clampToRange(options.refillRate, 0, this._bucketSize, options._logger);
-    this._refillInterval = clampToRange(options.refillInterval, 0, ONE_DAY_IN_MS, options._logger);
-  }
-  _applyRefill(bucket, now) {
-    const elapsedMs = now - bucket.lastAccess;
-    const refillIntervals = Math.floor(elapsedMs / this._refillInterval);
-    if (refillIntervals > 0) {
-      const tokensToAdd = refillIntervals * this._refillRate;
-      bucket.tokens = Math.min(bucket.tokens + tokensToAdd, this._bucketSize);
-      bucket.lastAccess = bucket.lastAccess + refillIntervals * this._refillInterval;
-    }
-  }
-  consumeRateLimit(key) {
-    const now = Date.now();
-    const keyStr = String(key);
-    let bucket = this._buckets[keyStr];
-    if (bucket)
-      this._applyRefill(bucket, now);
-    else {
-      bucket = {
-        tokens: this._bucketSize,
-        lastAccess: now
-      };
-      this._buckets[keyStr] = bucket;
-    }
-    if (bucket.tokens === 0)
-      return true;
-    bucket.tokens--;
-    if (bucket.tokens === 0)
-      this._onBucketRateLimited?.(key);
-    return bucket.tokens === 0;
-  }
-  stop() {
-    this._buckets = {};
-  }
-}
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/utils/promise-queue.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/utils/promise-queue.mjs
 class PromiseQueue {
   add(promise) {
     const promiseUUID = uuidv7();
@@ -7860,18 +9719,306 @@ class PromiseQueue {
     this.promiseByIds = {};
   }
 }
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/utils/logger.mjs
+function createConsole(consoleLike = console) {
+  const lockedMethods = {
+    log: consoleLike.log.bind(consoleLike),
+    warn: consoleLike.warn.bind(consoleLike),
+    error: consoleLike.error.bind(consoleLike),
+    debug: consoleLike.debug.bind(consoleLike)
+  };
+  return lockedMethods;
+}
+var _createLogger = (prefix, maybeCall, consoleLike) => {
+  function _log(level, ...args) {
+    maybeCall(() => {
+      const consoleMethod = consoleLike[level];
+      consoleMethod(prefix, ...args);
+    });
+  }
+  const logger = {
+    debug: (...args) => {
+      _log("debug", ...args);
+    },
+    info: (...args) => {
+      _log("log", ...args);
+    },
+    warn: (...args) => {
+      _log("warn", ...args);
+    },
+    error: (...args) => {
+      _log("error", ...args);
+    },
+    critical: (...args) => {
+      consoleLike["error"](prefix, ...args);
+    },
+    createLogger: (additionalPrefix) => _createLogger(`${prefix} ${additionalPrefix}`, maybeCall, consoleLike)
+  };
+  return logger;
+};
+var passThrough = (fn) => fn();
+function createLogger(prefix, maybeCall = passThrough) {
+  return _createLogger(prefix, maybeCall, createConsole());
+}
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/utils/user-agent-utils.mjs
+var MOBILE = "Mobile";
+var IOS = "iOS";
+var ANDROID = "Android";
+var TABLET = "Tablet";
+var ANDROID_TABLET = ANDROID + " " + TABLET;
+var APPLE = "Apple";
+var APPLE_WATCH = APPLE + " Watch";
+var SAFARI = "Safari";
+var BLACKBERRY = "BlackBerry";
+var SAMSUNG = "Samsung";
+var SAMSUNG_BROWSER = SAMSUNG + "Browser";
+var SAMSUNG_INTERNET = SAMSUNG + " Internet";
+var CHROME = "Chrome";
+var CHROME_OS = CHROME + " OS";
+var CHROME_IOS = CHROME + " " + IOS;
+var INTERNET_EXPLORER = "Internet Explorer";
+var INTERNET_EXPLORER_MOBILE = INTERNET_EXPLORER + " " + MOBILE;
+var OPERA = "Opera";
+var OPERA_MINI = OPERA + " Mini";
+var EDGE = "Edge";
+var MICROSOFT_EDGE = "Microsoft " + EDGE;
+var FIREFOX = "Firefox";
+var FIREFOX_IOS = FIREFOX + " " + IOS;
+var NINTENDO = "Nintendo";
+var PLAYSTATION = "PlayStation";
+var XBOX = "Xbox";
+var ANDROID_MOBILE = ANDROID + " " + MOBILE;
+var MOBILE_SAFARI = MOBILE + " " + SAFARI;
+var WINDOWS = "Windows";
+var WINDOWS_PHONE = WINDOWS + " Phone";
+var GENERIC = "Generic";
+var GENERIC_MOBILE = GENERIC + " " + MOBILE.toLowerCase();
+var GENERIC_TABLET = GENERIC + " " + TABLET.toLowerCase();
+var KONQUEROR = "Konqueror";
+var BROWSER_VERSION_REGEX_SUFFIX = "(\\d+(\\.\\d+)?)";
+var DEFAULT_BROWSER_VERSION_REGEX = new RegExp("Version/" + BROWSER_VERSION_REGEX_SUFFIX);
+var XBOX_REGEX = new RegExp(XBOX, "i");
+var PLAYSTATION_REGEX = new RegExp(PLAYSTATION + " \\w+", "i");
+var NINTENDO_REGEX = new RegExp(NINTENDO + " \\w+", "i");
+var BLACKBERRY_REGEX = new RegExp(BLACKBERRY + "|PlayBook|BB10", "i");
+var windowsVersionMap = {
+  "NT3.51": "NT 3.11",
+  "NT4.0": "NT 4.0",
+  "5.0": "2000",
+  "5.1": "XP",
+  "5.2": "XP",
+  "6.0": "Vista",
+  "6.1": "7",
+  "6.2": "8",
+  "6.3": "8.1",
+  "6.4": "10",
+  "10.0": "10"
+};
+var versionRegexes = {
+  [INTERNET_EXPLORER_MOBILE]: [
+    new RegExp("rv:" + BROWSER_VERSION_REGEX_SUFFIX)
+  ],
+  [MICROSOFT_EDGE]: [
+    new RegExp(EDGE + "?\\/" + BROWSER_VERSION_REGEX_SUFFIX)
+  ],
+  [CHROME]: [
+    new RegExp("(" + CHROME + "|CrMo)\\/" + BROWSER_VERSION_REGEX_SUFFIX)
+  ],
+  [CHROME_IOS]: [
+    new RegExp("CriOS\\/" + BROWSER_VERSION_REGEX_SUFFIX)
+  ],
+  "UC Browser": [
+    new RegExp("(UCBrowser|UCWEB)\\/" + BROWSER_VERSION_REGEX_SUFFIX)
+  ],
+  [SAFARI]: [
+    DEFAULT_BROWSER_VERSION_REGEX
+  ],
+  [MOBILE_SAFARI]: [
+    DEFAULT_BROWSER_VERSION_REGEX
+  ],
+  [OPERA]: [
+    new RegExp("(" + OPERA + "|OPR)\\/" + BROWSER_VERSION_REGEX_SUFFIX)
+  ],
+  [FIREFOX]: [
+    new RegExp(FIREFOX + "\\/" + BROWSER_VERSION_REGEX_SUFFIX)
+  ],
+  [FIREFOX_IOS]: [
+    new RegExp("FxiOS\\/" + BROWSER_VERSION_REGEX_SUFFIX)
+  ],
+  [KONQUEROR]: [
+    new RegExp("Konqueror[:/]?" + BROWSER_VERSION_REGEX_SUFFIX, "i")
+  ],
+  [BLACKBERRY]: [
+    new RegExp(BLACKBERRY + " " + BROWSER_VERSION_REGEX_SUFFIX),
+    DEFAULT_BROWSER_VERSION_REGEX
+  ],
+  [ANDROID_MOBILE]: [
+    new RegExp("android\\s" + BROWSER_VERSION_REGEX_SUFFIX, "i")
+  ],
+  [SAMSUNG_INTERNET]: [
+    new RegExp(SAMSUNG_BROWSER + "\\/" + BROWSER_VERSION_REGEX_SUFFIX)
+  ],
+  [INTERNET_EXPLORER]: [
+    new RegExp("(rv:|MSIE )" + BROWSER_VERSION_REGEX_SUFFIX)
+  ],
+  Mozilla: [
+    new RegExp("rv:" + BROWSER_VERSION_REGEX_SUFFIX)
+  ]
+};
+var osMatchers = [
+  [
+    new RegExp(XBOX + "; " + XBOX + " (.*?)[);]", "i"),
+    (match) => [
+      XBOX,
+      match && match[1] || ""
+    ]
+  ],
+  [
+    new RegExp(NINTENDO, "i"),
+    [
+      NINTENDO,
+      ""
+    ]
+  ],
+  [
+    new RegExp(PLAYSTATION, "i"),
+    [
+      PLAYSTATION,
+      ""
+    ]
+  ],
+  [
+    BLACKBERRY_REGEX,
+    [
+      BLACKBERRY,
+      ""
+    ]
+  ],
+  [
+    new RegExp(WINDOWS, "i"),
+    (_, user_agent) => {
+      if (/Phone/.test(user_agent) || /WPDesktop/.test(user_agent))
+        return [
+          WINDOWS_PHONE,
+          ""
+        ];
+      if (new RegExp(MOBILE).test(user_agent) && !/IEMobile\b/.test(user_agent))
+        return [
+          WINDOWS + " " + MOBILE,
+          ""
+        ];
+      const match = /Windows NT ([0-9.]+)/i.exec(user_agent);
+      if (match && match[1]) {
+        const version = match[1];
+        let osVersion = windowsVersionMap[version] || "";
+        if (/arm/i.test(user_agent))
+          osVersion = "RT";
+        return [
+          WINDOWS,
+          osVersion
+        ];
+      }
+      return [
+        WINDOWS,
+        ""
+      ];
+    }
+  ],
+  [
+    /((iPhone|iPad|iPod).*?OS (\d+)_(\d+)_?(\d+)?|iPhone)/,
+    (match) => {
+      if (match && match[3]) {
+        const versionParts = [
+          match[3],
+          match[4],
+          match[5] || "0"
+        ];
+        return [
+          IOS,
+          versionParts.join(".")
+        ];
+      }
+      return [
+        IOS,
+        ""
+      ];
+    }
+  ],
+  [
+    /(watch.*\/(\d+\.\d+\.\d+)|watch os,(\d+\.\d+),)/i,
+    (match) => {
+      let version = "";
+      if (match && match.length >= 3)
+        version = isUndefined(match[2]) ? match[3] : match[2];
+      return [
+        "watchOS",
+        version
+      ];
+    }
+  ],
+  [
+    new RegExp("(" + ANDROID + " (\\d+)\\.(\\d+)\\.?(\\d+)?|" + ANDROID + ")", "i"),
+    (match) => {
+      if (match && match[2]) {
+        const versionParts = [
+          match[2],
+          match[3],
+          match[4] || "0"
+        ];
+        return [
+          ANDROID,
+          versionParts.join(".")
+        ];
+      }
+      return [
+        ANDROID,
+        ""
+      ];
+    }
+  ],
+  [
+    /Mac OS X (\d+)[_.](\d+)[_.]?(\d+)?/i,
+    (match) => {
+      const result = [
+        "Mac OS X",
+        ""
+      ];
+      if (match && match[1]) {
+        const versionParts = [
+          match[1],
+          match[2],
+          match[3] || "0"
+        ];
+        result[1] = versionParts.join(".");
+      }
+      return result;
+    }
+  ],
+  [
+    /Mac/i,
+    [
+      "Mac OS X",
+      ""
+    ]
+  ],
+  [
+    /CrOS/,
+    [
+      CHROME_OS,
+      ""
+    ]
+  ],
+  [
+    /Linux|debian/i,
+    [
+      "Linux",
+      ""
+    ]
+  ]
+];
 
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/utils/index.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/utils/index.mjs
 var STRING_FORMAT = "utf8";
-function assert(truthyValue, message) {
-  if (!truthyValue || typeof truthyValue != "string" || isEmpty(truthyValue))
-    throw new Error(message);
-}
-function isEmpty(truthyValue) {
-  if (truthyValue.trim().length === 0)
-    return true;
-  return false;
-}
 function removeTrailingSlash(url) {
   return url?.replace(/\/+$/, "");
 }
@@ -7909,7 +10056,36 @@ function allSettled(promises) {
     reason
   }))));
 }
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/eventemitter.mjs
+
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/logs/logs-utils.mjs
+var OTLP_SEVERITY_MAP = {
+  trace: {
+    text: "TRACE",
+    number: 1
+  },
+  debug: {
+    text: "DEBUG",
+    number: 5
+  },
+  info: {
+    text: "INFO",
+    number: 9
+  },
+  warn: {
+    text: "WARN",
+    number: 13
+  },
+  error: {
+    text: "ERROR",
+    number: 17
+  },
+  fatal: {
+    text: "FATAL",
+    number: 21
+  }
+};
+var DEFAULT_OTLP_SEVERITY = OTLP_SEVERITY_MAP.info;
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/eventemitter.mjs
 class SimpleEventEmitter {
   constructor() {
     this.events = {};
@@ -7931,65 +10107,7 @@ class SimpleEventEmitter {
   }
 }
 
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/gzip.mjs
-function isGzipSupported() {
-  return "CompressionStream" in globalThis;
-}
-async function gzipCompress(input, isDebug = true) {
-  try {
-    const dataStream = new Blob([
-      input
-    ], {
-      type: "text/plain"
-    }).stream();
-    const compressedStream = dataStream.pipeThrough(new CompressionStream("gzip"));
-    return await new Response(compressedStream).blob();
-  } catch (error) {
-    if (isDebug)
-      console.error("Failed to gzip compress data", error);
-    return null;
-  }
-}
-
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/logger.mjs
-function createConsole(consoleLike = console) {
-  const lockedMethods = {
-    log: consoleLike.log.bind(consoleLike),
-    warn: consoleLike.warn.bind(consoleLike),
-    error: consoleLike.error.bind(consoleLike),
-    debug: consoleLike.debug.bind(consoleLike)
-  };
-  return lockedMethods;
-}
-var _createLogger = (prefix, maybeCall, consoleLike) => {
-  function _log(level, ...args) {
-    maybeCall(() => {
-      const consoleMethod = consoleLike[level];
-      consoleMethod(prefix, ...args);
-    });
-  }
-  const logger = {
-    info: (...args) => {
-      _log("log", ...args);
-    },
-    warn: (...args) => {
-      _log("warn", ...args);
-    },
-    error: (...args) => {
-      _log("error", ...args);
-    },
-    critical: (...args) => {
-      consoleLike["error"](prefix, ...args);
-    },
-    createLogger: (additionalPrefix) => _createLogger(`${prefix} ${additionalPrefix}`, maybeCall, consoleLike)
-  };
-  return logger;
-};
-function createLogger(prefix, maybeCall) {
-  return _createLogger(prefix, maybeCall, createConsole());
-}
-
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/posthog-core-stateless.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/posthog-core-stateless.mjs
 class PostHogFetchHttpError extends Error {
   constructor(response, reqByteLength) {
     super("HTTP error while fetching PostHog: status=" + response.status + ", reqByteLength=" + reqByteLength), this.response = response, this.reqByteLength = reqByteLength, this.name = "PostHogFetchHttpError";
@@ -8036,9 +10154,14 @@ class PostHogCoreStateless {
     this.promiseQueue = new PromiseQueue;
     this._events = new SimpleEventEmitter;
     this._isInitialized = false;
-    assert(apiKey, "You must pass your PostHog project's api key.");
-    this.apiKey = apiKey;
-    this.host = removeTrailingSlash(options.host || "https://us.i.posthog.com");
+    const normalizedApiKey = typeof apiKey == "string" ? apiKey.trim() : "";
+    const normalizedHost = typeof options.host == "string" ? options.host.trim() : "";
+    const missingApiKey = !normalizedApiKey;
+    this._logger = createLogger("[PostHog]", this.logMsgIfDebug.bind(this));
+    if (missingApiKey)
+      this._logger.error("You must pass your PostHog project's api key. The client will be disabled.");
+    this.apiKey = normalizedApiKey;
+    this.host = removeTrailingSlash(normalizedHost || "https://us.i.posthog.com");
     this.flushAt = options.flushAt ? Math.max(options.flushAt, 1) : 20;
     this.maxBatchSize = Math.max(this.flushAt, options.maxBatchSize ?? 100);
     this.maxQueueSize = Math.max(this.flushAt, options.maxQueueSize ?? 1000);
@@ -8055,12 +10178,13 @@ class PostHogCoreStateless {
     this.featureFlagsRequestTimeoutMs = options.featureFlagsRequestTimeoutMs ?? 3000;
     this.remoteConfigRequestTimeoutMs = options.remoteConfigRequestTimeoutMs ?? 3000;
     this.disableGeoip = options.disableGeoip ?? true;
-    this.disabled = options.disabled ?? false;
+    this.disabled = (options.disabled ?? false) || missingApiKey;
     this.historicalMigration = options?.historicalMigration ?? false;
-    this.evaluationEnvironments = options?.evaluationEnvironments;
     this._initPromise = Promise.resolve();
     this._isInitialized = true;
-    this._logger = createLogger("[PostHog]", this.logMsgIfDebug.bind(this));
+    this.evaluationContexts = options?.evaluationContexts ?? options?.evaluationEnvironments;
+    if (options?.evaluationEnvironments && !options?.evaluationContexts)
+      this._logger.warn("evaluationEnvironments is deprecated. Use evaluationContexts instead. This property will be removed in a future version.");
     this.disableCompression = !isGzipSupported() || (options?.disableCompression ?? false);
   }
   logMsgIfDebug(fn) {
@@ -8228,7 +10352,7 @@ class PostHogCoreStateless {
       this._events.emit("error", error);
     });
   }
-  async getFlags(distinctId, groups = {}, personProperties = {}, groupProperties = {}, extraPayload = {}, fetchConfig = true) {
+  async getFlags(distinctId, groups = {}, personProperties = {}, groupProperties = {}, extraPayload = {}, fetchConfig = false) {
     await this._initPromise;
     const configParam = fetchConfig ? "&config=true" : "";
     const url = `${this.host}/flags/?v=2${configParam}`;
@@ -8240,8 +10364,10 @@ class PostHogCoreStateless {
       group_properties: groupProperties,
       ...extraPayload
     };
-    if (this.evaluationEnvironments && this.evaluationEnvironments.length > 0)
-      requestData.evaluation_environments = this.evaluationEnvironments;
+    if (personProperties.$device_id)
+      requestData.$device_id = personProperties.$device_id;
+    if (this.evaluationContexts && this.evaluationContexts.length > 0)
+      requestData.evaluation_contexts = this.evaluationContexts;
     const fetchOptions = {
       method: "POST",
       headers: {
@@ -8253,9 +10379,36 @@ class PostHogCoreStateless {
     this._logger.info("Flags URL", url);
     return this.fetchWithRetry(url, fetchOptions, {
       retryCount: 0
-    }, this.featureFlagsRequestTimeoutMs).then((response) => response.json()).then((response) => normalizeFlagsResponse(response)).catch((error) => {
+    }, this.featureFlagsRequestTimeoutMs).then((response) => response.json()).then((response) => ({
+      success: true,
+      response: normalizeFlagsResponse(response)
+    })).catch((error) => {
       this._events.emit("error", error);
+      return {
+        success: false,
+        error: this.categorizeRequestError(error)
+      };
     });
+  }
+  categorizeRequestError(error) {
+    if (error instanceof PostHogFetchHttpError)
+      return {
+        type: "api_error",
+        statusCode: error.status
+      };
+    if (error instanceof PostHogFetchNetworkError) {
+      const cause = error.error;
+      if (cause instanceof Error && (cause.name === "AbortError" || cause.name === "TimeoutError"))
+        return {
+          type: "timeout"
+        };
+      return {
+        type: "connection_error"
+      };
+    }
+    return {
+      type: "unknown_error"
+    };
   }
   async getFeatureFlagStateless(key, distinctId, groups = {}, personProperties = {}, groupProperties = {}, disableGeoip) {
     await this._initPromise;
@@ -8284,7 +10437,8 @@ class PostHogCoreStateless {
     const flagDetail = featureFlags[key];
     return {
       response: flagDetail,
-      requestId: flagsResponse.requestId
+      requestId: flagsResponse.requestId,
+      evaluatedAt: flagsResponse.evaluatedAt
     };
   }
   async getFeatureFlagPayloadStateless(key, distinctId, groups = {}, personProperties = {}, groupProperties = {}, disableGeoip) {
@@ -8330,9 +10484,10 @@ class PostHogCoreStateless {
       extraPayload["geoip_disable"] = true;
     if (flagKeysToEvaluate)
       extraPayload["flag_keys_to_evaluate"] = flagKeysToEvaluate;
-    const flagsResponse = await this.getFlags(distinctId, groups, personProperties, groupProperties, extraPayload);
-    if (flagsResponse === undefined)
+    const result = await this.getFlags(distinctId, groups, personProperties, groupProperties, extraPayload);
+    if (!result.success)
       return;
+    const flagsResponse = result.response;
     if (flagsResponse.errorsWhileComputingFlags)
       console.error("[FEATURE FLAGS] Error while computing feature flags, some flags may be missing or incorrect. Learn more at https://posthog.com/docs/feature-flags/best-practices");
     if (flagsResponse.quotaLimited?.includes("feature_flags")) {
@@ -8341,13 +10496,16 @@ class PostHogCoreStateless {
         flags: {},
         featureFlags: {},
         featureFlagPayloads: {},
-        requestId: flagsResponse?.requestId
+        requestId: flagsResponse?.requestId,
+        quotaLimited: flagsResponse.quotaLimited
       };
     }
     return flagsResponse;
   }
   async getSurveysStateless() {
     await this._initPromise;
+    if (this.disabled)
+      return [];
     if (this.disableSurveys === true) {
       this._logger.info("Loading surveys is disabled.");
       return [];
@@ -8401,11 +10559,18 @@ class PostHogCoreStateless {
       this.setPersistedProperty(types_PostHogPersistedProperty.Props, this.props);
     });
   }
+  processBeforeEnqueue(message) {
+    return message;
+  }
+  async flushStorage() {}
   enqueue(type, _message, options) {
     this.wrap(() => {
       if (this.optedOut)
         return void this._events.emit(type, "Library is disabled. Not sending event. To re-enable, call posthog.optIn()");
-      const message = this.prepareMessage(type, _message, options);
+      let message = this.prepareMessage(type, _message, options);
+      message = this.processBeforeEnqueue(message);
+      if (message === null)
+        return;
       const queue = this.getPersistedProperty(types_PostHogPersistedProperty.Queue) || [];
       if (queue.length >= this.maxQueueSize) {
         queue.shift();
@@ -8429,10 +10594,14 @@ class PostHogCoreStateless {
       await this._initPromise;
     if (this.optedOut)
       return void this._events.emit(type, "Library is disabled. Not sending event. To re-enable, call posthog.optIn()");
+    let message = this.prepareMessage(type, _message, options);
+    message = this.processBeforeEnqueue(message);
+    if (message === null)
+      return;
     const data = {
       api_key: this.apiKey,
       batch: [
-        this.prepareMessage(type, _message, options)
+        message
       ],
       sent_at: currentISOTime()
     };
@@ -8453,7 +10622,8 @@ class PostHogCoreStateless {
       body: gzippedPayload || payload
     };
     try {
-      await this.fetchWithRetry(url, fetchOptions);
+      const response = await this.fetchWithRetry(url, fetchOptions);
+      await response.body?.cancel()?.catch(() => {});
     } catch (err) {
       this._events.emit("error", err);
     }
@@ -8491,6 +10661,8 @@ class PostHogCoreStateless {
     });
   }
   async flush() {
+    if (this.disabled)
+      return;
     const nextFlushPromise = allSettled([
       this.flushPromise
     ]).then(() => this._flush());
@@ -8522,11 +10694,12 @@ class PostHogCoreStateless {
     while (queue.length > 0 && sentMessages.length < originalQueueLength) {
       const batchItems = queue.slice(0, this.maxBatchSize);
       const batchMessages = batchItems.map((item) => item.message);
-      const persistQueueChange = () => {
+      const persistQueueChange = async () => {
         const refreshedQueue = this.getPersistedProperty(types_PostHogPersistedProperty.Queue) || [];
         const newQueue = refreshedQueue.slice(batchItems.length);
         this.setPersistedProperty(types_PostHogPersistedProperty.Queue, newQueue);
         queue = newQueue;
+        await this.flushStorage();
       };
       const data = {
         api_key: this.apiKey,
@@ -8557,7 +10730,8 @@ class PostHogCoreStateless {
         }
       };
       try {
-        await this.fetchWithRetry(url, fetchOptions, retryOptions);
+        const response = await this.fetchWithRetry(url, fetchOptions, retryOptions);
+        await response.body?.cancel()?.catch(() => {});
       } catch (err) {
         if (isPostHogFetchContentTooLargeError(err) && batchMessages.length > 1) {
           this.maxBatchSize = Math.max(1, Math.floor(batchMessages.length / 2));
@@ -8565,21 +10739,63 @@ class PostHogCoreStateless {
           continue;
         }
         if (!(err instanceof PostHogFetchNetworkError))
-          persistQueueChange();
+          await persistQueueChange();
         this._events.emit("error", err);
         throw err;
       }
-      persistQueueChange();
+      await persistQueueChange();
       sentMessages.push(...batchMessages);
     }
     this._events.emit("flush", sentMessages);
   }
-  async fetchWithRetry(url, options, retryOptions, requestTimeout) {
-    AbortSignal.timeout ??= function(ms) {
-      const ctrl = new AbortController;
-      setTimeout(() => ctrl.abort(), ms);
-      return ctrl.signal;
+  async _sendLogsBatch(payload) {
+    if (this.disabled)
+      return {
+        kind: "fatal",
+        error: new Error("The client is disabled")
+      };
+    const serialized = JSON.stringify(payload);
+    const url = `${this.host}/i/v1/logs?token=${encodeURIComponent(this.apiKey)}`;
+    const gzippedPayload = this.disableCompression ? null : await gzipCompress(serialized, this.isDebug);
+    const fetchOptions = {
+      method: "POST",
+      headers: {
+        ...this.getCustomHeaders(),
+        "Content-Type": "application/json",
+        ...gzippedPayload !== null && {
+          "Content-Encoding": "gzip"
+        }
+      },
+      body: gzippedPayload || serialized
     };
+    try {
+      await this.fetchWithRetry(url, fetchOptions, {
+        retryCheck: (err) => {
+          if (isPostHogFetchContentTooLargeError(err))
+            return false;
+          return isPostHogFetchError(err);
+        }
+      });
+      return {
+        kind: "ok"
+      };
+    } catch (err) {
+      if (isPostHogFetchContentTooLargeError(err))
+        return {
+          kind: "too-large"
+        };
+      if (err instanceof PostHogFetchNetworkError)
+        return {
+          kind: "retry-later",
+          error: err
+        };
+      return {
+        kind: "fatal",
+        error: err
+      };
+    }
+  }
+  async fetchWithRetry(url, options, retryOptions, requestTimeout) {
     const body = options.body ? options.body : "";
     let reqByteLength = -1;
     try {
@@ -8593,14 +10809,19 @@ class PostHogCoreStateless {
       }
     }
     return await retriable(async () => {
+      const ctrl = new AbortController;
+      const timeoutMs = requestTimeout ?? this.requestTimeout;
+      const timer = safeSetTimeout(() => ctrl.abort(), timeoutMs);
       let res = null;
       try {
         res = await this.fetch(url, {
-          signal: AbortSignal.timeout(requestTimeout ?? this.requestTimeout),
+          signal: ctrl.signal,
           ...options
         });
       } catch (e) {
         throw new PostHogFetchNetworkError(e);
+      } finally {
+        clearTimeout(timer);
       }
       const isNoCors = options.mode === "no-cors";
       if (!isNoCors && (res.status < 200 || res.status >= 400))
@@ -8615,6 +10836,8 @@ class PostHogCoreStateless {
     await this._initPromise;
     let hasTimedOut = false;
     this.clearFlushTimer();
+    if (this.disabled)
+      return;
     const doShutdown = async () => {
       try {
         await this.promiseQueue.join();
@@ -8632,16 +10855,21 @@ class PostHogCoreStateless {
         await logFlushError(e);
       }
     };
-    return Promise.race([
-      new Promise((_, reject) => {
-        safeSetTimeout(() => {
-          this._logger.error("Timed out while shutting down PostHog");
-          hasTimedOut = true;
-          reject("Timeout while shutting down PostHog. Some events may not have been sent.");
-        }, shutdownTimeoutMs);
-      }),
-      doShutdown()
-    ]);
+    let timeoutHandle;
+    try {
+      return await Promise.race([
+        new Promise((_, reject) => {
+          timeoutHandle = safeSetTimeout(() => {
+            this._logger.error("Timed out while shutting down PostHog");
+            hasTimedOut = true;
+            reject("Timeout while shutting down PostHog. Some events may not have been sent.");
+          }, shutdownTimeoutMs);
+        }),
+        doShutdown()
+      ]);
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
   }
   async shutdown(shutdownTimeoutMs = 30000) {
     if (this.shutdownPromise)
@@ -8653,30 +10881,37 @@ class PostHogCoreStateless {
     return this.shutdownPromise;
   }
 }
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/index.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/index.mjs
 var exports_error_tracking = {};
 __export(exports_error_tracking, {
   winjsStackLineParser: () => winjsStackLineParser,
+  stripReservedExceptionStepFields: () => stripReservedExceptionStepFields,
   reverseAndStripFrames: () => reverseAndStripFrames,
+  resolveExceptionStepsConfig: () => resolveExceptionStepsConfig,
   opera11StackLineParser: () => opera11StackLineParser,
   opera10StackLineParser: () => opera10StackLineParser,
   nodeStackLineParser: () => nodeStackLineParser,
+  getUtf8ByteLength: () => getUtf8ByteLength,
   geckoStackLineParser: () => geckoStackLineParser,
   createStackParser: () => createStackParser,
+  createDefaultStackParser: () => createDefaultStackParser,
   chromeStackLineParser: () => chromeStackLineParser,
   StringCoercer: () => StringCoercer,
   ReduceableCache: () => ReduceableCache,
   PromiseRejectionEventCoercer: () => PromiseRejectionEventCoercer,
   PrimitiveCoercer: () => PrimitiveCoercer,
   ObjectCoercer: () => ObjectCoercer,
+  ExceptionStepsBuffer: () => ExceptionStepsBuffer,
   EventCoercer: () => EventCoercer,
   ErrorPropertiesBuilder: () => ErrorPropertiesBuilder,
   ErrorEventCoercer: () => ErrorEventCoercer,
   ErrorCoercer: () => ErrorCoercer,
-  DOMExceptionCoercer: () => DOMExceptionCoercer
+  EXCEPTION_STEP_INTERNAL_FIELDS: () => EXCEPTION_STEP_INTERNAL_FIELDS,
+  DOMExceptionCoercer: () => DOMExceptionCoercer,
+  DEFAULT_EXCEPTION_STEPS_CONFIG: () => DEFAULT_EXCEPTION_STEPS_CONFIG
 });
 
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/chunk-ids.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/chunk-ids.mjs
 var parsedStackResults;
 var lastKeysCount;
 var cachedFilenameChunkIds;
@@ -8715,223 +10950,14 @@ function getFilenameToChunkIdMap(stackParser) {
   return cachedFilenameChunkIds;
 }
 
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/parsers/base.mjs
-var UNKNOWN_FUNCTION = "?";
-function createFrame(filename, func, lineno, colno) {
-  const frame = {
-    platform: "web:javascript",
-    filename,
-    function: func === "<anonymous>" ? UNKNOWN_FUNCTION : func,
-    in_app: true
-  };
-  if (!isUndefined(lineno))
-    frame.lineno = lineno;
-  if (!isUndefined(colno))
-    frame.colno = colno;
-  return frame;
-}
-
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/parsers/safari.mjs
-var extractSafariExtensionDetails = (func, filename) => {
-  const isSafariExtension = func.indexOf("safari-extension") !== -1;
-  const isSafariWebExtension = func.indexOf("safari-web-extension") !== -1;
-  return isSafariExtension || isSafariWebExtension ? [
-    func.indexOf("@") !== -1 ? func.split("@")[0] : UNKNOWN_FUNCTION,
-    isSafariExtension ? `safari-extension:${filename}` : `safari-web-extension:${filename}`
-  ] : [
-    func,
-    filename
-  ];
-};
-
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/parsers/chrome.mjs
-var chromeRegexNoFnName = /^\s*at (\S+?)(?::(\d+))(?::(\d+))\s*$/i;
-var chromeRegex = /^\s*at (?:(.+?\)(?: \[.+\])?|.*?) ?\((?:address at )?)?(?:async )?((?:<anonymous>|[-a-z]+:|.*bundle|\/)?.*?)(?::(\d+))?(?::(\d+))?\)?\s*$/i;
-var chromeEvalRegex = /\((\S*)(?::(\d+))(?::(\d+))\)/;
-var chromeStackLineParser = (line) => {
-  const noFnParts = chromeRegexNoFnName.exec(line);
-  if (noFnParts) {
-    const [, filename, line2, col] = noFnParts;
-    return createFrame(filename, UNKNOWN_FUNCTION, +line2, +col);
-  }
-  const parts = chromeRegex.exec(line);
-  if (parts) {
-    const isEval = parts[2] && parts[2].indexOf("eval") === 0;
-    if (isEval) {
-      const subMatch = chromeEvalRegex.exec(parts[2]);
-      if (subMatch) {
-        parts[2] = subMatch[1];
-        parts[3] = subMatch[2];
-        parts[4] = subMatch[3];
-      }
-    }
-    const [func, filename] = extractSafariExtensionDetails(parts[1] || UNKNOWN_FUNCTION, parts[2]);
-    return createFrame(filename, func, parts[3] ? +parts[3] : undefined, parts[4] ? +parts[4] : undefined);
-  }
-};
-
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/parsers/winjs.mjs
-var winjsRegex = /^\s*at (?:((?:\[object object\])?.+) )?\(?((?:[-a-z]+):.*?):(\d+)(?::(\d+))?\)?\s*$/i;
-var winjsStackLineParser = (line) => {
-  const parts = winjsRegex.exec(line);
-  return parts ? createFrame(parts[2], parts[1] || UNKNOWN_FUNCTION, +parts[3], parts[4] ? +parts[4] : undefined) : undefined;
-};
-
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/parsers/gecko.mjs
-var geckoREgex = /^\s*(.*?)(?:\((.*?)\))?(?:^|@)?((?:[-a-z]+)?:\/.*?|\[native code\]|[^@]*(?:bundle|\d+\.js)|\/[\w\-. /=]+)(?::(\d+))?(?::(\d+))?\s*$/i;
-var geckoEvalRegex = /(\S+) line (\d+)(?: > eval line \d+)* > eval/i;
-var geckoStackLineParser = (line) => {
-  const parts = geckoREgex.exec(line);
-  if (parts) {
-    const isEval = parts[3] && parts[3].indexOf(" > eval") > -1;
-    if (isEval) {
-      const subMatch = geckoEvalRegex.exec(parts[3]);
-      if (subMatch) {
-        parts[1] = parts[1] || "eval";
-        parts[3] = subMatch[1];
-        parts[4] = subMatch[2];
-        parts[5] = "";
-      }
-    }
-    let filename = parts[3];
-    let func = parts[1] || UNKNOWN_FUNCTION;
-    [func, filename] = extractSafariExtensionDetails(func, filename);
-    return createFrame(filename, func, parts[4] ? +parts[4] : undefined, parts[5] ? +parts[5] : undefined);
-  }
-};
-
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/parsers/opera.mjs
-var opera10Regex = / line (\d+).*script (?:in )?(\S+)(?:: in function (\S+))?$/i;
-var opera10StackLineParser = (line) => {
-  const parts = opera10Regex.exec(line);
-  return parts ? createFrame(parts[2], parts[3] || UNKNOWN_FUNCTION, +parts[1]) : undefined;
-};
-var opera11Regex = / line (\d+), column (\d+)\s*(?:in (?:<anonymous function: ([^>]+)>|([^)]+))\(.*\))? in (.*):\s*$/i;
-var opera11StackLineParser = (line) => {
-  const parts = opera11Regex.exec(line);
-  return parts ? createFrame(parts[5], parts[3] || parts[4] || UNKNOWN_FUNCTION, +parts[1], +parts[2]) : undefined;
-};
-
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/parsers/node.mjs
-var FILENAME_MATCH = /^\s*[-]{4,}$/;
-var FULL_MATCH = /at (?:async )?(?:(.+?)\s+\()?(?:(.+):(\d+):(\d+)?|([^)]+))\)?/;
-var nodeStackLineParser = (line) => {
-  const lineMatch = line.match(FULL_MATCH);
-  if (lineMatch) {
-    let object;
-    let method;
-    let functionName;
-    let typeName;
-    let methodName;
-    if (lineMatch[1]) {
-      functionName = lineMatch[1];
-      let methodStart = functionName.lastIndexOf(".");
-      if (functionName[methodStart - 1] === ".")
-        methodStart--;
-      if (methodStart > 0) {
-        object = functionName.slice(0, methodStart);
-        method = functionName.slice(methodStart + 1);
-        const objectEnd = object.indexOf(".Module");
-        if (objectEnd > 0) {
-          functionName = functionName.slice(objectEnd + 1);
-          object = object.slice(0, objectEnd);
-        }
-      }
-      typeName = undefined;
-    }
-    if (method) {
-      typeName = object;
-      methodName = method;
-    }
-    if (method === "<anonymous>") {
-      methodName = undefined;
-      functionName = undefined;
-    }
-    if (functionName === undefined) {
-      methodName = methodName || UNKNOWN_FUNCTION;
-      functionName = typeName ? `${typeName}.${methodName}` : methodName;
-    }
-    let filename = lineMatch[2]?.startsWith("file://") ? lineMatch[2].slice(7) : lineMatch[2];
-    const isNative = lineMatch[5] === "native";
-    if (filename?.match(/\/[A-Z]:/))
-      filename = filename.slice(1);
-    if (!filename && lineMatch[5] && !isNative)
-      filename = lineMatch[5];
-    return {
-      filename: filename ? decodeURI(filename) : undefined,
-      module: undefined,
-      function: functionName,
-      lineno: _parseIntOrUndefined(lineMatch[3]),
-      colno: _parseIntOrUndefined(lineMatch[4]),
-      in_app: filenameIsInApp(filename || "", isNative),
-      platform: "node:javascript"
-    };
-  }
-  if (line.match(FILENAME_MATCH))
-    return {
-      filename: line,
-      platform: "node:javascript"
-    };
-};
-function filenameIsInApp(filename, isNative = false) {
-  const isInternal = isNative || filename && !filename.startsWith("/") && !filename.match(/^[A-Z]:/) && !filename.startsWith(".") && !filename.match(/^[a-zA-Z]([a-zA-Z0-9.\-+])*:\/\//);
-  return !isInternal && filename !== undefined && !filename.includes("node_modules/");
-}
-function _parseIntOrUndefined(input) {
-  return parseInt(input || "", 10) || undefined;
-}
-
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/parsers/index.mjs
-var WEBPACK_ERROR_REGEXP = /\(error: (.*)\)/;
-var STACKTRACE_FRAME_LIMIT = 50;
-function reverseAndStripFrames(stack) {
-  if (!stack.length)
-    return [];
-  const localStack = Array.from(stack);
-  localStack.reverse();
-  return localStack.slice(0, STACKTRACE_FRAME_LIMIT).map((frame) => ({
-    ...frame,
-    filename: frame.filename || getLastStackFrame(localStack).filename,
-    function: frame.function || UNKNOWN_FUNCTION
-  }));
-}
-function getLastStackFrame(arr) {
-  return arr[arr.length - 1] || {};
-}
-function createStackParser(...parsers) {
-  return (stack, skipFirstLines = 0) => {
-    const frames = [];
-    const lines = stack.split(`
-`);
-    for (let i = skipFirstLines;i < lines.length; i++) {
-      const line = lines[i];
-      if (line.length > 1024)
-        continue;
-      const cleanedLine = WEBPACK_ERROR_REGEXP.test(line) ? line.replace(WEBPACK_ERROR_REGEXP, "$1") : line;
-      if (!cleanedLine.match(/\S*Error: /)) {
-        for (const parser of parsers) {
-          const frame = parser(cleanedLine);
-          if (frame) {
-            frames.push(frame);
-            break;
-          }
-        }
-        if (frames.length >= STACKTRACE_FRAME_LIMIT)
-          break;
-      }
-    }
-    return reverseAndStripFrames(frames);
-  };
-}
-
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/error-properties-builder.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/error-properties-builder.mjs
 var MAX_CAUSE_RECURSION = 4;
 
 class ErrorPropertiesBuilder {
-  constructor(coercers = [], parsers = [], modifiers = []) {
+  constructor(coercers, stackParser, modifiers = []) {
     this.coercers = coercers;
+    this.stackParser = stackParser;
     this.modifiers = modifiers;
-    this.stackParser = createStackParser(...parsers);
   }
   buildFromUnknown(input, hint = {}) {
     const providedMechanism = hint && hint.mechanism;
@@ -8941,7 +10967,7 @@ class ErrorPropertiesBuilder {
     };
     const coercingContext = this.buildCoercingContext(mechanism, hint, 0);
     const exceptionWithCause = coercingContext.apply(input);
-    const parsingContext = this.buildParsingContext();
+    const parsingContext = this.buildParsingContext(hint);
     const exceptionWithStack = this.parseStacktrace(exceptionWithCause, parsingContext);
     const exceptionList = this.convertToExceptionList(exceptionWithStack, mechanism);
     return {
@@ -8969,7 +10995,7 @@ class ErrorPropertiesBuilder {
       cause = this.parseStacktrace(err.cause, ctx);
     let stack;
     if (err.stack != "" && err.stack != null)
-      stack = this.applyChunkIds(this.stackParser(err.stack, err.synthetic ? 1 : 0), ctx.chunkIdMap);
+      stack = this.applyChunkIds(this.stackParser(err.stack, err.synthetic ? ctx.skipFirstLines : 0), ctx.chunkIdMap);
     return {
       ...err,
       cause,
@@ -9020,9 +11046,10 @@ class ErrorPropertiesBuilder {
       }));
     return exceptionList;
   }
-  buildParsingContext() {
+  buildParsingContext(hint) {
     const context = {
-      chunkIdMap: getFilenameToChunkIdMap(this.stackParser)
+      chunkIdMap: getFilenameToChunkIdMap(this.stackParser),
+      skipFirstLines: hint.skipFirstLines ?? 1
     };
     return context;
   }
@@ -9045,7 +11072,218 @@ class ErrorPropertiesBuilder {
     return context;
   }
 }
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/coercers/dom-exception-coercer.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/parsers/base.mjs
+var UNKNOWN_FUNCTION = "?";
+function createFrame(platform, filename, func, lineno, colno) {
+  const frame = {
+    platform,
+    filename,
+    function: func === "<anonymous>" ? UNKNOWN_FUNCTION : func,
+    in_app: true
+  };
+  if (!isUndefined(lineno))
+    frame.lineno = lineno;
+  if (!isUndefined(colno))
+    frame.colno = colno;
+  return frame;
+}
+
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/parsers/safari.mjs
+var extractSafariExtensionDetails = (func, filename) => {
+  const isSafariExtension = func.indexOf("safari-extension") !== -1;
+  const isSafariWebExtension = func.indexOf("safari-web-extension") !== -1;
+  return isSafariExtension || isSafariWebExtension ? [
+    func.indexOf("@") !== -1 ? func.split("@")[0] : UNKNOWN_FUNCTION,
+    isSafariExtension ? `safari-extension:${filename}` : `safari-web-extension:${filename}`
+  ] : [
+    func,
+    filename
+  ];
+};
+
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/parsers/chrome.mjs
+var chromeRegexNoFnName = /^\s*at (\S+?)(?::(\d+))(?::(\d+))\s*$/i;
+var chromeRegex = /^\s*at (?:(.+?\)(?: \[.+\])?|.*?) ?\((?:address at )?)?(?:async )?((?:<anonymous>|[-a-z]+:|.*bundle|\/)?.*?)(?::(\d+))?(?::(\d+))?\)?\s*$/i;
+var chromeEvalRegex = /\((\S*)(?::(\d+))(?::(\d+))\)/;
+var chromeStackLineParser = (line, platform) => {
+  const noFnParts = chromeRegexNoFnName.exec(line);
+  if (noFnParts) {
+    const [, filename, line2, col] = noFnParts;
+    return createFrame(platform, filename, UNKNOWN_FUNCTION, +line2, +col);
+  }
+  const parts = chromeRegex.exec(line);
+  if (parts) {
+    const isEval = parts[2] && parts[2].indexOf("eval") === 0;
+    if (isEval) {
+      const subMatch = chromeEvalRegex.exec(parts[2]);
+      if (subMatch) {
+        parts[2] = subMatch[1];
+        parts[3] = subMatch[2];
+        parts[4] = subMatch[3];
+      }
+    }
+    const [func, filename] = extractSafariExtensionDetails(parts[1] || UNKNOWN_FUNCTION, parts[2]);
+    return createFrame(platform, filename, func, parts[3] ? +parts[3] : undefined, parts[4] ? +parts[4] : undefined);
+  }
+};
+
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/parsers/gecko.mjs
+var geckoREgex = /^\s*(.*?)(?:\((.*?)\))?(?:^|@)?((?:[-a-z]+)?:\/.*?|\[native code\]|[^@]*(?:bundle|\d+\.js)|\/[\w\-. /=]+)(?::(\d+))?(?::(\d+))?\s*$/i;
+var geckoEvalRegex = /(\S+) line (\d+)(?: > eval line \d+)* > eval/i;
+var geckoStackLineParser = (line, platform) => {
+  const parts = geckoREgex.exec(line);
+  if (parts) {
+    const isEval = parts[3] && parts[3].indexOf(" > eval") > -1;
+    if (isEval) {
+      const subMatch = geckoEvalRegex.exec(parts[3]);
+      if (subMatch) {
+        parts[1] = parts[1] || "eval";
+        parts[3] = subMatch[1];
+        parts[4] = subMatch[2];
+        parts[5] = "";
+      }
+    }
+    let filename = parts[3];
+    let func = parts[1] || UNKNOWN_FUNCTION;
+    [func, filename] = extractSafariExtensionDetails(func, filename);
+    return createFrame(platform, filename, func, parts[4] ? +parts[4] : undefined, parts[5] ? +parts[5] : undefined);
+  }
+};
+
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/parsers/winjs.mjs
+var winjsRegex = /^\s*at (?:((?:\[object object\])?.+) )?\(?((?:[-a-z]+):.*?):(\d+)(?::(\d+))?\)?\s*$/i;
+var winjsStackLineParser = (line, platform) => {
+  const parts = winjsRegex.exec(line);
+  return parts ? createFrame(platform, parts[2], parts[1] || UNKNOWN_FUNCTION, +parts[3], parts[4] ? +parts[4] : undefined) : undefined;
+};
+
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/parsers/opera.mjs
+var opera10Regex = / line (\d+).*script (?:in )?(\S+)(?:: in function (\S+))?$/i;
+var opera10StackLineParser = (line, platform) => {
+  const parts = opera10Regex.exec(line);
+  return parts ? createFrame(platform, parts[2], parts[3] || UNKNOWN_FUNCTION, +parts[1]) : undefined;
+};
+var opera11Regex = / line (\d+), column (\d+)\s*(?:in (?:<anonymous function: ([^>]+)>|([^)]+))\(.*\))? in (.*):\s*$/i;
+var opera11StackLineParser = (line, platform) => {
+  const parts = opera11Regex.exec(line);
+  return parts ? createFrame(platform, parts[5], parts[3] || parts[4] || UNKNOWN_FUNCTION, +parts[1], +parts[2]) : undefined;
+};
+
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/parsers/node.mjs
+var FILENAME_MATCH = /^\s*[-]{4,}$/;
+var FULL_MATCH = /at (?:async )?(?:(.+?)\s+\()?(?:(.+):(\d+):(\d+)?|([^)]+))\)?/;
+var nodeStackLineParser = (line, platform) => {
+  const lineMatch = line.match(FULL_MATCH);
+  if (lineMatch) {
+    let object;
+    let method;
+    let functionName;
+    let typeName;
+    let methodName;
+    if (lineMatch[1]) {
+      functionName = lineMatch[1];
+      let methodStart = functionName.lastIndexOf(".");
+      if (functionName[methodStart - 1] === ".")
+        methodStart--;
+      if (methodStart > 0) {
+        object = functionName.slice(0, methodStart);
+        method = functionName.slice(methodStart + 1);
+        const objectEnd = object.indexOf(".Module");
+        if (objectEnd > 0) {
+          functionName = functionName.slice(objectEnd + 1);
+          object = object.slice(0, objectEnd);
+        }
+      }
+      typeName = undefined;
+    }
+    if (method) {
+      typeName = object;
+      methodName = method;
+    }
+    if (method === "<anonymous>") {
+      methodName = undefined;
+      functionName = undefined;
+    }
+    if (functionName === undefined) {
+      methodName = methodName || UNKNOWN_FUNCTION;
+      functionName = typeName ? `${typeName}.${methodName}` : methodName;
+    }
+    let filename = lineMatch[2]?.startsWith("file://") ? lineMatch[2].slice(7) : lineMatch[2];
+    const isNative = lineMatch[5] === "native";
+    if (filename?.match(/\/[A-Z]:/))
+      filename = filename.slice(1);
+    if (!filename && lineMatch[5] && !isNative)
+      filename = lineMatch[5];
+    return {
+      filename: filename ? decodeURI(filename) : undefined,
+      module: undefined,
+      function: functionName,
+      lineno: _parseIntOrUndefined(lineMatch[3]),
+      colno: _parseIntOrUndefined(lineMatch[4]),
+      in_app: filenameIsInApp(filename || "", isNative),
+      platform
+    };
+  }
+  if (line.match(FILENAME_MATCH))
+    return {
+      filename: line,
+      platform
+    };
+};
+function filenameIsInApp(filename, isNative = false) {
+  const isInternal = isNative || filename && !filename.startsWith("/") && !filename.match(/^[A-Z]:/) && !filename.startsWith(".") && !filename.match(/^[a-zA-Z]([a-zA-Z0-9.\-+])*:\/\//);
+  return !isInternal && filename !== undefined && !filename.includes("node_modules/");
+}
+function _parseIntOrUndefined(input) {
+  return parseInt(input || "", 10) || undefined;
+}
+
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/parsers/index.mjs
+var WEBPACK_ERROR_REGEXP = /\(error: (.*)\)/;
+var STACKTRACE_FRAME_LIMIT = 50;
+function reverseAndStripFrames(stack) {
+  if (!stack.length)
+    return [];
+  const localStack = Array.from(stack);
+  localStack.reverse();
+  return localStack.slice(0, STACKTRACE_FRAME_LIMIT).map((frame) => ({
+    ...frame,
+    filename: frame.filename || getLastStackFrame(localStack).filename,
+    function: frame.function || UNKNOWN_FUNCTION
+  }));
+}
+function getLastStackFrame(arr) {
+  return arr[arr.length - 1] || {};
+}
+function createDefaultStackParser() {
+  return createStackParser("web:javascript", chromeStackLineParser, geckoStackLineParser);
+}
+function createStackParser(platform, ...parsers) {
+  return (stack, skipFirstLines = 0) => {
+    const frames = [];
+    const lines = stack.split(`
+`);
+    for (let i = skipFirstLines;i < lines.length; i++) {
+      const line = lines[i];
+      if (line.length > 1024)
+        continue;
+      const cleanedLine = WEBPACK_ERROR_REGEXP.test(line) ? line.replace(WEBPACK_ERROR_REGEXP, "$1") : line;
+      if (!cleanedLine.match(/\S*Error: /)) {
+        for (const parser of parsers) {
+          const frame = parser(cleanedLine, platform);
+          if (frame) {
+            frames.push(frame);
+            break;
+          }
+        }
+        if (frames.length >= STACKTRACE_FRAME_LIMIT)
+          break;
+      }
+    }
+    return reverseAndStripFrames(frames);
+  };
+}
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/coercers/dom-exception-coercer.mjs
 class DOMExceptionCoercer {
   match(err) {
     return this.isDOMException(err) || this.isDOMError(err);
@@ -9075,7 +11313,7 @@ class DOMExceptionCoercer {
     return isBuiltin(err, "DOMError");
   }
 }
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/coercers/error-coercer.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/coercers/error-coercer.mjs
 class ErrorCoercer {
   match(err) {
     return isPlainError(err);
@@ -9102,7 +11340,7 @@ class ErrorCoercer {
     return err.stacktrace || err.stack || undefined;
   }
 }
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/coercers/error-event-coercer.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/coercers/error-event-coercer.mjs
 class ErrorEventCoercer {
   constructor() {}
   match(err) {
@@ -9120,7 +11358,7 @@ class ErrorEventCoercer {
     return exceptionLike;
   }
 }
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/coercers/string-coercer.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/coercers/string-coercer.mjs
 var ERROR_TYPES_PATTERN = /^(?:[Uu]ncaught (?:exception: )?)?(?:((?:Eval|Internal|Range|Reference|Syntax|Type|URI|)Error): )?(.*)$/i;
 
 class StringCoercer {
@@ -9150,7 +11388,7 @@ class StringCoercer {
     ];
   }
 }
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/types.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/types.mjs
 var severityLevels = [
   "fatal",
   "error",
@@ -9160,7 +11398,7 @@ var severityLevels = [
   "debug"
 ];
 
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/coercers/utils.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/coercers/utils.mjs
 function extractExceptionKeysForMessage(err, maxLength = 40) {
   const keys = Object.keys(err);
   keys.sort();
@@ -9177,7 +11415,7 @@ function extractExceptionKeysForMessage(err, maxLength = 40) {
   return "";
 }
 
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/coercers/object-coercer.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/coercers/object-coercer.mjs
 class ObjectCoercer {
   match(candidate) {
     return typeof candidate == "object" && candidate !== null;
@@ -9230,7 +11468,7 @@ class ObjectCoercer {
     }
   }
 }
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/coercers/event-coercer.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/coercers/event-coercer.mjs
 class EventCoercer {
   match(err) {
     return isEvent(err);
@@ -9245,7 +11483,7 @@ class EventCoercer {
     };
   }
 }
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/coercers/primitive-coercer.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/coercers/primitive-coercer.mjs
 class PrimitiveCoercer {
   match(candidate) {
     return isPrimitive(candidate);
@@ -9259,10 +11497,20 @@ class PrimitiveCoercer {
     };
   }
 }
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/coercers/promise-rejection-event.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/coercers/promise-rejection-event.mjs
 class PromiseRejectionEventCoercer {
   match(err) {
-    return isBuiltin(err, "PromiseRejectionEvent");
+    return isBuiltin(err, "PromiseRejectionEvent") || this.isCustomEventWrappingRejection(err);
+  }
+  isCustomEventWrappingRejection(err) {
+    if (!isEvent(err))
+      return false;
+    try {
+      const detail = err.detail;
+      return detail != null && typeof detail == "object" && "reason" in detail;
+    } catch {
+      return false;
+    }
   }
   coerce(err, ctx) {
     const reason = this.getUnhandledRejectionReason(err);
@@ -9276,18 +11524,16 @@ class PromiseRejectionEventCoercer {
     return ctx.apply(reason);
   }
   getUnhandledRejectionReason(error) {
-    if (isPrimitive(error))
-      return error;
     try {
       if ("reason" in error)
         return error.reason;
-      if ("detail" in error && "reason" in error.detail)
+      if ("detail" in error && error.detail != null && typeof error.detail == "object" && "reason" in error.detail)
         return error.detail.reason;
     } catch {}
     return error;
   }
 }
-// ../../node_modules/.bun/@posthog+core@1.5.0/node_modules/@posthog/core/dist/error-tracking/utils.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/utils.mjs
 class ReduceableCache {
   constructor(_maxSize) {
     this._maxSize = _maxSize;
@@ -9312,7 +11558,164 @@ class ReduceableCache {
     }
   }
 }
-// ../../node_modules/.bun/posthog-node@5.11.0/node_modules/posthog-node/dist/extensions/error-tracking/modifiers/context-lines.node.mjs
+// ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/exception-steps.mjs
+var EXCEPTION_STEP_INTERNAL_FIELDS = {
+  MESSAGE: "$message",
+  TIMESTAMP: "$timestamp"
+};
+var RESERVED_EXCEPTION_STEP_KEYS = new Set([
+  EXCEPTION_STEP_INTERNAL_FIELDS.MESSAGE,
+  EXCEPTION_STEP_INTERNAL_FIELDS.TIMESTAMP
+]);
+var DEFAULT_EXCEPTION_STEPS_CONFIG = {
+  enabled: true,
+  max_bytes: 32768
+};
+function resolveExceptionStepsConfig(config) {
+  if (!config)
+    return {
+      ...DEFAULT_EXCEPTION_STEPS_CONFIG
+    };
+  return {
+    enabled: config.enabled ?? DEFAULT_EXCEPTION_STEPS_CONFIG.enabled,
+    max_bytes: normalizePositiveInteger(config.max_bytes, DEFAULT_EXCEPTION_STEPS_CONFIG.max_bytes)
+  };
+}
+function stripReservedExceptionStepFields(properties) {
+  if (!properties)
+    return {
+      sanitizedProperties: {},
+      droppedKeys: []
+    };
+  const droppedKeys = [];
+  const sanitizedProperties = Object.keys(properties).reduce((acc, key) => {
+    if (RESERVED_EXCEPTION_STEP_KEYS.has(key)) {
+      droppedKeys.push(key);
+      return acc;
+    }
+    acc[key] = properties[key];
+    return acc;
+  }, {});
+  return {
+    sanitizedProperties,
+    droppedKeys
+  };
+}
+
+class ExceptionStepsBuffer {
+  constructor(config) {
+    this._entries = [];
+    this._totalBytes = 0;
+    this._config = resolveExceptionStepsConfig(config);
+  }
+  setConfig(config) {
+    this._config = resolveExceptionStepsConfig(config);
+    this._trimToMaxBytes();
+  }
+  add(step) {
+    const serialized = normalizeAndSerializeStep(step);
+    if (!serialized)
+      return;
+    const bytes = getUtf8ByteLength(serialized.json);
+    if (bytes > this._config.max_bytes)
+      return;
+    this._entries.push({
+      step: serialized.step,
+      bytes
+    });
+    this._totalBytes += bytes;
+    this._trimToMaxBytes();
+  }
+  getAttachable() {
+    return this._entries.map((e) => e.step);
+  }
+  clear() {
+    this._entries = [];
+    this._totalBytes = 0;
+  }
+  size() {
+    return this._entries.length;
+  }
+  _trimToMaxBytes() {
+    while (this._totalBytes > this._config.max_bytes && this._entries.length > 0) {
+      const evicted = this._entries.shift();
+      if (evicted)
+        this._totalBytes -= evicted.bytes;
+    }
+  }
+}
+function normalizePositiveInteger(input, fallback) {
+  if (!isNumber(input) || input === 1 / 0 || input === -1 / 0)
+    return fallback;
+  const normalized = Math.floor(input);
+  if (normalized < 0)
+    return fallback;
+  return normalized;
+}
+function normalizeAndSerializeStep(step) {
+  const json = safeStringify(step);
+  if (!json)
+    return;
+  try {
+    const parsed = JSON.parse(json);
+    if (!isObject(parsed))
+      return;
+    const parsedStep = parsed;
+    const message = parsedStep[EXCEPTION_STEP_INTERNAL_FIELDS.MESSAGE];
+    const timestamp = parsedStep[EXCEPTION_STEP_INTERNAL_FIELDS.TIMESTAMP];
+    if (!isString(message) || message.trim().length === 0)
+      return;
+    if (!isString(timestamp) && !isNumber(timestamp))
+      return;
+    return {
+      step: parsedStep,
+      json
+    };
+  } catch {
+    return;
+  }
+}
+function safeStringify(value) {
+  const seen = new WeakSet;
+  try {
+    return JSON.stringify(value, (_key, replacementValue) => {
+      if (typeof replacementValue == "bigint")
+        return replacementValue.toString();
+      if (typeof replacementValue == "function" || typeof replacementValue == "symbol")
+        return;
+      if (replacementValue instanceof Date)
+        return replacementValue.toISOString();
+      if (replacementValue instanceof Error)
+        return {
+          name: replacementValue.name,
+          message: replacementValue.message,
+          stack: replacementValue.stack
+        };
+      if (replacementValue && typeof replacementValue == "object") {
+        if (seen.has(replacementValue))
+          return "[Circular]";
+        seen.add(replacementValue);
+      }
+      return replacementValue;
+    });
+  } catch {
+    return;
+  }
+}
+function getUtf8ByteLength(value) {
+  if (typeof TextEncoder != "undefined")
+    return new TextEncoder().encode(value).length;
+  const encoded = encodeURIComponent(value);
+  let byteLength = 0;
+  for (let i = 0;i < encoded.length; i++)
+    if (encoded[i] === "%") {
+      byteLength += 1;
+      i += 2;
+    } else
+      byteLength += 1;
+  return byteLength;
+}
+// ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/extensions/error-tracking/modifiers/context-lines.node.mjs
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 var LRU_FILE_CONTENTS_CACHE = new exports_error_tracking.ReduceableCache(25);
@@ -9530,7 +11933,23 @@ function snipLine(line, colno) {
   return newLine;
 }
 
-// ../../node_modules/.bun/posthog-node@5.11.0/node_modules/posthog-node/dist/extensions/error-tracking/autocapture.mjs
+// ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/extensions/error-tracking/modifiers/relative-path.node.mjs
+import { isAbsolute, relative, sep as sep2 } from "path";
+function createRelativePathModifier(basePath = process.cwd()) {
+  const isWindows = sep2 === "\\";
+  const toUnix = (p) => isWindows ? p.replace(/\\/g, "/") : p;
+  const normalizedBase = toUnix(basePath);
+  return async (frames) => {
+    for (const frame of frames)
+      if (!(!frame.filename || frame.filename.startsWith("node:") || frame.filename.startsWith("data:"))) {
+        if (isAbsolute(frame.filename))
+          frame.filename = toUnix(relative(normalizedBase, toUnix(frame.filename)));
+      }
+    return frames;
+  };
+}
+
+// ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/extensions/error-tracking/autocapture.mjs
 function makeUncaughtExceptionHandler(captureFn, onFatalFn) {
   let calledFatalError = false;
   return Object.assign((error) => {
@@ -9551,10 +11970,10 @@ function makeUncaughtExceptionHandler(captureFn, onFatalFn) {
   });
 }
 function addUncaughtExceptionListener(captureFn, onFatalFn) {
-  global.process.on("uncaughtException", makeUncaughtExceptionHandler(captureFn, onFatalFn));
+  globalThis.process?.on("uncaughtException", makeUncaughtExceptionHandler(captureFn, onFatalFn));
 }
 function addUnhandledRejectionListener(captureFn) {
-  global.process.on("unhandledRejection", (reason) => captureFn(reason, {
+  globalThis.process?.on("unhandledRejection", (reason) => captureFn(reason, {
     mechanism: {
       type: "onunhandledrejection",
       handled: false
@@ -9562,7 +11981,7 @@ function addUnhandledRejectionListener(captureFn) {
   }));
 }
 
-// ../../node_modules/.bun/posthog-node@5.11.0/node_modules/posthog-node/dist/extensions/error-tracking/index.mjs
+// ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/extensions/error-tracking/index.mjs
 var SHUTDOWN_TIMEOUT = 2000;
 
 class ErrorTracking {
@@ -9578,21 +11997,23 @@ class ErrorTracking {
     });
     this.startAutocaptureIfEnabled();
   }
+  static isPreviouslyCapturedError(x) {
+    return isObject(x) && "__posthog_previously_captured_error" in x && x.__posthog_previously_captured_error === true;
+  }
   static async buildEventMessage(error, hint, distinctId, additionalProperties) {
     const properties = {
       ...additionalProperties
     };
-    if (!distinctId)
-      properties.$process_person_profile = false;
     const exceptionProperties = this.errorPropertiesBuilder.buildFromUnknown(error, hint);
     exceptionProperties.$exception_list = await this.errorPropertiesBuilder.modifyFrames(exceptionProperties.$exception_list);
     return {
       event: "$exception",
-      distinctId: distinctId || uuidv7(),
+      distinctId,
       properties: {
         ...exceptionProperties,
         ...properties
-      }
+      },
+      _originatedFromCaptureException: true
     };
   }
   startAutocaptureIfEnabled() {
@@ -9603,15 +12024,17 @@ class ErrorTracking {
   }
   onException(exception, hint) {
     this.client.addPendingPromise((async () => {
-      const eventMessage = await ErrorTracking.buildEventMessage(exception, hint);
-      const exceptionProperties = eventMessage.properties;
-      const exceptionType = exceptionProperties?.$exception_list[0]?.type ?? "Exception";
-      const isRateLimited = this._rateLimiter.consumeRateLimit(exceptionType);
-      if (isRateLimited)
-        return void this._logger.info("Skipping exception capture because of client rate limiting.", {
-          exception: exceptionType
-        });
-      return this.client.capture(eventMessage);
+      if (!ErrorTracking.isPreviouslyCapturedError(exception)) {
+        const eventMessage = await ErrorTracking.buildEventMessage(exception, hint);
+        const exceptionProperties = eventMessage.properties;
+        const exceptionType = exceptionProperties?.$exception_list[0]?.type ?? "Exception";
+        const isRateLimited = this._rateLimiter.consumeRateLimit(exceptionType);
+        if (isRateLimited)
+          return void this._logger.info("Skipping exception capture because of client rate limiting.", {
+            exception: exceptionType
+          });
+        return this.client.capture(eventMessage);
+      }
     })());
   }
   async onFatalError(exception) {
@@ -9627,10 +12050,149 @@ class ErrorTracking {
   }
 }
 
-// ../../node_modules/.bun/posthog-node@5.11.0/node_modules/posthog-node/dist/version.mjs
-var version = "5.11.0";
+// ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/version.mjs
+var version = "5.34.2";
 
-// ../../node_modules/.bun/posthog-node@5.11.0/node_modules/posthog-node/dist/extensions/feature-flags/crypto.mjs
+// ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/types.mjs
+var FeatureFlagError2 = {
+  ERRORS_WHILE_COMPUTING: "errors_while_computing_flags",
+  FLAG_MISSING: "flag_missing",
+  QUOTA_LIMITED: "quota_limited",
+  UNKNOWN_ERROR: "unknown_error"
+};
+
+// ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/feature-flag-evaluations.mjs
+class FeatureFlagEvaluations {
+  constructor(init) {
+    this._host = init.host;
+    this._distinctId = init.distinctId;
+    this._groups = init.groups;
+    this._disableGeoip = init.disableGeoip;
+    this._flags = init.flags;
+    this._requestId = init.requestId;
+    this._evaluatedAt = init.evaluatedAt;
+    this._flagDefinitionsLoadedAt = init.flagDefinitionsLoadedAt;
+    this._errorsWhileComputing = init.errorsWhileComputing ?? false;
+    this._quotaLimited = init.quotaLimited ?? false;
+    this._accessed = init.accessed ?? new Set;
+    this._isSlice = init.isSlice ?? false;
+  }
+  isEnabled(key) {
+    const flag = this._flags[key];
+    this._recordAccess(key);
+    return flag?.enabled ?? false;
+  }
+  getFlag(key) {
+    const flag = this._flags[key];
+    this._recordAccess(key);
+    if (!flag)
+      return;
+    if (!flag.enabled)
+      return false;
+    return flag.variant ?? true;
+  }
+  getFlagPayload(key) {
+    return this._flags[key]?.payload;
+  }
+  onlyAccessed() {
+    const filtered = {};
+    for (const key of this._accessed) {
+      const flag = this._flags[key];
+      if (flag)
+        filtered[key] = flag;
+    }
+    return this._cloneWith(filtered);
+  }
+  only(keys) {
+    const filtered = {};
+    const missing = [];
+    for (const key of keys) {
+      const flag = this._flags[key];
+      if (flag)
+        filtered[key] = flag;
+      else
+        missing.push(key);
+    }
+    if (missing.length > 0)
+      this._host.logWarning(`FeatureFlagEvaluations.only() was called with flag keys that are not in the evaluation set and will be dropped: ${missing.join(", ")}`);
+    return this._cloneWith(filtered);
+  }
+  get keys() {
+    return Object.keys(this._flags);
+  }
+  _getEventProperties() {
+    const properties = {};
+    const activeFlags = [];
+    for (const [key, flag] of Object.entries(this._flags)) {
+      const value = flag.enabled === false ? false : flag.variant ?? true;
+      properties[`$feature/${key}`] = value;
+      if (flag.enabled)
+        activeFlags.push(key);
+    }
+    if (activeFlags.length > 0) {
+      activeFlags.sort();
+      properties["$active_feature_flags"] = activeFlags;
+    }
+    return properties;
+  }
+  _cloneWith(flags) {
+    return new FeatureFlagEvaluations({
+      host: this._host,
+      distinctId: this._distinctId,
+      groups: this._groups,
+      disableGeoip: this._disableGeoip,
+      flags,
+      requestId: this._requestId,
+      evaluatedAt: this._evaluatedAt,
+      flagDefinitionsLoadedAt: this._flagDefinitionsLoadedAt,
+      errorsWhileComputing: this._errorsWhileComputing,
+      quotaLimited: this._quotaLimited,
+      accessed: new Set(this._accessed),
+      isSlice: true
+    });
+  }
+  _recordAccess(key) {
+    this._accessed.add(key);
+    if (this._distinctId === "")
+      return;
+    if (this._isSlice && !(key in this._flags))
+      return;
+    const flag = this._flags[key];
+    const response = flag === undefined ? undefined : flag.enabled === false ? false : flag.variant ?? true;
+    const properties = {
+      $feature_flag: key,
+      $feature_flag_response: response,
+      $feature_flag_id: flag?.id,
+      $feature_flag_version: flag?.version,
+      $feature_flag_reason: flag?.reason,
+      locally_evaluated: flag?.locallyEvaluated ?? false,
+      [`$feature/${key}`]: response,
+      $feature_flag_request_id: this._requestId,
+      $feature_flag_evaluated_at: flag?.locallyEvaluated ? Date.now() : this._evaluatedAt
+    };
+    if (flag?.locallyEvaluated && this._flagDefinitionsLoadedAt !== undefined)
+      properties.$feature_flag_definitions_loaded_at = this._flagDefinitionsLoadedAt;
+    const errors = [];
+    if (this._errorsWhileComputing)
+      errors.push(FeatureFlagError2.ERRORS_WHILE_COMPUTING);
+    if (this._quotaLimited)
+      errors.push(FeatureFlagError2.QUOTA_LIMITED);
+    if (flag === undefined)
+      errors.push(FeatureFlagError2.FLAG_MISSING);
+    if (errors.length > 0)
+      properties.$feature_flag_error = errors.join(",");
+    this._host.captureFlagCalledEventIfNeeded({
+      distinctId: this._distinctId,
+      key,
+      response,
+      groups: this._groups,
+      disableGeoip: this._disableGeoip,
+      properties
+    });
+  }
+}
+
+// ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/extensions/feature-flags/crypto.mjs
 async function hashSHA1(text) {
   const subtle = globalThis.crypto?.subtle;
   if (!subtle)
@@ -9640,7 +12202,7 @@ async function hashSHA1(text) {
   return hashArray.map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-// ../../node_modules/.bun/posthog-node@5.11.0/node_modules/posthog-node/dist/extensions/feature-flags/feature-flags.mjs
+// ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/extensions/feature-flags/feature-flags.mjs
 var SIXTY_SECONDS = 60000;
 var LONG_SCALE = 1152921504606847000;
 var NULL_VALUES_ALLOWED_OPERATORS = [
@@ -9695,6 +12257,8 @@ class FeatureFlagsPoller {
     this.onError = options.onError;
     this.customHeaders = customHeaders;
     this.onLoad = options.onLoad;
+    this.cacheProvider = options.cacheProvider;
+    this.strictLocalEvaluation = options.strictLocalEvaluation ?? false;
     this.loadFeatureFlags();
   }
   debug(enabled = true) {
@@ -9704,6 +12268,15 @@ class FeatureFlagsPoller {
     if (this.debugMode)
       fn();
   }
+  createEvaluationContext(distinctId, groups = {}, personProperties = {}, groupProperties = {}, evaluationCache = {}) {
+    return {
+      distinctId,
+      groups,
+      personProperties,
+      groupProperties,
+      evaluationCache
+    };
+  }
   async getFeatureFlag(key, distinctId, groups = {}, personProperties = {}, groupProperties = {}) {
     await this.loadFeatureFlags();
     let response;
@@ -9711,9 +12284,10 @@ class FeatureFlagsPoller {
     if (!this.loadedSuccessfullyOnce)
       return response;
     featureFlag = this.featureFlagsByKey[key];
-    if (featureFlag !== undefined)
+    if (featureFlag !== undefined) {
+      const evaluationContext = this.createEvaluationContext(distinctId, groups, personProperties, groupProperties);
       try {
-        const result = await this.computeFlagAndPayloadLocally(featureFlag, distinctId, groups, personProperties, groupProperties);
+        const result = await this.computeFlagAndPayloadLocally(featureFlag, evaluationContext);
         response = result.value;
         this.logMsgIfDebug(() => console.debug(`Successfully computed flag locally: ${key} -> ${response}`));
       } catch (e) {
@@ -9722,18 +12296,22 @@ class FeatureFlagsPoller {
         else if (e instanceof Error)
           this.onError?.(new Error(`Error computing flag locally: ${key}: ${e}`));
       }
+    }
     return response;
   }
-  async getAllFlagsAndPayloads(distinctId, groups = {}, personProperties = {}, groupProperties = {}, flagKeysToExplicitlyEvaluate) {
+  async getAllFlagsAndPayloads(evaluationContext, flagKeysToExplicitlyEvaluate) {
     await this.loadFeatureFlags();
     const response = {};
     const payloads = {};
     let fallbackToFlags = this.featureFlags.length == 0;
     const flagsToEvaluate = flagKeysToExplicitlyEvaluate ? flagKeysToExplicitlyEvaluate.map((key) => this.featureFlagsByKey[key]).filter(Boolean) : this.featureFlags;
-    const sharedEvaluationCache = {};
+    const sharedEvaluationContext = {
+      ...evaluationContext,
+      evaluationCache: evaluationContext.evaluationCache ?? {}
+    };
     await Promise.all(flagsToEvaluate.map(async (flag) => {
       try {
-        const { value: matchValue, payload: matchPayload } = await this.computeFlagAndPayloadLocally(flag, distinctId, groups, personProperties, groupProperties, undefined, sharedEvaluationCache);
+        const { value: matchValue, payload: matchPayload } = await this.computeFlagAndPayloadLocally(flag, sharedEvaluationContext);
         response[flag.key] = matchValue;
         if (matchPayload)
           payloads[flag.key] = matchPayload;
@@ -9751,7 +12329,8 @@ class FeatureFlagsPoller {
       fallbackToFlags
     };
   }
-  async computeFlagAndPayloadLocally(flag, distinctId, groups = {}, personProperties = {}, groupProperties = {}, matchValue, evaluationCache, skipLoadCheck = false) {
+  async computeFlagAndPayloadLocally(flag, evaluationContext, options = {}) {
+    const { matchValue, skipLoadCheck = false } = options;
     if (!skipLoadCheck)
       await this.loadFeatureFlags();
     if (!this.loadedSuccessfullyOnce)
@@ -9760,23 +12339,22 @@ class FeatureFlagsPoller {
         payload: null
       };
     let flagValue;
-    flagValue = matchValue !== undefined ? matchValue : await this.computeFlagValueLocally(flag, distinctId, groups, personProperties, groupProperties, evaluationCache);
+    flagValue = matchValue !== undefined ? matchValue : await this.computeFlagValueLocally(flag, evaluationContext);
     const payload = this.getFeatureFlagPayload(flag.key, flagValue);
     return {
       value: flagValue,
       payload
     };
   }
-  async computeFlagValueLocally(flag, distinctId, groups = {}, personProperties = {}, groupProperties = {}, evaluationCache = {}) {
+  async computeFlagValueLocally(flag, evaluationContext) {
+    const { distinctId, groups, personProperties, groupProperties } = evaluationContext;
     if (flag.ensure_experience_continuity)
       throw new InconclusiveMatchError("Flag has experience continuity enabled");
     if (!flag.active)
       return false;
     const flagFilters = flag.filters || {};
     const aggregation_group_type_index = flagFilters.aggregation_group_type_index;
-    if (aggregation_group_type_index == undefined)
-      return await this.matchFeatureFlagProperties(flag, distinctId, personProperties, evaluationCache);
-    {
+    if (aggregation_group_type_index != null) {
       const groupName = this.groupTypeMapping[String(aggregation_group_type_index)];
       if (!groupName) {
         this.logMsgIfDebug(() => console.warn(`[FEATURE FLAGS] Unknown group type index ${aggregation_group_type_index} for feature flag ${flag.key}`));
@@ -9786,9 +12364,30 @@ class FeatureFlagsPoller {
         this.logMsgIfDebug(() => console.warn(`[FEATURE FLAGS] Can't compute group feature flag: ${flag.key} without group names passed in`));
         return false;
       }
+      if (flag.bucketing_identifier === "device_id" && (personProperties?.$device_id === undefined || personProperties?.$device_id === null || personProperties?.$device_id === ""))
+        this.logMsgIfDebug(() => console.warn(`[FEATURE FLAGS] Ignoring bucketing_identifier for group flag: ${flag.key}`));
       const focusedGroupProperties = groupProperties[groupName];
-      return await this.matchFeatureFlagProperties(flag, groups[groupName], focusedGroupProperties, evaluationCache);
+      return await this.matchFeatureFlagProperties(flag, groups[groupName], focusedGroupProperties, evaluationContext);
     }
+    {
+      const bucketingValue = this.getBucketingValueForFlag(flag, distinctId, personProperties);
+      if (bucketingValue === undefined) {
+        this.logMsgIfDebug(() => console.warn(`[FEATURE FLAGS] Can't compute feature flag: ${flag.key} without $device_id, falling back to server evaluation`));
+        throw new InconclusiveMatchError(`Can't compute feature flag: ${flag.key} without $device_id`);
+      }
+      return await this.matchFeatureFlagProperties(flag, bucketingValue, personProperties, evaluationContext);
+    }
+  }
+  getBucketingValueForFlag(flag, distinctId, properties) {
+    if (flag.filters?.aggregation_group_type_index != null)
+      return distinctId;
+    if (flag.bucketing_identifier === "device_id") {
+      const deviceId = properties?.$device_id;
+      if (deviceId == null || deviceId === "")
+        return;
+      return deviceId;
+    }
+    return distinctId;
   }
   getFeatureFlagPayload(key, flagValue) {
     let payload = null;
@@ -9809,7 +12408,8 @@ class FeatureFlagsPoller {
     }
     return null;
   }
-  async evaluateFlagDependency(property, distinctId, properties, evaluationCache) {
+  async evaluateFlagDependency(property, properties, evaluationContext) {
+    const { evaluationCache } = evaluationContext;
     const targetFlagKey = property.key;
     if (!this.featureFlagsByKey)
       throw new InconclusiveMatchError("Feature flags not available for dependency evaluation");
@@ -9826,7 +12426,7 @@ class FeatureFlagsPoller {
         if (depFlag)
           if (depFlag.active)
             try {
-              const depResult = await this.matchFeatureFlagProperties(depFlag, distinctId, properties, evaluationCache);
+              const depResult = await this.computeFlagValueLocally(depFlag, evaluationContext);
               evaluationCache[depFlagKey] = depResult;
             } catch (error) {
               throw new InconclusiveMatchError(`Error evaluating flag dependency '${depFlagKey}' for flag '${targetFlagKey}': ${error}`);
@@ -9850,17 +12450,37 @@ class FeatureFlagsPoller {
       return flagValue === expectedValue;
     return false;
   }
-  async matchFeatureFlagProperties(flag, distinctId, properties, evaluationCache = {}) {
+  async matchFeatureFlagProperties(flag, bucketingValue, properties, evaluationContext) {
     const flagFilters = flag.filters || {};
     const flagConditions = flagFilters.groups || [];
+    const flagAggregation = flagFilters.aggregation_group_type_index;
+    const { groups, groupProperties } = evaluationContext;
     let isInconclusive = false;
     let result;
     for (const condition of flagConditions)
       try {
-        if (await this.isConditionMatch(flag, distinctId, condition, properties, evaluationCache)) {
+        const conditionAggregation = condition.aggregation_group_type_index !== undefined ? condition.aggregation_group_type_index : flagAggregation;
+        let effectiveProperties = properties;
+        let effectiveBucketingValue = bucketingValue;
+        if (conditionAggregation !== flagAggregation) {
+          if (conditionAggregation != null) {
+            const groupName = this.groupTypeMapping[String(conditionAggregation)];
+            if (!groupName || !(groupName in groups)) {
+              this.logMsgIfDebug(() => console.debug(`[FEATURE FLAGS] Skipping group condition for flag '${flag.key}': group type index ${conditionAggregation} not available`));
+              continue;
+            }
+            if (!(groupName in groupProperties)) {
+              isInconclusive = true;
+              continue;
+            }
+            effectiveProperties = groupProperties[groupName];
+            effectiveBucketingValue = groups[groupName];
+          }
+        }
+        if (await this.isConditionMatch(flag, effectiveBucketingValue, condition, effectiveProperties, evaluationContext)) {
           const variantOverride = condition.variant;
           const flagVariants = flagFilters.multivariate?.variants || [];
-          result = variantOverride && flagVariants.some((variant) => variant.key === variantOverride) ? variantOverride : await this.getMatchingVariant(flag, distinctId) || true;
+          result = variantOverride && flagVariants.some((variant) => variant.key === variantOverride) ? variantOverride : await this.getMatchingVariant(flag, effectiveBucketingValue) || true;
           break;
         }
       } catch (e) {
@@ -9877,7 +12497,7 @@ class FeatureFlagsPoller {
       throw new InconclusiveMatchError("Can't determine if feature flag is enabled or not with given properties");
     return false;
   }
-  async isConditionMatch(flag, distinctId, condition, properties, evaluationCache = {}) {
+  async isConditionMatch(flag, bucketingValue, condition, properties, evaluationContext) {
     const rolloutPercentage = condition.rollout_percentage;
     const warnFunction = (msg) => {
       this.logMsgIfDebug(() => console.warn(msg));
@@ -9886,19 +12506,19 @@ class FeatureFlagsPoller {
       for (const prop of condition.properties) {
         const propertyType = prop.type;
         let matches = false;
-        matches = propertyType === "cohort" ? matchCohort(prop, properties, this.cohorts, this.debugMode) : propertyType === "flag" ? await this.evaluateFlagDependency(prop, distinctId, properties, evaluationCache) : matchProperty(prop, properties, warnFunction);
+        matches = propertyType === "cohort" ? matchCohort(prop, properties, this.cohorts, this.debugMode) : propertyType === "flag" ? await this.evaluateFlagDependency(prop, properties, evaluationContext) : matchProperty(prop, properties, warnFunction);
         if (!matches)
           return false;
       }
       if (rolloutPercentage == undefined)
         return true;
     }
-    if (rolloutPercentage != null && await _hash(flag.key, distinctId) > rolloutPercentage / 100)
+    if (rolloutPercentage != null && await _hash(flag.key, bucketingValue) > rolloutPercentage / 100)
       return false;
     return true;
   }
-  async getMatchingVariant(flag, distinctId) {
-    const hashValue = await _hash(flag.key, distinctId, "variant");
+  async getMatchingVariant(flag, bucketingValue) {
+    const hashValue = await _hash(flag.key, bucketingValue, "variant");
     const matchingVariant = this.variantLookupTable(flag).find((variant) => hashValue >= variant.valueMin && hashValue < variant.valueMax);
     if (matchingVariant)
       return matchingVariant.key;
@@ -9920,32 +12540,103 @@ class FeatureFlagsPoller {
     });
     return lookupTable;
   }
+  updateFlagState(flagData) {
+    this.featureFlags = flagData.flags;
+    this.featureFlagsByKey = flagData.flags.reduce((acc, curr) => (acc[curr.key] = curr, acc), {});
+    this.groupTypeMapping = flagData.groupTypeMapping;
+    this.cohorts = flagData.cohorts;
+    this.loadedSuccessfullyOnce = true;
+  }
+  warnAboutExperienceContinuityFlags(flags) {
+    if (this.strictLocalEvaluation)
+      return;
+    const experienceContinuityFlags = flags.filter((f) => f.ensure_experience_continuity);
+    if (experienceContinuityFlags.length > 0)
+      console.warn(`[PostHog] You are using local evaluation but ${experienceContinuityFlags.length} flag(s) have experience continuity enabled: ${experienceContinuityFlags.map((f) => f.key).join(", ")}. Experience continuity is incompatible with local evaluation and will cause a server request on every flag evaluation, negating local evaluation cost savings. To avoid server requests and unexpected costs, either disable experience continuity on these flags in PostHog, use strictLocalEvaluation: true in client init, or pass onlyEvaluateLocally: true per flag call (flags that cannot be evaluated locally will return undefined).`);
+  }
+  async loadFromCache(debugMessage) {
+    if (!this.cacheProvider)
+      return false;
+    try {
+      const cached = await this.cacheProvider.getFlagDefinitions();
+      if (cached) {
+        this.updateFlagState(cached);
+        this.logMsgIfDebug(() => console.debug(`[FEATURE FLAGS] ${debugMessage} (${cached.flags.length} flags)`));
+        this.onLoad?.(this.featureFlags.length);
+        this.warnAboutExperienceContinuityFlags(cached.flags);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      this.onError?.(new Error(`Failed to load from cache: ${err}`));
+      return false;
+    }
+  }
   async loadFeatureFlags(forceReload = false) {
-    if (!this.loadedSuccessfullyOnce || forceReload)
-      await this._loadFeatureFlags();
+    if (this.loadedSuccessfullyOnce && !forceReload)
+      return;
+    if (!forceReload && this.nextFetchAllowedAt && Date.now() < this.nextFetchAllowedAt)
+      return void this.logMsgIfDebug(() => console.debug("[FEATURE FLAGS] Skipping fetch, in backoff period"));
+    if (!this.loadingPromise)
+      this.loadingPromise = this._loadFeatureFlags().catch((err) => this.logMsgIfDebug(() => console.debug(`[FEATURE FLAGS] Failed to load feature flags: ${err}`))).finally(() => {
+        this.loadingPromise = undefined;
+      });
+    return this.loadingPromise;
   }
   isLocalEvaluationReady() {
     return (this.loadedSuccessfullyOnce ?? false) && (this.featureFlags?.length ?? 0) > 0;
+  }
+  getFlagDefinitionsLoadedAt() {
+    return this.flagDefinitionsLoadedAt;
   }
   getPollingInterval() {
     if (!this.shouldBeginExponentialBackoff)
       return this.pollingInterval;
     return Math.min(SIXTY_SECONDS, this.pollingInterval * 2 ** this.backOffCount);
   }
+  beginBackoff() {
+    this.shouldBeginExponentialBackoff = true;
+    this.backOffCount += 1;
+    this.nextFetchAllowedAt = Date.now() + this.getPollingInterval();
+  }
+  clearBackoff() {
+    this.shouldBeginExponentialBackoff = false;
+    this.backOffCount = 0;
+    this.nextFetchAllowedAt = undefined;
+  }
   async _loadFeatureFlags() {
     if (this.poller) {
       clearTimeout(this.poller);
       this.poller = undefined;
     }
-    this.poller = setTimeout(() => this._loadFeatureFlags(), this.getPollingInterval());
+    this.poller = setTimeout(() => this.loadFeatureFlags(true), this.getPollingInterval());
     try {
+      let shouldFetch = true;
+      if (this.cacheProvider)
+        try {
+          shouldFetch = await this.cacheProvider.shouldFetchFlagDefinitions();
+        } catch (err) {
+          this.onError?.(new Error(`Error in shouldFetchFlagDefinitions: ${err}`));
+        }
+      if (!shouldFetch) {
+        const loaded = await this.loadFromCache("Loaded flags from cache (skipped fetch)");
+        if (loaded)
+          return;
+        if (this.loadedSuccessfullyOnce)
+          return;
+      }
       const res = await this._requestFeatureFlagDefinitions();
       if (!res)
         return;
       switch (res.status) {
+        case 304:
+          this.logMsgIfDebug(() => console.debug("[FEATURE FLAGS] Flags not modified (304), using cached data"));
+          this.flagsEtag = res.headers?.get("ETag") ?? this.flagsEtag;
+          this.loadedSuccessfullyOnce = true;
+          this.clearBackoff();
+          return;
         case 401:
-          this.shouldBeginExponentialBackoff = true;
-          this.backOffCount += 1;
+          this.beginBackoff();
           throw new ClientError(`Your project key or personal API key is invalid. Setting next polling interval to ${this.getPollingInterval()}ms. More information: https://posthog.com/docs/api#rate-limiting`);
         case 402:
           console.warn("[FEATURE FLAGS] Feature flags quota limit exceeded - unsetting all local flags. Learn more about billing limits at https://posthog.com/docs/billing/limits-alerts");
@@ -9955,25 +12646,32 @@ class FeatureFlagsPoller {
           this.cohorts = {};
           return;
         case 403:
-          this.shouldBeginExponentialBackoff = true;
-          this.backOffCount += 1;
+          this.beginBackoff();
           throw new ClientError(`Your personal API key does not have permission to fetch feature flag definitions for local evaluation. Setting next polling interval to ${this.getPollingInterval()}ms. Are you sure you're using the correct personal and Project API key pair? More information: https://posthog.com/docs/api/overview`);
         case 429:
-          this.shouldBeginExponentialBackoff = true;
-          this.backOffCount += 1;
+          this.beginBackoff();
           throw new ClientError(`You are being rate limited. Setting next polling interval to ${this.getPollingInterval()}ms. More information: https://posthog.com/docs/api#rate-limiting`);
         case 200: {
           const responseJson = await res.json() ?? {};
           if (!("flags" in responseJson))
             return void this.onError?.(new Error(`Invalid response when getting feature flags: ${JSON.stringify(responseJson)}`));
-          this.featureFlags = responseJson.flags ?? [];
-          this.featureFlagsByKey = this.featureFlags.reduce((acc, curr) => (acc[curr.key] = curr, acc), {});
-          this.groupTypeMapping = responseJson.group_type_mapping || {};
-          this.cohorts = responseJson.cohorts || {};
-          this.loadedSuccessfullyOnce = true;
-          this.shouldBeginExponentialBackoff = false;
-          this.backOffCount = 0;
+          this.flagsEtag = res.headers?.get("ETag") ?? undefined;
+          const flagData = {
+            flags: responseJson.flags ?? [],
+            groupTypeMapping: responseJson.group_type_mapping || {},
+            cohorts: responseJson.cohorts || {}
+          };
+          this.updateFlagState(flagData);
+          this.flagDefinitionsLoadedAt = Date.now();
+          this.clearBackoff();
+          if (this.cacheProvider && shouldFetch)
+            try {
+              await this.cacheProvider.onFlagDefinitionsReceived(flagData);
+            } catch (err) {
+              this.onError?.(new Error(`Failed to store in cache: ${err}`));
+            }
           this.onLoad?.(this.featureFlags.length);
+          this.warnAboutExperienceContinuityFlags(flagData.flags);
           break;
         }
         default:
@@ -9984,19 +12682,22 @@ class FeatureFlagsPoller {
         this.onError?.(err);
     }
   }
-  getPersonalApiKeyRequestOptions(method = "GET") {
+  getPersonalApiKeyRequestOptions(method = "GET", etag) {
+    const headers = {
+      ...this.customHeaders,
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${this.personalApiKey}`
+    };
+    if (etag)
+      headers["If-None-Match"] = etag;
     return {
       method,
-      headers: {
-        ...this.customHeaders,
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.personalApiKey}`
-      }
+      headers
     };
   }
-  async _requestFeatureFlagDefinitions() {
-    const url = `${this.host}/api/feature_flag/local_evaluation?token=${this.projectApiKey}&send_cohorts`;
-    const options = this.getPersonalApiKeyRequestOptions();
+  _requestFeatureFlagDefinitions() {
+    const url = `${this.host}/flags/definitions?token=${this.projectApiKey}&send_cohorts`;
+    const options = this.getPersonalApiKeyRequestOptions("GET", this.flagsEtag);
     let abortTimeout = null;
     if (this.timeout && typeof this.timeout == "number") {
       const controller = new AbortController;
@@ -10006,17 +12707,29 @@ class FeatureFlagsPoller {
       options.signal = controller.signal;
     }
     try {
-      return await this.fetch(url, options);
+      const fetch1 = this.fetch;
+      return fetch1(url, options);
     } finally {
       clearTimeout(abortTimeout);
     }
   }
-  stopPoller() {
+  async stopPoller(timeoutMs = 30000) {
     clearTimeout(this.poller);
+    if (this.cacheProvider)
+      try {
+        const shutdownResult = this.cacheProvider.shutdown();
+        if (shutdownResult instanceof Promise)
+          await Promise.race([
+            shutdownResult,
+            new Promise((_, reject) => setTimeout(() => reject(new Error(`Cache shutdown timeout after ${timeoutMs}ms`)), timeoutMs))
+          ]);
+      } catch (err) {
+        this.onError?.(new Error(`Error during cache shutdown: ${err}`));
+      }
   }
 }
-async function _hash(key, distinctId, salt = "") {
-  const hashString = await hashSHA1(`${key}.${distinctId}${salt}`);
+async function _hash(key, bucketingValue, salt = "") {
+  const hashString = await hashSHA1(`${key}.${bucketingValue}${salt}`);
   return parseInt(hashString.slice(0, 15), 16) / LONG_SCALE;
 }
 function matchProperty(property, propertyValues, warnFunction) {
@@ -10095,6 +12808,45 @@ function matchProperty(property, propertyValues, warnFunction) {
       ].includes(operator))
         return overrideDate < parsedDate;
       return overrideDate > parsedDate;
+    }
+    case "semver_eq": {
+      const cmp = compareSemverTuples(parseSemver(String(overrideValue)), parseSemver(String(value)));
+      return cmp === 0;
+    }
+    case "semver_neq": {
+      const cmp = compareSemverTuples(parseSemver(String(overrideValue)), parseSemver(String(value)));
+      return cmp !== 0;
+    }
+    case "semver_gt": {
+      const cmp = compareSemverTuples(parseSemver(String(overrideValue)), parseSemver(String(value)));
+      return cmp > 0;
+    }
+    case "semver_gte": {
+      const cmp = compareSemverTuples(parseSemver(String(overrideValue)), parseSemver(String(value)));
+      return cmp >= 0;
+    }
+    case "semver_lt": {
+      const cmp = compareSemverTuples(parseSemver(String(overrideValue)), parseSemver(String(value)));
+      return cmp < 0;
+    }
+    case "semver_lte": {
+      const cmp = compareSemverTuples(parseSemver(String(overrideValue)), parseSemver(String(value)));
+      return cmp <= 0;
+    }
+    case "semver_tilde": {
+      const overrideParsed = parseSemver(String(overrideValue));
+      const { lower, upper } = computeTildeBounds(String(value));
+      return compareSemverTuples(overrideParsed, lower) >= 0 && compareSemverTuples(overrideParsed, upper) < 0;
+    }
+    case "semver_caret": {
+      const overrideParsed = parseSemver(String(overrideValue));
+      const { lower, upper } = computeCaretBounds(String(value));
+      return compareSemverTuples(overrideParsed, lower) >= 0 && compareSemverTuples(overrideParsed, upper) < 0;
+    }
+    case "semver_wildcard": {
+      const overrideParsed = parseSemver(String(overrideValue));
+      const { lower, upper } = computeWildcardBounds(String(value));
+      return compareSemverTuples(overrideParsed, lower) >= 0 && compareSemverTuples(overrideParsed, upper) < 0;
     }
     default:
       throw new InconclusiveMatchError(`Unknown operator: ${operator}`);
@@ -10186,6 +12938,123 @@ function isValidRegex(regex) {
     return false;
   }
 }
+function parseSemver(value) {
+  const text = String(value).trim().replace(/^[vV]/, "");
+  const baseVersion = text.split("-")[0].split("+")[0];
+  if (!baseVersion || baseVersion.startsWith("."))
+    throw new InconclusiveMatchError(`Invalid semver: ${value}`);
+  const parts = baseVersion.split(".");
+  const parsePart = (part) => {
+    if (part === undefined || part === "")
+      return 0;
+    if (!/^\d+$/.test(part))
+      throw new InconclusiveMatchError(`Invalid semver: ${value}`);
+    return parseInt(part, 10);
+  };
+  const major = parsePart(parts[0]);
+  const minor = parsePart(parts[1]);
+  const patch = parsePart(parts[2]);
+  return [
+    major,
+    minor,
+    patch
+  ];
+}
+function compareSemverTuples(a, b) {
+  for (let i = 0;i < 3; i++) {
+    if (a[i] < b[i])
+      return -1;
+    if (a[i] > b[i])
+      return 1;
+  }
+  return 0;
+}
+function computeTildeBounds(value) {
+  const parsed = parseSemver(value);
+  const lower = [
+    parsed[0],
+    parsed[1],
+    parsed[2]
+  ];
+  const upper = [
+    parsed[0],
+    parsed[1] + 1,
+    0
+  ];
+  return {
+    lower,
+    upper
+  };
+}
+function computeCaretBounds(value) {
+  const parsed = parseSemver(value);
+  const [major, minor, patch] = parsed;
+  const lower = [
+    major,
+    minor,
+    patch
+  ];
+  let upper;
+  upper = major > 0 ? [
+    major + 1,
+    0,
+    0
+  ] : minor > 0 ? [
+    0,
+    minor + 1,
+    0
+  ] : [
+    0,
+    0,
+    patch + 1
+  ];
+  return {
+    lower,
+    upper
+  };
+}
+function computeWildcardBounds(value) {
+  const text = String(value).trim().replace(/^[vV]/, "");
+  const cleanedText = text.replace(/\.\*$/, "").replace(/\*$/, "");
+  if (!cleanedText)
+    throw new InconclusiveMatchError(`Invalid wildcard semver: ${value}`);
+  const parts = cleanedText.split(".");
+  const major = parseInt(parts[0], 10);
+  if (isNaN(major))
+    throw new InconclusiveMatchError(`Invalid wildcard semver: ${value}`);
+  let lower;
+  let upper;
+  if (parts.length === 1) {
+    lower = [
+      major,
+      0,
+      0
+    ];
+    upper = [
+      major + 1,
+      0,
+      0
+    ];
+  } else {
+    const minor = parseInt(parts[1], 10);
+    if (isNaN(minor))
+      throw new InconclusiveMatchError(`Invalid wildcard semver: ${value}`);
+    lower = [
+      major,
+      minor,
+      0
+    ];
+    upper = [
+      major,
+      minor + 1,
+      0
+    ];
+  }
+  return {
+    lower,
+    upper
+  };
+}
 function convertToDateTime(value) {
   if (value instanceof Date)
     return value;
@@ -10227,7 +13096,7 @@ function relativeDateParseForFeatureFlagMatching(value) {
   }
 }
 
-// ../../node_modules/.bun/posthog-node@5.11.0/node_modules/posthog-node/dist/storage-memory.mjs
+// ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/storage-memory.mjs
 class PostHogMemoryStorage {
   getProperty(key) {
     return this._memoryStorage[key];
@@ -10240,40 +13109,148 @@ class PostHogMemoryStorage {
   }
 }
 
-// ../../node_modules/.bun/posthog-node@5.11.0/node_modules/posthog-node/dist/client.mjs
+// ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/client.mjs
 var MINIMUM_POLLING_INTERVAL = 100;
 var THIRTY_SECONDS = 30000;
 var MAX_CACHE_SIZE = 50000;
+var WAITUNTIL_DEBOUNCE_MS = 50;
+var WAITUNTIL_MAX_WAIT_MS = 500;
+var DEFAULT_NODE_HOST = "https://us.i.posthog.com";
+var _emittedDeprecations = new Set;
+function emitDeprecationWarningOnce(id, message) {
+  if (_emittedDeprecations.has(id))
+    return;
+  _emittedDeprecations.add(id);
+  console.warn(`[PostHog] ${message}`);
+}
+function normalizeApiKey(value) {
+  return typeof value == "string" ? value.trim() : "";
+}
+function normalizePersonalApiKey(value) {
+  const normalizedValue = typeof value == "string" ? value.trim() : "";
+  return normalizedValue || undefined;
+}
+function normalizeHost(value) {
+  const normalizedValue = typeof value == "string" ? value.trim() : "";
+  return normalizedValue || DEFAULT_NODE_HOST;
+}
+function buildFlagEventProperties(flagValues) {
+  if (!flagValues)
+    return {};
+  const additionalProperties = {};
+  for (const [feature, variant] of Object.entries(flagValues))
+    additionalProperties[`$feature/${feature}`] = variant;
+  const activeFlags = Object.keys(flagValues).filter((flag) => flagValues[flag] !== false).sort();
+  if (activeFlags.length > 0)
+    additionalProperties["$active_feature_flags"] = activeFlags;
+  return additionalProperties;
+}
 
 class PostHogBackendClient extends PostHogCoreStateless {
   constructor(apiKey, options = {}) {
-    super(apiKey, options), this._memoryStorage = new PostHogMemoryStorage;
-    this.options = options;
-    this.options.featureFlagsPollingInterval = typeof options.featureFlagsPollingInterval == "number" ? Math.max(options.featureFlagsPollingInterval, MINIMUM_POLLING_INTERVAL) : THIRTY_SECONDS;
-    if (options.personalApiKey) {
-      if (options.personalApiKey.includes("phc_"))
+    const normalizedApiKey = normalizeApiKey(apiKey);
+    const normalizedOptions = {
+      ...options,
+      host: normalizeHost(options.host),
+      personalApiKey: normalizePersonalApiKey(options.personalApiKey)
+    };
+    super(normalizedApiKey, normalizedOptions), this._memoryStorage = new PostHogMemoryStorage;
+    this.options = normalizedOptions;
+    this.context = this.initializeContext();
+    this.options.featureFlagsPollingInterval = typeof normalizedOptions.featureFlagsPollingInterval == "number" ? Math.max(normalizedOptions.featureFlagsPollingInterval, MINIMUM_POLLING_INTERVAL) : THIRTY_SECONDS;
+    if (typeof normalizedOptions.waitUntilDebounceMs == "number")
+      this.options.waitUntilDebounceMs = Math.max(normalizedOptions.waitUntilDebounceMs, 0);
+    if (typeof normalizedOptions.waitUntilMaxWaitMs == "number")
+      this.options.waitUntilMaxWaitMs = Math.max(normalizedOptions.waitUntilMaxWaitMs, 0);
+    if (normalizedOptions.personalApiKey) {
+      if (normalizedOptions.personalApiKey.includes("phc_"))
         throw new Error('Your Personal API key is invalid. These keys are prefixed with "phx_" and can be created in PostHog project settings.');
-      const shouldEnableLocalEvaluation = options.enableLocalEvaluation !== false;
+      const shouldEnableLocalEvaluation = normalizedOptions.enableLocalEvaluation !== false;
       if (shouldEnableLocalEvaluation)
         this.featureFlagsPoller = new FeatureFlagsPoller({
           pollingInterval: this.options.featureFlagsPollingInterval,
-          personalApiKey: options.personalApiKey,
-          projectApiKey: apiKey,
-          timeout: options.requestTimeout ?? 1e4,
+          personalApiKey: normalizedOptions.personalApiKey,
+          projectApiKey: normalizedApiKey,
+          timeout: normalizedOptions.requestTimeout ?? 1e4,
           host: this.host,
-          fetch: options.fetch,
+          fetch: normalizedOptions.fetch,
           onError: (err) => {
             this._events.emit("error", err);
           },
           onLoad: (count) => {
             this._events.emit("localEvaluationFlagsLoaded", count);
           },
-          customHeaders: this.getCustomHeaders()
+          customHeaders: this.getCustomHeaders(),
+          cacheProvider: normalizedOptions.flagDefinitionCacheProvider,
+          strictLocalEvaluation: normalizedOptions.strictLocalEvaluation
         });
     }
-    this.errorTracking = new ErrorTracking(this, options, this._logger);
+    this.errorTracking = new ErrorTracking(this, normalizedOptions, this._logger);
     this.distinctIdHasSentFlagCalls = {};
-    this.maxCacheSize = options.maxCacheSize || MAX_CACHE_SIZE;
+    this.maxCacheSize = normalizedOptions.maxCacheSize || MAX_CACHE_SIZE;
+  }
+  enqueue(type, message, options) {
+    super.enqueue(type, message, options);
+    this.scheduleDebouncedFlush();
+  }
+  async flush() {
+    const flushPromise = super.flush();
+    const waitUntil = this.options.waitUntil;
+    if (waitUntil && !this._waitUntilCycle)
+      try {
+        waitUntil(flushPromise.catch(() => {}));
+      } catch {}
+    return flushPromise;
+  }
+  scheduleDebouncedFlush() {
+    const waitUntil = this.options.waitUntil;
+    if (!waitUntil)
+      return;
+    if (this.disabled || this.optedOut)
+      return;
+    if (!this._waitUntilCycle) {
+      let resolve;
+      const promise = new Promise((r) => {
+        resolve = r;
+      });
+      try {
+        waitUntil(promise);
+      } catch {
+        return;
+      }
+      this._waitUntilCycle = {
+        resolve,
+        startedAt: Date.now(),
+        timer: undefined
+      };
+    }
+    const elapsed = Date.now() - this._waitUntilCycle.startedAt;
+    const maxWaitMs = this.options.waitUntilMaxWaitMs ?? WAITUNTIL_MAX_WAIT_MS;
+    const flushNow = elapsed >= maxWaitMs;
+    if (this._waitUntilCycle.timer !== undefined)
+      clearTimeout(this._waitUntilCycle.timer);
+    if (flushNow)
+      return void this.resolveWaitUntilFlush();
+    const debounceMs = this.options.waitUntilDebounceMs ?? WAITUNTIL_DEBOUNCE_MS;
+    this._waitUntilCycle.timer = safeSetTimeout(() => {
+      this.resolveWaitUntilFlush();
+    }, debounceMs);
+  }
+  _consumeWaitUntilCycle() {
+    const cycle = this._waitUntilCycle;
+    if (cycle) {
+      clearTimeout(cycle.timer);
+      this._waitUntilCycle = undefined;
+    }
+    return cycle?.resolve;
+  }
+  async resolveWaitUntilFlush() {
+    const resolve = this._consumeWaitUntilCycle();
+    try {
+      await super.flush();
+    } catch {} finally {
+      resolve?.();
+    }
   }
   getPersistedProperty(key) {
     return this._memoryStorage.getProperty(key);
@@ -10303,6 +13280,8 @@ class PostHogBackendClient extends PostHogCoreStateless {
   capture(props) {
     if (typeof props == "string")
       this._logger.warn("Called capture() with a string as the first argument when an object was expected.");
+    if (props.event === "$exception" && !props._originatedFromCaptureException)
+      this._logger.warn("Using `posthog.capture('$exception')` is unreliable because it does not attach required metadata. Use `posthog.captureException(error)` instead, which attaches required metadata automatically.");
     this.addPendingPromise(this.prepareEventMessage(props).then(({ distinctId, event, properties, options }) => super.captureStateless(distinctId, event, properties, {
       timestamp: options.timestamp,
       disableGeoip: options.disableGeoip,
@@ -10315,6 +13294,8 @@ class PostHogBackendClient extends PostHogCoreStateless {
   async captureImmediate(props) {
     if (typeof props == "string")
       this._logger.warn("Called captureImmediate() with a string as the first argument when an object was expected.");
+    if (props.event === "$exception" && !props._originatedFromCaptureException)
+      this._logger.warn("Capturing a `$exception` event via `posthog.captureImmediate('$exception')` is unreliable because it does not attach required metadata. Use `posthog.captureExceptionImmediate(error)` instead, which attaches this metadata by default.");
     return this.addPendingPromise(this.prepareEventMessage(props).then(({ distinctId, event, properties, options }) => super.captureStatelessImmediate(distinctId, event, properties, {
       timestamp: options.timestamp,
       disableGeoip: options.disableGeoip,
@@ -10324,25 +13305,29 @@ class PostHogBackendClient extends PostHogCoreStateless {
         console.error(err);
     }));
   }
-  identify({ distinctId, properties, disableGeoip }) {
-    const userPropsOnce = properties?.$set_once;
-    delete properties?.$set_once;
-    const userProps = properties?.$set || properties;
-    super.identifyStateless(distinctId, {
-      $set: userProps,
-      $set_once: userPropsOnce
-    }, {
+  identify({ distinctId, properties = {}, disableGeoip }) {
+    const { $set, $set_once, $anon_distinct_id, ...rest } = properties;
+    const setProps = $set || rest;
+    const setOnceProps = $set_once || {};
+    const eventProperties = {
+      $set: setProps,
+      $set_once: setOnceProps,
+      $anon_distinct_id: $anon_distinct_id ?? undefined
+    };
+    super.identifyStateless(distinctId, eventProperties, {
       disableGeoip
     });
   }
-  async identifyImmediate({ distinctId, properties, disableGeoip }) {
-    const userPropsOnce = properties?.$set_once;
-    delete properties?.$set_once;
-    const userProps = properties?.$set || properties;
-    await super.identifyStatelessImmediate(distinctId, {
-      $set: userProps,
-      $set_once: userPropsOnce
-    }, {
+  async identifyImmediate({ distinctId, properties = {}, disableGeoip }) {
+    const { $set, $set_once, $anon_distinct_id, ...rest } = properties;
+    const setProps = $set || rest;
+    const setOnceProps = $set_once || {};
+    const eventProperties = {
+      $set: setProps,
+      $set_once: setOnceProps,
+      $anon_distinct_id: $anon_distinct_id ?? undefined
+    };
+    super.identifyStatelessImmediate(distinctId, eventProperties, {
       disableGeoip
     });
   }
@@ -10376,88 +13361,182 @@ class PostHogBackendClient extends PostHogCoreStateless {
       });
     });
   }
-  async getFeatureFlag(key, distinctId, options) {
-    const { groups, disableGeoip } = options || {};
-    let { onlyEvaluateLocally, sendFeatureFlagEvents, personProperties, groupProperties } = options || {};
-    const adjustedProperties = this.addLocalPersonAndGroupProperties(distinctId, groups, personProperties, groupProperties);
-    personProperties = adjustedProperties.allPersonProperties;
-    groupProperties = adjustedProperties.allGroupProperties;
-    if (onlyEvaluateLocally == undefined)
-      onlyEvaluateLocally = false;
-    if (sendFeatureFlagEvents == undefined)
-      sendFeatureFlagEvents = this.options.sendFeatureFlagEvent ?? true;
-    let response = await this.featureFlagsPoller?.getFeatureFlag(key, distinctId, groups, personProperties, groupProperties);
-    const flagWasLocallyEvaluated = response !== undefined;
-    let requestId;
-    let flagDetail;
-    if (!flagWasLocallyEvaluated && !onlyEvaluateLocally) {
-      const remoteResponse = await super.getFeatureFlagDetailStateless(key, distinctId, groups, personProperties, groupProperties, disableGeoip);
-      if (remoteResponse === undefined)
-        return;
-      flagDetail = remoteResponse.response;
-      response = getFeatureFlagValue(flagDetail);
-      requestId = remoteResponse?.requestId;
-    }
-    const featureFlagReportedKey = `${key}_${response}`;
-    if (sendFeatureFlagEvents && (!(distinctId in this.distinctIdHasSentFlagCalls) || !this.distinctIdHasSentFlagCalls[distinctId].includes(featureFlagReportedKey))) {
-      if (Object.keys(this.distinctIdHasSentFlagCalls).length >= this.maxCacheSize)
-        this.distinctIdHasSentFlagCalls = {};
-      if (Array.isArray(this.distinctIdHasSentFlagCalls[distinctId]))
-        this.distinctIdHasSentFlagCalls[distinctId].push(featureFlagReportedKey);
-      else
-        this.distinctIdHasSentFlagCalls[distinctId] = [
-          featureFlagReportedKey
-        ];
-      this.capture({
-        distinctId,
-        event: "$feature_flag_called",
-        properties: {
-          $feature_flag: key,
-          $feature_flag_response: response,
-          $feature_flag_id: flagDetail?.metadata?.id,
-          $feature_flag_version: flagDetail?.metadata?.version,
-          $feature_flag_reason: flagDetail?.reason?.description ?? flagDetail?.reason?.code,
-          locally_evaluated: flagWasLocallyEvaluated,
-          [`$feature/${key}`]: response,
-          $feature_flag_request_id: requestId
-        },
-        groups,
-        disableGeoip
-      });
-    }
-    return response;
+  _resolveDistinctId(distinctIdOrOptions, options) {
+    if (typeof distinctIdOrOptions == "string")
+      return {
+        distinctId: distinctIdOrOptions,
+        options
+      };
+    return {
+      distinctId: this.context?.get()?.distinctId,
+      options: distinctIdOrOptions
+    };
   }
-  async getFeatureFlagPayload(key, distinctId, matchValue, options) {
-    const { groups, disableGeoip } = options || {};
-    let { onlyEvaluateLocally, personProperties, groupProperties } = options || {};
+  async _getFeatureFlagResult(key, distinctId, options = {}, matchValue) {
+    const sendFeatureFlagEvents = options.sendFeatureFlagEvents ?? true;
+    if (this._flagOverrides !== undefined && key in this._flagOverrides) {
+      const overrideValue = this._flagOverrides[key];
+      if (overrideValue === undefined)
+        return;
+      const overridePayload = this._payloadOverrides?.[key];
+      return {
+        key,
+        enabled: overrideValue !== false,
+        variant: typeof overrideValue == "string" ? overrideValue : undefined,
+        payload: overridePayload
+      };
+    }
+    const { groups, disableGeoip } = options;
+    let { onlyEvaluateLocally, personProperties, groupProperties } = options;
     const adjustedProperties = this.addLocalPersonAndGroupProperties(distinctId, groups, personProperties, groupProperties);
     personProperties = adjustedProperties.allPersonProperties;
     groupProperties = adjustedProperties.allGroupProperties;
-    let response;
+    const evaluationContext = this.createFeatureFlagEvaluationContext(distinctId, groups, personProperties, groupProperties);
+    if (onlyEvaluateLocally == undefined)
+      onlyEvaluateLocally = this.options.strictLocalEvaluation ?? false;
+    let result;
+    let flagWasLocallyEvaluated = false;
+    let requestId;
+    let evaluatedAt;
+    let featureFlagError;
+    let flagId;
+    let flagVersion;
+    let flagReason;
     const localEvaluationEnabled = this.featureFlagsPoller !== undefined;
     if (localEvaluationEnabled) {
       await this.featureFlagsPoller?.loadFeatureFlags();
       const flag = this.featureFlagsPoller?.featureFlagsByKey[key];
       if (flag)
         try {
-          const result = await this.featureFlagsPoller?.computeFlagAndPayloadLocally(flag, distinctId, groups, personProperties, groupProperties, matchValue);
-          if (result) {
-            matchValue = result.value;
-            response = result.payload;
+          const localResult = await this.featureFlagsPoller?.computeFlagAndPayloadLocally(flag, evaluationContext, {
+            matchValue
+          });
+          if (localResult) {
+            flagWasLocallyEvaluated = true;
+            const value = localResult.value;
+            flagId = flag.id;
+            flagReason = "Evaluated locally";
+            result = {
+              key,
+              enabled: value !== false,
+              variant: typeof value == "string" ? value : undefined,
+              payload: localResult.payload ?? undefined
+            };
           }
         } catch (e) {
           if (e instanceof RequiresServerEvaluation || e instanceof InconclusiveMatchError)
-            this._logger?.info(`${e.name} when computing flag locally: ${flag.key}: ${e.message}`);
+            this._logger?.info(`${e.name} when computing flag locally: ${key}: ${e.message}`);
           else
             throw e;
         }
     }
-    if (onlyEvaluateLocally == undefined)
-      onlyEvaluateLocally = false;
-    const payloadWasLocallyEvaluated = response !== undefined;
-    if (!payloadWasLocallyEvaluated && !onlyEvaluateLocally)
-      response = await super.getFeatureFlagPayloadStateless(key, distinctId, groups, personProperties, groupProperties, disableGeoip);
-    return response;
+    if (!flagWasLocallyEvaluated && !onlyEvaluateLocally) {
+      const flagsResponse = await super.getFeatureFlagDetailsStateless(evaluationContext.distinctId, evaluationContext.groups, evaluationContext.personProperties, evaluationContext.groupProperties, disableGeoip, [
+        key
+      ]);
+      if (flagsResponse === undefined)
+        featureFlagError = FeatureFlagError2.UNKNOWN_ERROR;
+      else {
+        requestId = flagsResponse.requestId;
+        evaluatedAt = flagsResponse.evaluatedAt;
+        const errors = [];
+        if (flagsResponse.errorsWhileComputingFlags)
+          errors.push(FeatureFlagError2.ERRORS_WHILE_COMPUTING);
+        if (flagsResponse.quotaLimited?.includes("feature_flags"))
+          errors.push(FeatureFlagError2.QUOTA_LIMITED);
+        const flagDetail = flagsResponse.flags[key];
+        if (flagDetail === undefined)
+          errors.push(FeatureFlagError2.FLAG_MISSING);
+        else {
+          flagId = flagDetail.metadata?.id;
+          flagVersion = flagDetail.metadata?.version;
+          flagReason = flagDetail.reason?.description ?? flagDetail.reason?.code;
+          let parsedPayload;
+          if (flagDetail.metadata?.payload !== undefined)
+            try {
+              parsedPayload = JSON.parse(flagDetail.metadata.payload);
+            } catch {
+              parsedPayload = flagDetail.metadata.payload;
+            }
+          result = {
+            key,
+            enabled: flagDetail.enabled,
+            variant: flagDetail.variant,
+            payload: parsedPayload
+          };
+        }
+        if (errors.length > 0)
+          featureFlagError = errors.join(",");
+      }
+    }
+    if (sendFeatureFlagEvents) {
+      const response = result === undefined ? undefined : result.enabled === false ? false : result.variant ?? true;
+      const properties = {
+        $feature_flag: key,
+        $feature_flag_response: response,
+        $feature_flag_id: flagId,
+        $feature_flag_version: flagVersion,
+        $feature_flag_reason: flagReason,
+        locally_evaluated: flagWasLocallyEvaluated,
+        [`$feature/${key}`]: response,
+        $feature_flag_request_id: requestId,
+        $feature_flag_evaluated_at: flagWasLocallyEvaluated ? Date.now() : evaluatedAt
+      };
+      if (flagWasLocallyEvaluated && this.featureFlagsPoller) {
+        const flagDefinitionsLoadedAt = this.featureFlagsPoller.getFlagDefinitionsLoadedAt();
+        if (flagDefinitionsLoadedAt !== undefined)
+          properties.$feature_flag_definitions_loaded_at = flagDefinitionsLoadedAt;
+      }
+      if (featureFlagError)
+        properties.$feature_flag_error = featureFlagError;
+      this._captureFlagCalledEventIfNeeded({
+        distinctId,
+        key,
+        response,
+        groups,
+        disableGeoip,
+        properties
+      });
+    }
+    if (result !== undefined && this._payloadOverrides !== undefined && key in this._payloadOverrides)
+      result = {
+        ...result,
+        payload: this._payloadOverrides[key]
+      };
+    return result;
+  }
+  async getFeatureFlag(key, distinctId, options) {
+    emitDeprecationWarningOnce("getFeatureFlag", "`getFeatureFlag` is deprecated and will be removed in a future major version. Use `posthog.evaluateFlags(distinctId, ...)` and call `flags.getFlag(key)` instead — this consolidates flag evaluation into a single `/flags` request per incoming request.");
+    const result = await this._getFeatureFlagResult(key, distinctId, {
+      ...options,
+      sendFeatureFlagEvents: options?.sendFeatureFlagEvents ?? this.options.sendFeatureFlagEvent ?? true
+    });
+    if (result === undefined)
+      return;
+    if (result.enabled === false)
+      return false;
+    return result.variant ?? true;
+  }
+  async getFeatureFlagPayload(key, distinctId, matchValue, options) {
+    emitDeprecationWarningOnce("getFeatureFlagPayload", "`getFeatureFlagPayload` is deprecated and will be removed in a future major version. Use `posthog.evaluateFlags(distinctId, ...)` and call `flags.getFlagPayload(key)` instead — this consolidates flag evaluation into a single `/flags` request per incoming request.");
+    if (this._payloadOverrides !== undefined && key in this._payloadOverrides)
+      return this._payloadOverrides[key];
+    const result = await this._getFeatureFlagResult(key, distinctId, {
+      ...options,
+      sendFeatureFlagEvents: false
+    }, matchValue);
+    if (result === undefined)
+      return;
+    return result.payload ?? null;
+  }
+  async getFeatureFlagResult(key, distinctIdOrOptions, options) {
+    const { distinctId: resolvedDistinctId, options: resolvedOptions } = this._resolveDistinctId(distinctIdOrOptions, options);
+    if (!resolvedDistinctId)
+      return void this._logger.warn("[PostHog] distinctId is required — pass it explicitly or use withContext()");
+    return this._getFeatureFlagResult(key, resolvedDistinctId, {
+      ...resolvedOptions,
+      sendFeatureFlagEvents: resolvedOptions?.sendFeatureFlagEvents ?? this.options.sendFeatureFlagEvent ?? true
+    });
   }
   async getRemoteConfigPayload(flagKey) {
     if (!this.options.personalApiKey)
@@ -10473,24 +13552,45 @@ class PostHogBackendClient extends PostHogCoreStateless {
     return parsed;
   }
   async isFeatureEnabled(key, distinctId, options) {
-    const feat = await this.getFeatureFlag(key, distinctId, options);
-    if (feat === undefined)
+    emitDeprecationWarningOnce("isFeatureEnabled", "`isFeatureEnabled` is deprecated and will be removed in a future major version. Use `posthog.evaluateFlags(distinctId, ...)` and call `flags.isEnabled(key)` instead — this consolidates flag evaluation into a single `/flags` request per incoming request.");
+    const result = await this._getFeatureFlagResult(key, distinctId, {
+      ...options,
+      sendFeatureFlagEvents: options?.sendFeatureFlagEvents ?? this.options.sendFeatureFlagEvent ?? true
+    });
+    if (result === undefined)
       return;
+    if (result.enabled === false)
+      return false;
+    const feat = result.variant ?? true;
     return !!feat || false;
   }
-  async getAllFlags(distinctId, options) {
-    const response = await this.getAllFlagsAndPayloads(distinctId, options);
+  async getAllFlags(distinctIdOrOptions, options) {
+    const { distinctId: resolvedDistinctId, options: resolvedOptions } = this._resolveDistinctId(distinctIdOrOptions, options);
+    if (!resolvedDistinctId) {
+      this._logger.warn("[PostHog] distinctId is required to get feature flags — pass it explicitly or use withContext()");
+      return {};
+    }
+    const response = await this.getAllFlagsAndPayloads(resolvedDistinctId, resolvedOptions);
     return response.featureFlags || {};
   }
-  async getAllFlagsAndPayloads(distinctId, options) {
-    const { groups, disableGeoip, flagKeys } = options || {};
-    let { onlyEvaluateLocally, personProperties, groupProperties } = options || {};
-    const adjustedProperties = this.addLocalPersonAndGroupProperties(distinctId, groups, personProperties, groupProperties);
+  async getAllFlagsAndPayloads(distinctIdOrOptions, options) {
+    const { distinctId: resolvedDistinctId, options: resolvedOptions } = this._resolveDistinctId(distinctIdOrOptions, options);
+    if (!resolvedDistinctId) {
+      this._logger.warn("[PostHog] distinctId is required to get feature flags and payloads — pass it explicitly or use withContext()");
+      return {
+        featureFlags: {},
+        featureFlagPayloads: {}
+      };
+    }
+    const { groups, disableGeoip, flagKeys } = resolvedOptions || {};
+    let { onlyEvaluateLocally, personProperties, groupProperties } = resolvedOptions || {};
+    const adjustedProperties = this.addLocalPersonAndGroupProperties(resolvedDistinctId, groups, personProperties, groupProperties);
     personProperties = adjustedProperties.allPersonProperties;
     groupProperties = adjustedProperties.allGroupProperties;
+    const evaluationContext = this.createFeatureFlagEvaluationContext(resolvedDistinctId, groups, personProperties, groupProperties);
     if (onlyEvaluateLocally == undefined)
-      onlyEvaluateLocally = false;
-    const localEvaluationResult = await this.featureFlagsPoller?.getAllFlagsAndPayloads(distinctId, groups, personProperties, groupProperties, flagKeys);
+      onlyEvaluateLocally = this.options.strictLocalEvaluation ?? false;
+    const localEvaluationResult = await this.featureFlagsPoller?.getAllFlagsAndPayloads(evaluationContext, flagKeys);
     let featureFlags = {};
     let featureFlagPayloads = {};
     let fallbackToFlags = true;
@@ -10500,7 +13600,7 @@ class PostHogBackendClient extends PostHogCoreStateless {
       fallbackToFlags = localEvaluationResult.fallbackToFlags;
     }
     if (fallbackToFlags && !onlyEvaluateLocally) {
-      const remoteEvaluationResult = await super.getFeatureFlagsAndPayloadsStateless(distinctId, groups, personProperties, groupProperties, disableGeoip, flagKeys);
+      const remoteEvaluationResult = await super.getFeatureFlagsAndPayloadsStateless(evaluationContext.distinctId, evaluationContext.groups, evaluationContext.personProperties, evaluationContext.groupProperties, disableGeoip, flagKeys);
       featureFlags = {
         ...featureFlags,
         ...remoteEvaluationResult.flags || {}
@@ -10510,10 +13610,163 @@ class PostHogBackendClient extends PostHogCoreStateless {
         ...remoteEvaluationResult.payloads || {}
       };
     }
+    if (this._flagOverrides !== undefined)
+      featureFlags = {
+        ...featureFlags,
+        ...this._flagOverrides
+      };
+    if (this._payloadOverrides !== undefined)
+      featureFlagPayloads = {
+        ...featureFlagPayloads,
+        ...this._payloadOverrides
+      };
     return {
       featureFlags,
       featureFlagPayloads
     };
+  }
+  async evaluateFlags(distinctIdOrOptions, options) {
+    const { distinctId: resolvedDistinctId, options: resolvedOptions } = this._resolveDistinctId(distinctIdOrOptions, options);
+    if (!resolvedDistinctId) {
+      this._logger.warn("[PostHog] distinctId is required to evaluate feature flags — pass it explicitly or use withContext()");
+      return new FeatureFlagEvaluations({
+        host: this._getFeatureFlagEvaluationsHost(),
+        distinctId: "",
+        flags: {}
+      });
+    }
+    const { groups, disableGeoip, flagKeys } = resolvedOptions || {};
+    let { onlyEvaluateLocally, personProperties, groupProperties } = resolvedOptions || {};
+    const adjustedProperties = this.addLocalPersonAndGroupProperties(resolvedDistinctId, groups, personProperties, groupProperties);
+    personProperties = adjustedProperties.allPersonProperties;
+    groupProperties = adjustedProperties.allGroupProperties;
+    const evaluationContext = this.createFeatureFlagEvaluationContext(resolvedDistinctId, groups, personProperties, groupProperties);
+    if (onlyEvaluateLocally == undefined)
+      onlyEvaluateLocally = this.options.strictLocalEvaluation ?? false;
+    const records = {};
+    let requestId;
+    let evaluatedAt;
+    let errorsWhileComputing = false;
+    let quotaLimited = false;
+    const localResult = await this.featureFlagsPoller?.getAllFlagsAndPayloads(evaluationContext, flagKeys);
+    const locallyEvaluatedKeys = new Set;
+    if (localResult)
+      for (const [key, value] of Object.entries(localResult.response)) {
+        const flagDef = this.featureFlagsPoller?.featureFlagsByKey[key];
+        records[key] = {
+          key,
+          enabled: value !== false,
+          variant: typeof value == "string" ? value : undefined,
+          payload: localResult.payloads[key],
+          id: flagDef?.id,
+          version: undefined,
+          reason: "Evaluated locally",
+          locallyEvaluated: true
+        };
+        locallyEvaluatedKeys.add(key);
+      }
+    const fallbackToFlags = localResult ? localResult.fallbackToFlags : true;
+    if (fallbackToFlags && !onlyEvaluateLocally) {
+      const details = await super.getFeatureFlagDetailsStateless(evaluationContext.distinctId, evaluationContext.groups, evaluationContext.personProperties, evaluationContext.groupProperties, disableGeoip, flagKeys);
+      if (details) {
+        requestId = details.requestId;
+        evaluatedAt = details.evaluatedAt;
+        errorsWhileComputing = Boolean(details.errorsWhileComputingFlags);
+        quotaLimited = Array.isArray(details.quotaLimited) && details.quotaLimited.includes("feature_flags");
+        for (const [key, detail] of Object.entries(details.flags)) {
+          if (locallyEvaluatedKeys.has(key))
+            continue;
+          let parsedPayload;
+          if (detail.metadata?.payload !== undefined)
+            try {
+              parsedPayload = JSON.parse(detail.metadata.payload);
+            } catch {
+              parsedPayload = detail.metadata.payload;
+            }
+          records[key] = {
+            key,
+            enabled: detail.enabled,
+            variant: detail.variant,
+            payload: parsedPayload,
+            id: detail.metadata?.id,
+            version: detail.metadata?.version,
+            reason: detail.reason?.description ?? detail.reason?.code,
+            locallyEvaluated: false
+          };
+        }
+      }
+    }
+    if (this._flagOverrides !== undefined)
+      for (const [key, value] of Object.entries(this._flagOverrides)) {
+        if (value === undefined) {
+          delete records[key];
+          continue;
+        }
+        const existing = records[key];
+        records[key] = {
+          key,
+          enabled: value !== false,
+          variant: typeof value == "string" ? value : undefined,
+          payload: existing?.payload,
+          id: existing?.id,
+          version: existing?.version,
+          reason: existing?.reason,
+          locallyEvaluated: existing?.locallyEvaluated ?? false
+        };
+      }
+    if (this._payloadOverrides !== undefined)
+      for (const [key, payload] of Object.entries(this._payloadOverrides)) {
+        const existing = records[key];
+        if (existing)
+          records[key] = {
+            ...existing,
+            payload
+          };
+      }
+    return new FeatureFlagEvaluations({
+      host: this._getFeatureFlagEvaluationsHost(),
+      distinctId: resolvedDistinctId,
+      groups,
+      disableGeoip,
+      flags: records,
+      requestId,
+      evaluatedAt,
+      flagDefinitionsLoadedAt: this.featureFlagsPoller?.getFlagDefinitionsLoadedAt(),
+      errorsWhileComputing,
+      quotaLimited
+    });
+  }
+  _captureFlagCalledEventIfNeeded(params) {
+    const { distinctId, key, response, groups, disableGeoip, properties } = params;
+    const featureFlagReportedKey = `${key}_${response}`;
+    if (distinctId in this.distinctIdHasSentFlagCalls && this.distinctIdHasSentFlagCalls[distinctId].includes(featureFlagReportedKey))
+      return;
+    if (Object.keys(this.distinctIdHasSentFlagCalls).length >= this.maxCacheSize)
+      this.distinctIdHasSentFlagCalls = {};
+    if (Array.isArray(this.distinctIdHasSentFlagCalls[distinctId]))
+      this.distinctIdHasSentFlagCalls[distinctId].push(featureFlagReportedKey);
+    else
+      this.distinctIdHasSentFlagCalls[distinctId] = [
+        featureFlagReportedKey
+      ];
+    this.capture({
+      distinctId,
+      event: "$feature_flag_called",
+      properties,
+      groups,
+      disableGeoip
+    });
+  }
+  _getFeatureFlagEvaluationsHost() {
+    if (!this._featureFlagEvaluationsHost)
+      this._featureFlagEvaluationsHost = {
+        captureFlagCalledEventIfNeeded: (params) => this._captureFlagCalledEventIfNeeded(params),
+        logWarning: (message) => {
+          if (this.options.featureFlagsLogWarnings !== false)
+            console.warn(`[PostHog] ${message}`);
+        }
+      };
+    return this._featureFlagEvaluationsHost;
   }
   groupIdentify({ groupType, groupKey, properties, distinctId, disableGeoip }) {
     super.groupIdentifyStateless(groupType, groupKey, properties, {
@@ -10523,10 +13776,81 @@ class PostHogBackendClient extends PostHogCoreStateless {
   async reloadFeatureFlags() {
     await this.featureFlagsPoller?.loadFeatureFlags(true);
   }
+  overrideFeatureFlags(overrides) {
+    const flagArrayToRecord = (flags) => Object.fromEntries(flags.map((f) => [
+      f,
+      true
+    ]));
+    if (overrides === false) {
+      this._flagOverrides = undefined;
+      this._payloadOverrides = undefined;
+      return;
+    }
+    if (Array.isArray(overrides)) {
+      this._flagOverrides = flagArrayToRecord(overrides);
+      return;
+    }
+    if (this._isFeatureFlagOverrideOptions(overrides)) {
+      if ("flags" in overrides) {
+        if (overrides.flags === false)
+          this._flagOverrides = undefined;
+        else if (Array.isArray(overrides.flags))
+          this._flagOverrides = flagArrayToRecord(overrides.flags);
+        else if (overrides.flags !== undefined)
+          this._flagOverrides = {
+            ...overrides.flags
+          };
+      }
+      if ("payloads" in overrides) {
+        if (overrides.payloads === false)
+          this._payloadOverrides = undefined;
+        else if (overrides.payloads !== undefined)
+          this._payloadOverrides = {
+            ...overrides.payloads
+          };
+      }
+      return;
+    }
+    this._flagOverrides = {
+      ...overrides
+    };
+  }
+  _isFeatureFlagOverrideOptions(overrides) {
+    if (typeof overrides != "object" || overrides === null || Array.isArray(overrides))
+      return false;
+    const obj = overrides;
+    if ("flags" in obj) {
+      const flagsValue = obj["flags"];
+      if (flagsValue === false || Array.isArray(flagsValue) || typeof flagsValue == "object" && flagsValue !== null)
+        return true;
+    }
+    if ("payloads" in obj) {
+      const payloadsValue = obj["payloads"];
+      if (payloadsValue === false || typeof payloadsValue == "object" && payloadsValue !== null)
+        return true;
+    }
+    return false;
+  }
+  withContext(data, fn, options) {
+    if (!this.context)
+      return fn();
+    return this.context.run(data, fn, options);
+  }
+  getContext() {
+    return this.context?.get();
+  }
+  enterContext(data, options) {
+    this.context?.enter(data, options);
+  }
   async _shutdown(shutdownTimeoutMs) {
-    this.featureFlagsPoller?.stopPoller();
+    const resolve = this._consumeWaitUntilCycle();
+    await this.featureFlagsPoller?.stopPoller(shutdownTimeoutMs);
     this.errorTracking.shutdown();
-    return super._shutdown(shutdownTimeoutMs);
+    try {
+      return await super._shutdown(shutdownTimeoutMs);
+    } finally {
+      resolve?.();
+    }
   }
   async _requestRemoteConfigPayload(flagKey) {
     if (!this.options.personalApiKey)
@@ -10583,7 +13907,7 @@ class PostHogBackendClient extends PostHogCoreStateless {
     const finalPersonProperties = sendFeatureFlagsOptions?.personProperties || {};
     const finalGroupProperties = sendFeatureFlagsOptions?.groupProperties || {};
     const flagKeys = sendFeatureFlagsOptions?.flagKeys;
-    const onlyEvaluateLocally = sendFeatureFlagsOptions?.onlyEvaluateLocally ?? false;
+    const onlyEvaluateLocally = sendFeatureFlagsOptions?.onlyEvaluateLocally ?? this.options.strictLocalEvaluation ?? false;
     if (onlyEvaluateLocally)
       if (!((this.featureFlagsPoller?.featureFlags?.length || 0) > 0))
         return {};
@@ -10632,25 +13956,59 @@ class PostHogBackendClient extends PostHogCoreStateless {
       allGroupProperties
     };
   }
-  captureException(error, distinctId, additionalProperties) {
-    const syntheticException = new Error("PostHog syntheticException");
-    this.addPendingPromise(ErrorTracking.buildEventMessage(error, {
-      syntheticException
-    }, distinctId, additionalProperties).then((msg) => this.capture(msg)));
+  createFeatureFlagEvaluationContext(distinctId, groups, personProperties, groupProperties) {
+    return {
+      distinctId,
+      groups: groups || {},
+      personProperties: personProperties || {},
+      groupProperties: groupProperties || {},
+      evaluationCache: {}
+    };
   }
-  async captureExceptionImmediate(error, distinctId, additionalProperties) {
-    const syntheticException = new Error("PostHog syntheticException");
-    this.addPendingPromise(ErrorTracking.buildEventMessage(error, {
-      syntheticException
-    }, distinctId, additionalProperties).then((msg) => this.captureImmediate(msg)));
+  captureException(error, distinctId, additionalProperties, uuid, flags) {
+    if (!ErrorTracking.isPreviouslyCapturedError(error)) {
+      const syntheticException = new Error("PostHog syntheticException");
+      this.addPendingPromise(ErrorTracking.buildEventMessage(error, {
+        syntheticException
+      }, distinctId, additionalProperties).then((msg) => this.capture({
+        ...msg,
+        uuid,
+        flags
+      })));
+    }
+  }
+  async captureExceptionImmediate(error, distinctId, additionalProperties, flags) {
+    if (!ErrorTracking.isPreviouslyCapturedError(error)) {
+      const syntheticException = new Error("PostHog syntheticException");
+      return this.addPendingPromise(ErrorTracking.buildEventMessage(error, {
+        syntheticException
+      }, distinctId, additionalProperties).then((msg) => this.captureImmediate({
+        ...msg,
+        flags
+      })));
+    }
   }
   async prepareEventMessage(props) {
-    const { distinctId, event, properties, groups, sendFeatureFlags, timestamp, disableGeoip, uuid } = props;
+    const { distinctId, event, properties, groups, flags, sendFeatureFlags, timestamp, disableGeoip, uuid } = props;
+    const contextData = this.context?.get();
+    let mergedDistinctId = distinctId || contextData?.distinctId;
+    const mergedProperties = {
+      ...this.props,
+      ...contextData?.properties || {},
+      ...properties || {}
+    };
+    if (!mergedDistinctId) {
+      mergedDistinctId = uuidv7();
+      mergedProperties.$process_person_profile = false;
+    }
+    if (contextData?.sessionId && !mergedProperties.$session_id)
+      mergedProperties.$session_id = contextData.sessionId;
     const eventMessage = this._runBeforeSend({
-      distinctId,
+      distinctId: mergedDistinctId,
       event,
-      properties,
+      properties: mergedProperties,
       groups,
+      flags,
       sendFeatureFlags,
       timestamp,
       disableGeoip,
@@ -10659,20 +14017,18 @@ class PostHogBackendClient extends PostHogCoreStateless {
     if (!eventMessage)
       return Promise.reject(null);
     const eventProperties = await Promise.resolve().then(async () => {
+      if (flags) {
+        if (sendFeatureFlags)
+          console.warn("[PostHog] Both `flags` and `sendFeatureFlags` were passed to capture(); using `flags` and ignoring `sendFeatureFlags`.");
+        return flags._getEventProperties();
+      }
       if (sendFeatureFlags) {
+        emitDeprecationWarningOnce("sendFeatureFlags", "`sendFeatureFlags` is deprecated and will be removed in a future major version. Pass a `flags` snapshot from `posthog.evaluateFlags(...)` instead — it avoids a second `/flags` request per capture and guarantees the event carries the exact flag values your code branched on.");
         const sendFeatureFlagsOptions = typeof sendFeatureFlags == "object" ? sendFeatureFlags : undefined;
-        return await this.getFeatureFlagsForEvent(distinctId, groups, disableGeoip, sendFeatureFlagsOptions);
+        const flagValues = await this.getFeatureFlagsForEvent(eventMessage.distinctId, groups, disableGeoip, sendFeatureFlagsOptions);
+        return buildFlagEventProperties(flagValues);
       }
       return {};
-    }).then((flags) => {
-      const additionalProperties = {};
-      if (flags)
-        for (const [feature, variant] of Object.entries(flags))
-          additionalProperties[`$feature/${feature}`] = variant;
-      const activeFlags = Object.keys(flags || {}).filter((flag) => flags?.[flag] !== false).sort();
-      if (activeFlags.length > 0)
-        additionalProperties["$active_feature_flags"] = activeFlags;
-      return additionalProperties;
     }).catch(() => ({})).then((additionalProperties) => {
       const props2 = {
         ...additionalProperties,
@@ -10721,7 +14077,38 @@ class PostHogBackendClient extends PostHogCoreStateless {
   }
 }
 
-// ../../node_modules/.bun/posthog-node@5.11.0/node_modules/posthog-node/dist/extensions/sentry-integration.mjs
+// ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/extensions/context/context.mjs
+import { AsyncLocalStorage } from "node:async_hooks";
+
+class PostHogContext {
+  constructor() {
+    this.storage = new AsyncLocalStorage;
+  }
+  get() {
+    return this.storage.getStore();
+  }
+  run(context, fn, options) {
+    return this.storage.run(this.resolve(context, options), fn);
+  }
+  enter(context, options) {
+    this.storage.enterWith(this.resolve(context, options));
+  }
+  resolve(context, options) {
+    if (options?.fresh === true)
+      return context;
+    const current = this.get() || {};
+    return {
+      distinctId: context.distinctId ?? current.distinctId,
+      sessionId: context.sessionId ?? current.sessionId,
+      properties: {
+        ...current.properties || {},
+        ...context.properties || {}
+      }
+    };
+  }
+}
+
+// ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/extensions/sentry-integration.mjs
 var NAME = "posthog-node";
 function createEventProcessor(_posthog, { organization, projectId, prefix, severityAllowList = [
   "error"
@@ -10789,23 +14176,25 @@ class PostHogSentryIntegration {
     };
   }
 }
-// ../../node_modules/.bun/posthog-node@5.11.0/node_modules/posthog-node/dist/entrypoints/index.node.mjs
+// ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/entrypoints/index.node.mjs
 ErrorTracking.errorPropertiesBuilder = new exports_error_tracking.ErrorPropertiesBuilder([
   new exports_error_tracking.EventCoercer,
   new exports_error_tracking.ErrorCoercer,
   new exports_error_tracking.ObjectCoercer,
   new exports_error_tracking.StringCoercer,
   new exports_error_tracking.PrimitiveCoercer
-], [
-  exports_error_tracking.nodeStackLineParser
-], [
+], exports_error_tracking.createStackParser("node:javascript", exports_error_tracking.nodeStackLineParser), [
   createModulerModifier(),
-  addSourceContext
+  addSourceContext,
+  createRelativePathModifier()
 ]);
 
 class PostHog extends PostHogBackendClient {
   getLibraryId() {
     return "posthog-node";
+  }
+  initializeContext() {
+    return new PostHogContext;
   }
 }
 
@@ -10869,7 +14258,7 @@ function createServerAnalytics(configOrApiKey, legacyOptions) {
 
 // ../../packages/plugin-common/src/analytics/index.ts
 function createAnalyticsClient(config) {
-  const { posthogApiKey, errorSourcePrefix, logger } = config;
+  const { posthogApiKey, errorSourcePrefix, logger: logger2 } = config;
   if (!posthogApiKey) {
     return null;
   }
@@ -10885,7 +14274,7 @@ function createAnalyticsClient(config) {
         };
         client.captureException(error, userId, context);
       } catch (e) {
-        logger?.debug("Failed to capture exception in PostHog", e);
+        logger2?.debug("Failed to capture exception in PostHog", e);
       }
     },
     capture(distinctId, eventName, properties) {
@@ -10896,14 +14285,14 @@ function createAnalyticsClient(config) {
           properties
         });
       } catch (e) {
-        logger?.debug("Failed to capture event in PostHog", e);
+        logger2?.debug("Failed to capture event in PostHog", e);
       }
     },
     async shutdown() {
       try {
         await client.dispose();
       } catch (e) {
-        logger?.debug("Error shutting down analytics", e);
+        logger2?.debug("Error shutting down analytics", e);
       }
     }
   };
@@ -10955,7 +14344,7 @@ function isRefreshTokenExpired(session) {
 
 // ../../packages/plugin-common/src/auth/session-manager.ts
 function createSessionManager(config) {
-  const { sessionFilePath, logger, onError } = config;
+  const { sessionFilePath, logger: logger2, onError } = config;
   const withFileLock = resolveFileLock(config.withFileLock);
   async function loadSession() {
     try {
@@ -10963,13 +14352,13 @@ function createSessionManager(config) {
       if (!session)
         return null;
       if (!isSessionStructureValid(session)) {
-        logger?.warn("Invalid session structure, clearing session");
+        logger2?.warn("Invalid session structure, clearing session");
         await clearSession();
         return null;
       }
       return session;
     } catch (error) {
-      logger?.error("Failed to load session file", error);
+      logger2?.error("Failed to load session file", error);
       if (error instanceof Error)
         onError?.(error, "load");
       return null;
@@ -10980,9 +14369,9 @@ function createSessionManager(config) {
       await withFileLock(sessionFilePath, async () => {
         await writeSessionFile(sessionFilePath, session);
       });
-      logger?.info("Session saved successfully");
+      logger2?.info("Session saved successfully");
     } catch (error) {
-      logger?.error("Failed to save session", error);
+      logger2?.error("Failed to save session", error);
       if (error instanceof Error)
         onError?.(error, "save");
       throw error;
@@ -10991,9 +14380,9 @@ function createSessionManager(config) {
   async function clearSession() {
     try {
       await deleteSessionFile(sessionFilePath);
-      logger?.info("Session cleared successfully");
+      logger2?.info("Session cleared successfully");
     } catch (error) {
-      logger?.error("Failed to clear session", error);
+      logger2?.error("Failed to clear session", error);
       if (error instanceof Error)
         onError?.(error, "clear");
       throw error;
@@ -11002,11 +14391,11 @@ function createSessionManager(config) {
   async function getValidSession() {
     const session = await loadSession();
     if (!session) {
-      logger?.debug("getValidSession: No session found");
+      logger2?.debug("getValidSession: No session found");
       return null;
     }
     if (isRefreshTokenExpired(session)) {
-      logger?.warn("getValidSession: Refresh token expired, user must re-authenticate");
+      logger2?.warn("getValidSession: Refresh token expired, user must re-authenticate");
       await clearSession();
       return null;
     }
@@ -11022,7 +14411,7 @@ function createSessionManager(config) {
       try {
         await updateWorkspaceInSession(current.id, current.name);
       } catch (error) {
-        logger?.debug("Failed to update workspace name in session (non-critical)", error);
+        logger2?.debug("Failed to update workspace name in session (non-critical)", error);
       }
     }
     return current.name;
@@ -11032,7 +14421,7 @@ function createSessionManager(config) {
       await withFileLock(sessionFilePath, async () => {
         const session = await readSessionFile(sessionFilePath);
         if (!session) {
-          logger?.debug("Cannot update workspace: session file does not exist");
+          logger2?.debug("Cannot update workspace: session file does not exist");
           return;
         }
         if (!isSessionStructureValid(session)) {
@@ -11042,9 +14431,9 @@ function createSessionManager(config) {
         session.workspaceName = workspaceName;
         await writeSessionFile(sessionFilePath, session);
       });
-      logger?.info("Workspace metadata updated in session");
+      logger2?.info("Workspace metadata updated in session");
     } catch (error) {
-      logger?.error("Failed to update workspace in session", error);
+      logger2?.error("Failed to update workspace in session", error);
       if (error instanceof Error)
         onError?.(error, "save");
       throw error;
@@ -11055,7 +14444,7 @@ function createSessionManager(config) {
     if (current && current.refreshToken === staleRefreshToken) {
       await clearSession();
     } else {
-      logger?.info("Session refresh token changed on disk, skipping clear");
+      logger2?.info("Session refresh token changed on disk, skipping clear");
     }
   }
   return {
@@ -11078,6 +14467,7 @@ var HERMES_ZEST_HOME = join(homedir(), ".hermes-zest");
 var HERMES_CONFIG_PATH = join(HERMES_HOME, "config.yaml");
 var STATE_DB_PATH = join(HERMES_HOME, "state.db");
 var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
+var PENDING_FINALIZE_FILE = join(HERMES_ZEST_HOME, "pending-finalize");
 var QUEUE_DIR = join(HERMES_ZEST_HOME, "queue");
 var EVENTS_QUEUE_FILE = join(QUEUE_DIR, "events.jsonl");
 var SESSIONS_QUEUE_FILE = join(QUEUE_DIR, "chat-sessions.jsonl");
@@ -11143,7 +14533,7 @@ function log(level, msg, ...args) {
     getStream()?.write(line);
   } catch {}
 }
-var logger = {
+var logger2 = {
   debug: (msg, ...args) => log("DEBUG", msg, ...args),
   info: (msg, ...args) => log("INFO", msg, ...args),
   warn: (msg, ...args) => {
@@ -11159,7 +14549,7 @@ var logger = {
 // src/auth/session-manager.ts
 var sessionManager = createSessionManager({
   sessionFilePath: SESSION_FILE,
-  logger
+  logger: logger2
 });
 var {
   loadSession,
@@ -11172,7 +14562,7 @@ var {
 
 // src/utils/plugin-version.ts
 function getPluginVersion() {
-  return "0.0.1";
+  return "0.1.0";
 }
 
 // src/analytics/client.ts
@@ -11185,12 +14575,12 @@ async function getAnalyticsClient() {
     analyticsClient = createAnalyticsClient({
       posthogApiKey: POSTHOG_API_KEY,
       errorSourcePrefix: "hermes-plugin",
-      logger
+      logger: logger2
     });
     try {
       cachedSession = await loadSession();
     } catch (error) {
-      logger.debug("Could not load session for analytics context", error);
+      logger2.debug("Could not load session for analytics context", error);
     }
   }
   return analyticsClient;
@@ -11208,20 +14598,21 @@ async function captureException(error, errorType, errorSource, additionalPropert
     if (!client)
       return;
     client.captureException(error, errorType, errorSource, cachedSession?.userId, enrichProperties(additionalProperties));
-    logger.debug("Exception captured in PostHog", {
+    logger2.debug("Exception captured in PostHog", {
       error_type: errorType,
       error_message: error.message
     });
   } catch (e) {
-    logger.debug("Failed to capture exception in PostHog", e);
+    logger2.debug("Failed to capture exception in PostHog", e);
   }
 }
 
-// ../../node_modules/.bun/@supabase+supabase-js@2.89.0/node_modules/@supabase/supabase-js/dist/index.mjs
+// ../../node_modules/.bun/@supabase+supabase-js@2.105.4/node_modules/@supabase/supabase-js/dist/index.mjs
 var exports_dist3 = {};
 __export(exports_dist3, {
   createClient: () => createClient,
   SupabaseClient: () => SupabaseClient,
+  StorageApiError: () => StorageApiError,
   PostgrestError: () => PostgrestError,
   FunctionsRelayError: () => import_functions_js.FunctionsRelayError,
   FunctionsHttpError: () => import_functions_js.FunctionsHttpError,
@@ -11231,7 +14622,7 @@ __export(exports_dist3, {
 });
 var import_functions_js = __toESM(require_main(), 1);
 
-// ../../node_modules/.bun/@supabase+postgrest-js@2.89.0/node_modules/@supabase/postgrest-js/dist/index.mjs
+// ../../node_modules/.bun/@supabase+postgrest-js@2.105.4/node_modules/@supabase/postgrest-js/dist/index.mjs
 var exports_dist = {};
 __export(exports_dist, {
   default: () => src_default,
@@ -11242,6 +14633,14 @@ __export(exports_dist, {
   PostgrestClient: () => PostgrestClient,
   PostgrestBuilder: () => PostgrestBuilder
 });
+var DEFAULT_MAX_RETRIES = 3;
+var getRetryDelay = (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000);
+var RETRYABLE_STATUS_CODES = [520, 503];
+var RETRYABLE_METHODS = [
+  "GET",
+  "HEAD",
+  "OPTIONS"
+];
 var PostgrestError = class extends Error {
   constructor(context) {
     super(context.message);
@@ -11250,11 +14649,47 @@ var PostgrestError = class extends Error {
     this.hint = context.hint;
     this.code = context.code;
   }
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      details: this.details,
+      hint: this.hint,
+      code: this.code
+    };
+  }
 };
+function sleep(ms, signal) {
+  return new Promise((resolve) => {
+    if (signal === null || signal === undefined ? undefined : signal.aborted) {
+      resolve();
+      return;
+    }
+    const id = setTimeout(() => {
+      signal === null || signal === undefined || signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(id);
+      resolve();
+    }
+    signal === null || signal === undefined || signal.addEventListener("abort", onAbort);
+  });
+}
+function shouldRetry(method, status, attemptCount, retryEnabled) {
+  if (!retryEnabled || attemptCount >= DEFAULT_MAX_RETRIES)
+    return false;
+  if (!RETRYABLE_METHODS.includes(method))
+    return false;
+  if (!RETRYABLE_STATUS_CODES.includes(status))
+    return false;
+  return true;
+}
 var PostgrestBuilder = class {
   constructor(builder) {
-    var _builder$shouldThrowO, _builder$isMaybeSingl;
+    var _builder$shouldThrowO, _builder$isMaybeSingl, _builder$shouldStripN, _builder$urlLengthLim, _builder$retry;
     this.shouldThrowOnError = false;
+    this.retryEnabled = true;
     this.method = builder.method;
     this.url = builder.url;
     this.headers = new Headers(builder.headers);
@@ -11263,6 +14698,9 @@ var PostgrestBuilder = class {
     this.shouldThrowOnError = (_builder$shouldThrowO = builder.shouldThrowOnError) !== null && _builder$shouldThrowO !== undefined ? _builder$shouldThrowO : false;
     this.signal = builder.signal;
     this.isMaybeSingle = (_builder$isMaybeSingl = builder.isMaybeSingle) !== null && _builder$isMaybeSingl !== undefined ? _builder$isMaybeSingl : false;
+    this.shouldStripNulls = (_builder$shouldStripN = builder.shouldStripNulls) !== null && _builder$shouldStripN !== undefined ? _builder$shouldStripN : false;
+    this.urlLengthLimit = (_builder$urlLengthLim = builder.urlLengthLimit) !== null && _builder$urlLengthLim !== undefined ? _builder$urlLengthLim : 8000;
+    this.retryEnabled = (_builder$retry = builder.retry) !== null && _builder$retry !== undefined ? _builder$retry : true;
     if (builder.fetch)
       this.fetch = builder.fetch;
     else
@@ -11272,9 +14710,19 @@ var PostgrestBuilder = class {
     this.shouldThrowOnError = true;
     return this;
   }
+  stripNulls() {
+    if (this.headers.get("Accept") === "text/csv")
+      throw new Error("stripNulls() cannot be used with csv()");
+    this.shouldStripNulls = true;
+    return this;
+  }
   setHeader(name, value) {
     this.headers = new Headers(this.headers);
     this.headers.set(name, value);
+    return this;
+  }
+  retry(enabled) {
+    this.retryEnabled = enabled;
     return this;
   }
   then(onfulfilled, onrejected) {
@@ -11285,88 +14733,60 @@ var PostgrestBuilder = class {
       this.headers.set("Content-Profile", this.schema);
     if (this.method !== "GET" && this.method !== "HEAD")
       this.headers.set("Content-Type", "application/json");
+    if (this.shouldStripNulls) {
+      const currentAccept = this.headers.get("Accept");
+      if (currentAccept === "application/vnd.pgrst.object+json")
+        this.headers.set("Accept", "application/vnd.pgrst.object+json;nulls=stripped");
+      else if (!currentAccept || currentAccept === "application/json")
+        this.headers.set("Accept", "application/vnd.pgrst.array+json;nulls=stripped");
+    }
     const _fetch = this.fetch;
-    let res = _fetch(this.url.toString(), {
-      method: this.method,
-      headers: this.headers,
-      body: JSON.stringify(this.body),
-      signal: this.signal
-    }).then(async (res$1) => {
-      let error = null;
-      let data = null;
-      let count = null;
-      let status = res$1.status;
-      let statusText = res$1.statusText;
-      if (res$1.ok) {
-        var _this$headers$get2, _res$headers$get;
-        if (_this.method !== "HEAD") {
-          var _this$headers$get;
-          const body = await res$1.text();
-          if (body === "") {} else if (_this.headers.get("Accept") === "text/csv")
-            data = body;
-          else if (_this.headers.get("Accept") && ((_this$headers$get = _this.headers.get("Accept")) === null || _this$headers$get === undefined ? undefined : _this$headers$get.includes("application/vnd.pgrst.plan+text")))
-            data = body;
-          else
-            data = JSON.parse(body);
-        }
-        const countHeader = (_this$headers$get2 = _this.headers.get("Prefer")) === null || _this$headers$get2 === undefined ? undefined : _this$headers$get2.match(/count=(exact|planned|estimated)/);
-        const contentRange = (_res$headers$get = res$1.headers.get("content-range")) === null || _res$headers$get === undefined ? undefined : _res$headers$get.split("/");
-        if (countHeader && contentRange && contentRange.length > 1)
-          count = parseInt(contentRange[1]);
-        if (_this.isMaybeSingle && _this.method === "GET" && Array.isArray(data))
-          if (data.length > 1) {
-            error = {
-              code: "PGRST116",
-              details: `Results contain ${data.length} rows, application/vnd.pgrst.object+json requires 1 row`,
-              hint: null,
-              message: "JSON object requested, multiple (or no) rows returned"
-            };
-            data = null;
-            count = null;
-            status = 406;
-            statusText = "Not Acceptable";
-          } else if (data.length === 1)
-            data = data[0];
-          else
-            data = null;
-      } else {
-        var _error$details;
-        const body = await res$1.text();
+    const executeWithRetry = async () => {
+      let attemptCount = 0;
+      while (true) {
+        const requestHeaders = new Headers(_this.headers);
+        if (attemptCount > 0)
+          requestHeaders.set("X-Retry-Count", String(attemptCount));
+        let res$1;
         try {
-          error = JSON.parse(body);
-          if (Array.isArray(error) && res$1.status === 404) {
-            data = [];
-            error = null;
-            status = 200;
-            statusText = "OK";
+          res$1 = await _fetch(_this.url.toString(), {
+            method: _this.method,
+            headers: requestHeaders,
+            body: JSON.stringify(_this.body, (_, value) => typeof value === "bigint" ? value.toString() : value),
+            signal: _this.signal
+          });
+        } catch (fetchError) {
+          if ((fetchError === null || fetchError === undefined ? undefined : fetchError.name) === "AbortError" || (fetchError === null || fetchError === undefined ? undefined : fetchError.code) === "ABORT_ERR")
+            throw fetchError;
+          if (!RETRYABLE_METHODS.includes(_this.method))
+            throw fetchError;
+          if (_this.retryEnabled && attemptCount < DEFAULT_MAX_RETRIES) {
+            const delay = getRetryDelay(attemptCount);
+            attemptCount++;
+            await sleep(delay, _this.signal);
+            continue;
           }
-        } catch (_unused) {
-          if (res$1.status === 404 && body === "") {
-            status = 204;
-            statusText = "No Content";
-          } else
-            error = { message: body };
+          throw fetchError;
         }
-        if (error && _this.isMaybeSingle && (error === null || error === undefined || (_error$details = error.details) === null || _error$details === undefined ? undefined : _error$details.includes("0 rows"))) {
-          error = null;
-          status = 200;
-          statusText = "OK";
+        if (shouldRetry(_this.method, res$1.status, attemptCount, _this.retryEnabled)) {
+          var _res$headers$get, _res$headers;
+          const retryAfterHeader = (_res$headers$get = (_res$headers = res$1.headers) === null || _res$headers === undefined ? undefined : _res$headers.get("Retry-After")) !== null && _res$headers$get !== undefined ? _res$headers$get : null;
+          const delay = retryAfterHeader !== null ? Math.max(0, parseInt(retryAfterHeader, 10) || 0) * 1000 : getRetryDelay(attemptCount);
+          await res$1.text();
+          attemptCount++;
+          await sleep(delay, _this.signal);
+          continue;
         }
-        if (error && _this.shouldThrowOnError)
-          throw new PostgrestError(error);
+        return await _this.processResponse(res$1);
       }
-      return {
-        error,
-        data,
-        count,
-        status,
-        statusText
-      };
-    });
+    };
+    let res = executeWithRetry();
     if (!this.shouldThrowOnError)
       res = res.catch((fetchError) => {
         var _fetchError$name2;
         let errorDetails = "";
+        let hint = "";
+        let code = "";
         const cause = fetchError === null || fetchError === undefined ? undefined : fetchError.cause;
         if (cause) {
           var _cause$message, _cause$code, _fetchError$name, _cause$name;
@@ -11385,12 +14805,25 @@ ${cause.stack}`;
           var _fetchError$stack;
           errorDetails = (_fetchError$stack = fetchError === null || fetchError === undefined ? undefined : fetchError.stack) !== null && _fetchError$stack !== undefined ? _fetchError$stack : "";
         }
+        const urlLength = this.url.toString().length;
+        if ((fetchError === null || fetchError === undefined ? undefined : fetchError.name) === "AbortError" || (fetchError === null || fetchError === undefined ? undefined : fetchError.code) === "ABORT_ERR") {
+          code = "";
+          hint = "Request was aborted (timeout or manual cancellation)";
+          if (urlLength > this.urlLengthLimit)
+            hint += `. Note: Your request URL is ${urlLength} characters, which may exceed server limits. If selecting many fields, consider using views. If filtering with large arrays (e.g., .in('id', [many IDs])), consider using an RPC function to pass values server-side.`;
+        } else if ((cause === null || cause === undefined ? undefined : cause.name) === "HeadersOverflowError" || (cause === null || cause === undefined ? undefined : cause.code) === "UND_ERR_HEADERS_OVERFLOW") {
+          code = "";
+          hint = "HTTP headers exceeded server limits (typically 16KB)";
+          if (urlLength > this.urlLengthLimit)
+            hint += `. Your request URL is ${urlLength} characters. If selecting many fields, consider using views. If filtering with large arrays (e.g., .in('id', [200+ IDs])), consider using an RPC function instead.`;
+        }
         return {
+          success: false,
           error: {
             message: `${(_fetchError$name2 = fetchError === null || fetchError === undefined ? undefined : fetchError.name) !== null && _fetchError$name2 !== undefined ? _fetchError$name2 : "FetchError"}: ${fetchError === null || fetchError === undefined ? undefined : fetchError.message}`,
             details: errorDetails,
-            hint: "",
-            code: ""
+            hint,
+            code
           },
           data: null,
           count: null,
@@ -11399,6 +14832,74 @@ ${cause.stack}`;
         };
       });
     return res.then(onfulfilled, onrejected);
+  }
+  async processResponse(res) {
+    var _this2 = this;
+    let error = null;
+    let data = null;
+    let count = null;
+    let status = res.status;
+    let statusText = res.statusText;
+    if (res.ok) {
+      var _this$headers$get2, _res$headers$get2;
+      if (_this2.method !== "HEAD") {
+        var _this$headers$get;
+        const body = await res.text();
+        if (body === "") {} else if (_this2.headers.get("Accept") === "text/csv")
+          data = body;
+        else if (_this2.headers.get("Accept") && ((_this$headers$get = _this2.headers.get("Accept")) === null || _this$headers$get === undefined ? undefined : _this$headers$get.includes("application/vnd.pgrst.plan+text")))
+          data = body;
+        else
+          data = JSON.parse(body);
+      }
+      const countHeader = (_this$headers$get2 = _this2.headers.get("Prefer")) === null || _this$headers$get2 === undefined ? undefined : _this$headers$get2.match(/count=(exact|planned|estimated)/);
+      const contentRange = (_res$headers$get2 = res.headers.get("content-range")) === null || _res$headers$get2 === undefined ? undefined : _res$headers$get2.split("/");
+      if (countHeader && contentRange && contentRange.length > 1)
+        count = parseInt(contentRange[1]);
+      if (_this2.isMaybeSingle && Array.isArray(data))
+        if (data.length > 1) {
+          error = {
+            code: "PGRST116",
+            details: `Results contain ${data.length} rows, application/vnd.pgrst.object+json requires 1 row`,
+            hint: null,
+            message: "JSON object requested, multiple (or no) rows returned"
+          };
+          data = null;
+          count = null;
+          status = 406;
+          statusText = "Not Acceptable";
+        } else if (data.length === 1)
+          data = data[0];
+        else
+          data = null;
+    } else {
+      const body = await res.text();
+      try {
+        error = JSON.parse(body);
+        if (Array.isArray(error) && res.status === 404) {
+          data = [];
+          error = null;
+          status = 200;
+          statusText = "OK";
+        }
+      } catch (_unused) {
+        if (res.status === 404 && body === "") {
+          status = 204;
+          statusText = "No Content";
+        } else
+          error = { message: body };
+      }
+      if (error && _this2.shouldThrowOnError)
+        throw new PostgrestError(error);
+    }
+    return {
+      success: error === null,
+      error,
+      data,
+      count,
+      status,
+      statusText
+    };
   }
   returns() {
     return this;
@@ -11448,10 +14949,6 @@ var PostgrestTransformBuilder = class extends PostgrestBuilder {
     return this;
   }
   maybeSingle() {
-    if (this.method === "GET")
-      this.headers.set("Accept", "application/json");
-    else
-      this.headers.set("Accept", "application/vnd.pgrst.object+json");
     this.isMaybeSingle = true;
     return this;
   }
@@ -11636,7 +15133,7 @@ var PostgrestFilterBuilder = class extends PostgrestTransformBuilder {
     return this;
   }
   match(query) {
-    Object.entries(query).forEach(([column, value]) => {
+    Object.entries(query).filter(([_, value]) => value !== undefined).forEach(([column, value]) => {
       this.url.searchParams.append(column, `eq.${value}`);
     });
     return this;
@@ -11656,11 +15153,19 @@ var PostgrestFilterBuilder = class extends PostgrestTransformBuilder {
   }
 };
 var PostgrestQueryBuilder = class {
-  constructor(url, { headers = {}, schema, fetch: fetch$1 }) {
+  constructor(url, { headers = {}, schema, fetch: fetch$1, urlLengthLimit = 8000, retry }) {
     this.url = url;
     this.headers = new Headers(headers);
     this.schema = schema;
     this.fetch = fetch$1;
+    this.urlLengthLimit = urlLengthLimit;
+    this.retry = retry;
+  }
+  cloneRequestState() {
+    return {
+      url: new URL(this.url.toString()),
+      headers: new Headers(this.headers)
+    };
   }
   select(columns, options) {
     const { head = false, count } = options !== null && options !== undefined ? options : {};
@@ -11673,100 +15178,194 @@ var PostgrestQueryBuilder = class {
         quoted = !quoted;
       return c;
     }).join("");
-    this.url.searchParams.set("select", cleanedColumns);
+    const { url, headers } = this.cloneRequestState();
+    url.searchParams.set("select", cleanedColumns);
     if (count)
-      this.headers.append("Prefer", `count=${count}`);
+      headers.append("Prefer", `count=${count}`);
     return new PostgrestFilterBuilder({
       method,
-      url: this.url,
-      headers: this.headers,
+      url,
+      headers,
       schema: this.schema,
-      fetch: this.fetch
+      fetch: this.fetch,
+      urlLengthLimit: this.urlLengthLimit,
+      retry: this.retry
     });
   }
   insert(values, { count, defaultToNull = true } = {}) {
     var _this$fetch;
     const method = "POST";
+    const { url, headers } = this.cloneRequestState();
     if (count)
-      this.headers.append("Prefer", `count=${count}`);
+      headers.append("Prefer", `count=${count}`);
     if (!defaultToNull)
-      this.headers.append("Prefer", `missing=default`);
+      headers.append("Prefer", `missing=default`);
     if (Array.isArray(values)) {
       const columns = values.reduce((acc, x) => acc.concat(Object.keys(x)), []);
       if (columns.length > 0) {
         const uniqueColumns = [...new Set(columns)].map((column) => `"${column}"`);
-        this.url.searchParams.set("columns", uniqueColumns.join(","));
+        url.searchParams.set("columns", uniqueColumns.join(","));
       }
     }
     return new PostgrestFilterBuilder({
       method,
-      url: this.url,
-      headers: this.headers,
+      url,
+      headers,
       schema: this.schema,
       body: values,
-      fetch: (_this$fetch = this.fetch) !== null && _this$fetch !== undefined ? _this$fetch : fetch
+      fetch: (_this$fetch = this.fetch) !== null && _this$fetch !== undefined ? _this$fetch : fetch,
+      urlLengthLimit: this.urlLengthLimit,
+      retry: this.retry
     });
   }
   upsert(values, { onConflict, ignoreDuplicates = false, count, defaultToNull = true } = {}) {
     var _this$fetch2;
     const method = "POST";
-    this.headers.append("Prefer", `resolution=${ignoreDuplicates ? "ignore" : "merge"}-duplicates`);
+    const { url, headers } = this.cloneRequestState();
+    headers.append("Prefer", `resolution=${ignoreDuplicates ? "ignore" : "merge"}-duplicates`);
     if (onConflict !== undefined)
-      this.url.searchParams.set("on_conflict", onConflict);
+      url.searchParams.set("on_conflict", onConflict);
     if (count)
-      this.headers.append("Prefer", `count=${count}`);
+      headers.append("Prefer", `count=${count}`);
     if (!defaultToNull)
-      this.headers.append("Prefer", "missing=default");
+      headers.append("Prefer", "missing=default");
     if (Array.isArray(values)) {
       const columns = values.reduce((acc, x) => acc.concat(Object.keys(x)), []);
       if (columns.length > 0) {
         const uniqueColumns = [...new Set(columns)].map((column) => `"${column}"`);
-        this.url.searchParams.set("columns", uniqueColumns.join(","));
+        url.searchParams.set("columns", uniqueColumns.join(","));
       }
     }
     return new PostgrestFilterBuilder({
       method,
-      url: this.url,
-      headers: this.headers,
+      url,
+      headers,
       schema: this.schema,
       body: values,
-      fetch: (_this$fetch2 = this.fetch) !== null && _this$fetch2 !== undefined ? _this$fetch2 : fetch
+      fetch: (_this$fetch2 = this.fetch) !== null && _this$fetch2 !== undefined ? _this$fetch2 : fetch,
+      urlLengthLimit: this.urlLengthLimit,
+      retry: this.retry
     });
   }
   update(values, { count } = {}) {
     var _this$fetch3;
     const method = "PATCH";
+    const { url, headers } = this.cloneRequestState();
     if (count)
-      this.headers.append("Prefer", `count=${count}`);
+      headers.append("Prefer", `count=${count}`);
     return new PostgrestFilterBuilder({
       method,
-      url: this.url,
-      headers: this.headers,
+      url,
+      headers,
       schema: this.schema,
       body: values,
-      fetch: (_this$fetch3 = this.fetch) !== null && _this$fetch3 !== undefined ? _this$fetch3 : fetch
+      fetch: (_this$fetch3 = this.fetch) !== null && _this$fetch3 !== undefined ? _this$fetch3 : fetch,
+      urlLengthLimit: this.urlLengthLimit,
+      retry: this.retry
     });
   }
   delete({ count } = {}) {
     var _this$fetch4;
     const method = "DELETE";
+    const { url, headers } = this.cloneRequestState();
     if (count)
-      this.headers.append("Prefer", `count=${count}`);
+      headers.append("Prefer", `count=${count}`);
     return new PostgrestFilterBuilder({
       method,
-      url: this.url,
-      headers: this.headers,
+      url,
+      headers,
       schema: this.schema,
-      fetch: (_this$fetch4 = this.fetch) !== null && _this$fetch4 !== undefined ? _this$fetch4 : fetch
+      fetch: (_this$fetch4 = this.fetch) !== null && _this$fetch4 !== undefined ? _this$fetch4 : fetch,
+      urlLengthLimit: this.urlLengthLimit,
+      retry: this.retry
     });
   }
 };
+function _typeof(o) {
+  "@babel/helpers - typeof";
+  return _typeof = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o$1) {
+    return typeof o$1;
+  } : function(o$1) {
+    return o$1 && typeof Symbol == "function" && o$1.constructor === Symbol && o$1 !== Symbol.prototype ? "symbol" : typeof o$1;
+  }, _typeof(o);
+}
+function toPrimitive(t, r) {
+  if (_typeof(t) != "object" || !t)
+    return t;
+  var e = t[Symbol.toPrimitive];
+  if (e !== undefined) {
+    var i = e.call(t, r || "default");
+    if (_typeof(i) != "object")
+      return i;
+    throw new TypeError("@@toPrimitive must return a primitive value.");
+  }
+  return (r === "string" ? String : Number)(t);
+}
+function toPropertyKey(t) {
+  var i = toPrimitive(t, "string");
+  return _typeof(i) == "symbol" ? i : i + "";
+}
+function _defineProperty(e, r, t) {
+  return (r = toPropertyKey(r)) in e ? Object.defineProperty(e, r, {
+    value: t,
+    enumerable: true,
+    configurable: true,
+    writable: true
+  }) : e[r] = t, e;
+}
+function ownKeys(e, r) {
+  var t = Object.keys(e);
+  if (Object.getOwnPropertySymbols) {
+    var o = Object.getOwnPropertySymbols(e);
+    r && (o = o.filter(function(r$1) {
+      return Object.getOwnPropertyDescriptor(e, r$1).enumerable;
+    })), t.push.apply(t, o);
+  }
+  return t;
+}
+function _objectSpread2(e) {
+  for (var r = 1;r < arguments.length; r++) {
+    var t = arguments[r] != null ? arguments[r] : {};
+    r % 2 ? ownKeys(Object(t), true).forEach(function(r$1) {
+      _defineProperty(e, r$1, t[r$1]);
+    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function(r$1) {
+      Object.defineProperty(e, r$1, Object.getOwnPropertyDescriptor(t, r$1));
+    });
+  }
+  return e;
+}
 var PostgrestClient = class PostgrestClient2 {
-  constructor(url, { headers = {}, schema, fetch: fetch$1 } = {}) {
+  constructor(url, { headers = {}, schema, fetch: fetch$1, timeout, urlLengthLimit = 8000, retry } = {}) {
     this.url = url;
     this.headers = new Headers(headers);
     this.schemaName = schema;
-    this.fetch = fetch$1;
+    this.urlLengthLimit = urlLengthLimit;
+    const originalFetch = fetch$1 !== null && fetch$1 !== undefined ? fetch$1 : globalThis.fetch;
+    if (timeout !== undefined && timeout > 0)
+      this.fetch = (input, init) => {
+        const controller = new AbortController;
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        const existingSignal = init === null || init === undefined ? undefined : init.signal;
+        if (existingSignal) {
+          if (existingSignal.aborted) {
+            clearTimeout(timeoutId);
+            return originalFetch(input, init);
+          }
+          const abortHandler = () => {
+            clearTimeout(timeoutId);
+            controller.abort();
+          };
+          existingSignal.addEventListener("abort", abortHandler, { once: true });
+          return originalFetch(input, _objectSpread2(_objectSpread2({}, init), {}, { signal: controller.signal })).finally(() => {
+            clearTimeout(timeoutId);
+            existingSignal.removeEventListener("abort", abortHandler);
+          });
+        }
+        return originalFetch(input, _objectSpread2(_objectSpread2({}, init), {}, { signal: controller.signal })).finally(() => clearTimeout(timeoutId));
+      };
+    else
+      this.fetch = originalFetch;
+    this.retry = retry;
   }
   from(relation) {
     if (!relation || typeof relation !== "string" || relation.trim() === "")
@@ -11774,14 +15373,18 @@ var PostgrestClient = class PostgrestClient2 {
     return new PostgrestQueryBuilder(new URL(`${this.url}/${relation}`), {
       headers: new Headers(this.headers),
       schema: this.schemaName,
-      fetch: this.fetch
+      fetch: this.fetch,
+      urlLengthLimit: this.urlLengthLimit,
+      retry: this.retry
     });
   }
   schema(schema) {
     return new PostgrestClient2(this.url, {
       headers: this.headers,
       schema,
-      fetch: this.fetch
+      fetch: this.fetch,
+      urlLengthLimit: this.urlLengthLimit,
+      retry: this.retry
     });
   }
   rpc(fn, args = {}, { head = false, get = false, count } = {}) {
@@ -11789,7 +15392,12 @@ var PostgrestClient = class PostgrestClient2 {
     let method;
     const url = new URL(`${this.url}/rpc/${fn}`);
     let body;
-    if (head || get) {
+    const _isObject = (v) => v !== null && typeof v === "object" && (!Array.isArray(v) || v.some(_isObject));
+    const _hasObjectArg = head && Object.values(args).some(_isObject);
+    if (_hasObjectArg) {
+      method = "POST";
+      body = args;
+    } else if (head || get) {
       method = head ? "HEAD" : "GET";
       Object.entries(args).filter(([_, value]) => value !== undefined).map(([name, value]) => [name, Array.isArray(value) ? `{${value.join(",")}}` : `${value}`]).forEach(([name, value]) => {
         url.searchParams.append(name, value);
@@ -11799,7 +15407,9 @@ var PostgrestClient = class PostgrestClient2 {
       body = args;
     }
     const headers = new Headers(this.headers);
-    if (count)
+    if (_hasObjectArg)
+      headers.set("Prefer", count ? `count=${count},return=minimal` : "return=minimal");
+    else if (count)
       headers.set("Prefer", `count=${count}`);
     return new PostgrestFilterBuilder({
       method,
@@ -11807,7 +15417,9 @@ var PostgrestClient = class PostgrestClient2 {
       headers,
       schema: this.schemaName,
       body,
-      fetch: (_this$fetch = this.fetch) !== null && _this$fetch !== undefined ? _this$fetch : fetch
+      fetch: (_this$fetch = this.fetch) !== null && _this$fetch !== undefined ? _this$fetch : fetch,
+      urlLengthLimit: this.urlLengthLimit,
+      retry: this.retry
     });
   }
 };
@@ -11820,19 +15432,14 @@ var src_default = {
   PostgrestError
 };
 
-// ../../node_modules/.bun/@supabase+supabase-js@2.89.0/node_modules/@supabase/supabase-js/dist/index.mjs
+// ../../node_modules/.bun/@supabase+supabase-js@2.105.4/node_modules/@supabase/supabase-js/dist/index.mjs
 var import_realtime_js = __toESM(require_main2(), 1);
 
-// ../../node_modules/.bun/@supabase+storage-js@2.89.0/node_modules/@supabase/storage-js/dist/index.mjs
+// ../../node_modules/.bun/@supabase+storage-js@2.105.4/node_modules/@supabase/storage-js/dist/index.mjs
 var exports_dist2 = {};
 __export(exports_dist2, {
-  validateVectorDimension: () => validateVectorDimension,
-  resolveResponse: () => resolveResponse,
-  resolveFetch: () => resolveFetch,
-  normalizeToFloat32: () => normalizeToFloat32,
   isStorageVectorsError: () => isStorageVectorsError,
   isStorageError: () => isStorageError,
-  isPlainObject: () => isPlainObject2,
   VectorIndexScope: () => VectorIndexScope,
   VectorIndexApi: () => VectorIndexApi,
   VectorDataApi: () => VectorDataApi,
@@ -12150,21 +15757,66 @@ var IcebergRestCatalog = class {
   }
 };
 
-// ../../node_modules/.bun/@supabase+storage-js@2.89.0/node_modules/@supabase/storage-js/dist/index.mjs
+// ../../node_modules/.bun/@supabase+storage-js@2.105.4/node_modules/@supabase/storage-js/dist/index.mjs
+function _typeof2(o) {
+  "@babel/helpers - typeof";
+  return _typeof2 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o$1) {
+    return typeof o$1;
+  } : function(o$1) {
+    return o$1 && typeof Symbol == "function" && o$1.constructor === Symbol && o$1 !== Symbol.prototype ? "symbol" : typeof o$1;
+  }, _typeof2(o);
+}
+function toPrimitive2(t, r) {
+  if (_typeof2(t) != "object" || !t)
+    return t;
+  var e = t[Symbol.toPrimitive];
+  if (e !== undefined) {
+    var i = e.call(t, r || "default");
+    if (_typeof2(i) != "object")
+      return i;
+    throw new TypeError("@@toPrimitive must return a primitive value.");
+  }
+  return (r === "string" ? String : Number)(t);
+}
+function toPropertyKey2(t) {
+  var i = toPrimitive2(t, "string");
+  return _typeof2(i) == "symbol" ? i : i + "";
+}
+function _defineProperty2(e, r, t) {
+  return (r = toPropertyKey2(r)) in e ? Object.defineProperty(e, r, {
+    value: t,
+    enumerable: true,
+    configurable: true,
+    writable: true
+  }) : e[r] = t, e;
+}
+function ownKeys2(e, r) {
+  var t = Object.keys(e);
+  if (Object.getOwnPropertySymbols) {
+    var o = Object.getOwnPropertySymbols(e);
+    r && (o = o.filter(function(r$1) {
+      return Object.getOwnPropertyDescriptor(e, r$1).enumerable;
+    })), t.push.apply(t, o);
+  }
+  return t;
+}
+function _objectSpread22(e) {
+  for (var r = 1;r < arguments.length; r++) {
+    var t = arguments[r] != null ? arguments[r] : {};
+    r % 2 ? ownKeys2(Object(t), true).forEach(function(r$1) {
+      _defineProperty2(e, r$1, t[r$1]);
+    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys2(Object(t)).forEach(function(r$1) {
+      Object.defineProperty(e, r$1, Object.getOwnPropertyDescriptor(t, r$1));
+    });
+  }
+  return e;
+}
 var StorageError = class extends Error {
-  constructor(message) {
+  constructor(message, namespace = "storage", status, statusCode) {
     super(message);
     this.__isStorageError = true;
-    this.name = "StorageError";
-  }
-};
-function isStorageError(error) {
-  return typeof error === "object" && error !== null && "__isStorageError" in error;
-}
-var StorageApiError = class extends StorageError {
-  constructor(message, status, statusCode) {
-    super(message);
-    this.name = "StorageApiError";
+    this.namespace = namespace;
+    this.name = namespace === "vectors" ? "StorageVectorsError" : "StorageError";
     this.status = status;
     this.statusCode = statusCode;
   }
@@ -12177,20 +15829,79 @@ var StorageApiError = class extends StorageError {
     };
   }
 };
+function isStorageError(error) {
+  return typeof error === "object" && error !== null && "__isStorageError" in error;
+}
+var StorageApiError = class extends StorageError {
+  constructor(message, status, statusCode, namespace = "storage") {
+    super(message, namespace, status, statusCode);
+    this.name = namespace === "vectors" ? "StorageVectorsApiError" : "StorageApiError";
+    this.status = status;
+    this.statusCode = statusCode;
+  }
+  toJSON() {
+    return _objectSpread22({}, super.toJSON());
+  }
+};
 var StorageUnknownError = class extends StorageError {
-  constructor(message, originalError) {
-    super(message);
-    this.name = "StorageUnknownError";
+  constructor(message, originalError, namespace = "storage") {
+    super(message, namespace);
+    this.name = namespace === "vectors" ? "StorageVectorsUnknownError" : "StorageUnknownError";
     this.originalError = originalError;
   }
 };
-var resolveFetch$1 = (customFetch) => {
+var StorageVectorsError = class extends StorageError {
+  constructor(message) {
+    super(message, "vectors");
+  }
+};
+function isStorageVectorsError(error) {
+  return isStorageError(error) && error["namespace"] === "vectors";
+}
+var StorageVectorsApiError = class extends StorageApiError {
+  constructor(message, status, statusCode) {
+    super(message, status, statusCode, "vectors");
+  }
+};
+var StorageVectorsUnknownError = class extends StorageUnknownError {
+  constructor(message, originalError) {
+    super(message, originalError, "vectors");
+  }
+};
+var StorageVectorsErrorCode = /* @__PURE__ */ function(StorageVectorsErrorCode$1) {
+  StorageVectorsErrorCode$1["InternalError"] = "InternalError";
+  StorageVectorsErrorCode$1["S3VectorConflictException"] = "S3VectorConflictException";
+  StorageVectorsErrorCode$1["S3VectorNotFoundException"] = "S3VectorNotFoundException";
+  StorageVectorsErrorCode$1["S3VectorBucketNotEmpty"] = "S3VectorBucketNotEmpty";
+  StorageVectorsErrorCode$1["S3VectorMaxBucketsExceeded"] = "S3VectorMaxBucketsExceeded";
+  StorageVectorsErrorCode$1["S3VectorMaxIndexesExceeded"] = "S3VectorMaxIndexesExceeded";
+  return StorageVectorsErrorCode$1;
+}({});
+function setHeader(headers, name, value) {
+  const result = _objectSpread22({}, headers);
+  const nameLower = name.toLowerCase();
+  for (const key of Object.keys(result))
+    if (key.toLowerCase() === nameLower)
+      delete result[key];
+  result[nameLower] = value;
+  return result;
+}
+function normalizeHeaders(headers) {
+  const result = {};
+  for (const [key, value] of Object.entries(headers))
+    result[key.toLowerCase()] = value;
+  return result;
+}
+var resolveFetch = (customFetch) => {
   if (customFetch)
     return (...args) => customFetch(...args);
   return (...args) => fetch(...args);
 };
-var resolveResponse$1 = () => {
-  return Response;
+var isPlainObject2 = (value) => {
+  if (typeof value !== "object" || value === null)
+    return false;
+  const prototype = Object.getPrototypeOf(value);
+  return (prototype === null || prototype === Object.prototype || Object.getPrototypeOf(prototype) === null) && !(Symbol.toStringTag in value) && !(Symbol.iterator in value);
 };
 var recursiveToCamel = (item) => {
   if (Array.isArray(item))
@@ -12204,12 +15915,6 @@ var recursiveToCamel = (item) => {
   });
   return result;
 };
-var isPlainObject$1 = (value) => {
-  if (typeof value !== "object" || value === null)
-    return false;
-  const prototype = Object.getPrototypeOf(value);
-  return (prototype === null || prototype === Object.prototype || Object.getPrototypeOf(prototype) === null) && !(Symbol.toStringTag in value) && !(Symbol.iterator in value);
-};
 var isValidBucketName = (bucketName) => {
   if (!bucketName || typeof bucketName !== "string")
     return false;
@@ -12221,117 +15926,138 @@ var isValidBucketName = (bucketName) => {
     return false;
   return /^[\w!.\*'() &$@=;:+,?-]+$/.test(bucketName);
 };
-function _typeof(o) {
-  "@babel/helpers - typeof";
-  return _typeof = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o$1) {
-    return typeof o$1;
-  } : function(o$1) {
-    return o$1 && typeof Symbol == "function" && o$1.constructor === Symbol && o$1 !== Symbol.prototype ? "symbol" : typeof o$1;
-  }, _typeof(o);
-}
-function toPrimitive(t, r) {
-  if (_typeof(t) != "object" || !t)
-    return t;
-  var e = t[Symbol.toPrimitive];
-  if (e !== undefined) {
-    var i = e.call(t, r || "default");
-    if (_typeof(i) != "object")
-      return i;
-    throw new TypeError("@@toPrimitive must return a primitive value.");
+var _getErrorMessage = (err) => {
+  if (typeof err === "object" && err !== null) {
+    const e = err;
+    if (typeof e.msg === "string")
+      return e.msg;
+    if (typeof e.message === "string")
+      return e.message;
+    if (typeof e.error_description === "string")
+      return e.error_description;
+    if (typeof e.error === "string")
+      return e.error;
+    if (typeof e.error === "object" && e.error !== null) {
+      const nested = e.error;
+      if (typeof nested.message === "string")
+        return nested.message;
+    }
   }
-  return (r === "string" ? String : Number)(t);
-}
-function toPropertyKey(t) {
-  var i = toPrimitive(t, "string");
-  return _typeof(i) == "symbol" ? i : i + "";
-}
-function _defineProperty(e, r, t) {
-  return (r = toPropertyKey(r)) in e ? Object.defineProperty(e, r, {
-    value: t,
-    enumerable: true,
-    configurable: true,
-    writable: true
-  }) : e[r] = t, e;
-}
-function ownKeys(e, r) {
-  var t = Object.keys(e);
-  if (Object.getOwnPropertySymbols) {
-    var o = Object.getOwnPropertySymbols(e);
-    r && (o = o.filter(function(r$1) {
-      return Object.getOwnPropertyDescriptor(e, r$1).enumerable;
-    })), t.push.apply(t, o);
-  }
-  return t;
-}
-function _objectSpread2(e) {
-  for (var r = 1;r < arguments.length; r++) {
-    var t = arguments[r] != null ? arguments[r] : {};
-    r % 2 ? ownKeys(Object(t), true).forEach(function(r$1) {
-      _defineProperty(e, r$1, t[r$1]);
-    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function(r$1) {
-      Object.defineProperty(e, r$1, Object.getOwnPropertyDescriptor(t, r$1));
-    });
-  }
-  return e;
-}
-var _getErrorMessage$1 = (err) => {
-  var _err$error;
-  return err.msg || err.message || err.error_description || (typeof err.error === "string" ? err.error : (_err$error = err.error) === null || _err$error === undefined ? undefined : _err$error.message) || JSON.stringify(err);
+  return JSON.stringify(err);
 };
-var handleError$1 = async (error, reject, options) => {
-  if (error instanceof await resolveResponse$1() && !(options === null || options === undefined ? undefined : options.noResolveJson))
-    error.json().then((err) => {
-      const status = error.status || 500;
-      const statusCode = (err === null || err === undefined ? undefined : err.statusCode) || status + "";
-      reject(new StorageApiError(_getErrorMessage$1(err), status, statusCode));
-    }).catch((err) => {
-      reject(new StorageUnknownError(_getErrorMessage$1(err), err));
+var handleError = async (error, reject, options, namespace) => {
+  if (error !== null && typeof error === "object" && "json" in error && typeof error.json === "function") {
+    const responseError = error;
+    let status = parseInt(String(responseError.status), 10);
+    if (!Number.isFinite(status))
+      status = 500;
+    responseError.json().then((err) => {
+      const statusCode = (err === null || err === undefined ? undefined : err.statusCode) || (err === null || err === undefined ? undefined : err.code) || status + "";
+      reject(new StorageApiError(_getErrorMessage(err), status, statusCode, namespace));
+    }).catch(() => {
+      const statusCode = status + "";
+      reject(new StorageApiError(responseError.statusText || `HTTP ${status} error`, status, statusCode, namespace));
     });
-  else
-    reject(new StorageUnknownError(_getErrorMessage$1(error), error));
+  } else
+    reject(new StorageUnknownError(_getErrorMessage(error), error, namespace));
 };
-var _getRequestParams$1 = (method, options, parameters, body) => {
+var _getRequestParams = (method, options, parameters, body) => {
   const params = {
     method,
     headers: (options === null || options === undefined ? undefined : options.headers) || {}
   };
-  if (method === "GET" || !body)
-    return params;
-  if (isPlainObject$1(body)) {
-    params.headers = _objectSpread2({ "Content-Type": "application/json" }, options === null || options === undefined ? undefined : options.headers);
+  if (method === "GET" || method === "HEAD" || !body)
+    return _objectSpread22(_objectSpread22({}, params), parameters);
+  if (isPlainObject2(body)) {
+    var _contentType;
+    const headers = (options === null || options === undefined ? undefined : options.headers) || {};
+    let contentType;
+    for (const [key, value] of Object.entries(headers))
+      if (key.toLowerCase() === "content-type")
+        contentType = value;
+    params.headers = setHeader(headers, "Content-Type", (_contentType = contentType) !== null && _contentType !== undefined ? _contentType : "application/json");
     params.body = JSON.stringify(body);
   } else
     params.body = body;
   if (options === null || options === undefined ? undefined : options.duplex)
     params.duplex = options.duplex;
-  return _objectSpread2(_objectSpread2({}, params), parameters);
+  return _objectSpread22(_objectSpread22({}, params), parameters);
 };
-async function _handleRequest$1(fetcher, method, url, options, parameters, body) {
+async function _handleRequest(fetcher, method, url, options, parameters, body, namespace) {
   return new Promise((resolve, reject) => {
-    fetcher(url, _getRequestParams$1(method, options, parameters, body)).then((result) => {
+    fetcher(url, _getRequestParams(method, options, parameters, body)).then((result) => {
       if (!result.ok)
         throw result;
       if (options === null || options === undefined ? undefined : options.noResolveJson)
         return result;
+      if (namespace === "vectors") {
+        const contentType = result.headers.get("content-type");
+        if (result.headers.get("content-length") === "0" || result.status === 204)
+          return {};
+        if (!contentType || !contentType.includes("application/json"))
+          return {};
+      }
       return result.json();
-    }).then((data) => resolve(data)).catch((error) => handleError$1(error, reject, options));
+    }).then((data) => resolve(data)).catch((error) => handleError(error, reject, options, namespace));
   });
 }
-async function get(fetcher, url, options, parameters) {
-  return _handleRequest$1(fetcher, "GET", url, options, parameters);
+function createFetchApi(namespace = "storage") {
+  return {
+    get: async (fetcher, url, options, parameters) => {
+      return _handleRequest(fetcher, "GET", url, options, parameters, undefined, namespace);
+    },
+    post: async (fetcher, url, body, options, parameters) => {
+      return _handleRequest(fetcher, "POST", url, options, parameters, body, namespace);
+    },
+    put: async (fetcher, url, body, options, parameters) => {
+      return _handleRequest(fetcher, "PUT", url, options, parameters, body, namespace);
+    },
+    head: async (fetcher, url, options, parameters) => {
+      return _handleRequest(fetcher, "HEAD", url, _objectSpread22(_objectSpread22({}, options), {}, { noResolveJson: true }), parameters, undefined, namespace);
+    },
+    remove: async (fetcher, url, body, options, parameters) => {
+      return _handleRequest(fetcher, "DELETE", url, options, parameters, body, namespace);
+    }
+  };
 }
-async function post$1(fetcher, url, body, options, parameters) {
-  return _handleRequest$1(fetcher, "POST", url, options, parameters, body);
-}
-async function put(fetcher, url, body, options, parameters) {
-  return _handleRequest$1(fetcher, "PUT", url, options, parameters, body);
-}
-async function head(fetcher, url, options, parameters) {
-  return _handleRequest$1(fetcher, "HEAD", url, _objectSpread2(_objectSpread2({}, options), {}, { noResolveJson: true }), parameters);
-}
-async function remove(fetcher, url, body, options, parameters) {
-  return _handleRequest$1(fetcher, "DELETE", url, options, parameters, body);
-}
+var defaultApi = createFetchApi("storage");
+var { get, post, put, head, remove } = defaultApi;
+var vectorsApi = createFetchApi("vectors");
+var BaseApiClient = class {
+  constructor(url, headers = {}, fetch$1, namespace = "storage") {
+    this.shouldThrowOnError = false;
+    this.url = url;
+    this.headers = normalizeHeaders(headers);
+    this.fetch = resolveFetch(fetch$1);
+    this.namespace = namespace;
+  }
+  throwOnError() {
+    this.shouldThrowOnError = true;
+    return this;
+  }
+  setHeader(name, value) {
+    this.headers = setHeader(this.headers, name, value);
+    return this;
+  }
+  async handleOperation(operation) {
+    var _this = this;
+    try {
+      return {
+        data: await operation(),
+        error: null
+      };
+    } catch (error) {
+      if (_this.shouldThrowOnError)
+        throw error;
+      if (isStorageError(error))
+        return {
+          data: null,
+          error
+        };
+      throw error;
+    }
+  }
+};
 var StreamDownloadBuilder = class {
   constructor(downloadFn, shouldThrowOnError) {
     this.downloadFn = downloadFn;
@@ -12417,24 +16143,17 @@ var DEFAULT_FILE_OPTIONS = {
   contentType: "text/plain;charset=UTF-8",
   upsert: false
 };
-var StorageFileApi = class {
+var StorageFileApi = class extends BaseApiClient {
   constructor(url, headers = {}, bucketId, fetch$1) {
-    this.shouldThrowOnError = false;
-    this.url = url;
-    this.headers = headers;
+    super(url, headers, fetch$1, "storage");
     this.bucketId = bucketId;
-    this.fetch = resolveFetch$1(fetch$1);
-  }
-  throwOnError() {
-    this.shouldThrowOnError = true;
-    return this;
   }
   async uploadOrUpdate(method, path, fileBody, fileOptions) {
     var _this = this;
-    try {
+    return _this.handleOperation(async () => {
       let body;
-      const options = _objectSpread2(_objectSpread2({}, DEFAULT_FILE_OPTIONS), fileOptions);
-      let headers = _objectSpread2(_objectSpread2({}, _this.headers), method === "POST" && { "x-upsert": String(options.upsert) });
+      const options = _objectSpread22(_objectSpread22({}, DEFAULT_FILE_OPTIONS), fileOptions);
+      let headers = _objectSpread22(_objectSpread22({}, _this.headers), method === "POST" && { "x-upsert": String(options.upsert) });
       const metadata = options.metadata;
       if (typeof Blob !== "undefined" && fileBody instanceof Blob) {
         body = new FormData;
@@ -12458,28 +16177,17 @@ var StorageFileApi = class {
           options.duplex = "half";
       }
       if (fileOptions === null || fileOptions === undefined ? undefined : fileOptions.headers)
-        headers = _objectSpread2(_objectSpread2({}, headers), fileOptions.headers);
+        for (const [key, value] of Object.entries(fileOptions.headers))
+          headers = setHeader(headers, key, value);
       const cleanPath = _this._removeEmptyFolders(path);
       const _path = _this._getFinalPath(cleanPath);
-      const data = await (method == "PUT" ? put : post$1)(_this.fetch, `${_this.url}/object/${_path}`, body, _objectSpread2({ headers }, (options === null || options === undefined ? undefined : options.duplex) ? { duplex: options.duplex } : {}));
+      const data = await (method == "PUT" ? put : post)(_this.fetch, `${_this.url}/object/${_path}`, body, _objectSpread22({ headers }, (options === null || options === undefined ? undefined : options.duplex) ? { duplex: options.duplex } : {}));
       return {
-        data: {
-          path: cleanPath,
-          id: data.Id,
-          fullPath: data.Key
-        },
-        error: null
+        path: cleanPath,
+        id: data.Id,
+        fullPath: data.Key
       };
-    } catch (error) {
-      if (_this.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    });
   }
   async upload(path, fileBody, fileOptions) {
     return this.uploadOrUpdate("POST", path, fileBody, fileOptions);
@@ -12490,194 +16198,137 @@ var StorageFileApi = class {
     const _path = _this3._getFinalPath(cleanPath);
     const url = new URL(_this3.url + `/object/upload/sign/${_path}`);
     url.searchParams.set("token", token);
-    try {
+    return _this3.handleOperation(async () => {
       let body;
-      const options = _objectSpread2({ upsert: DEFAULT_FILE_OPTIONS.upsert }, fileOptions);
-      const headers = _objectSpread2(_objectSpread2({}, _this3.headers), { "x-upsert": String(options.upsert) });
+      const options = _objectSpread22(_objectSpread22({}, DEFAULT_FILE_OPTIONS), fileOptions);
+      let headers = _objectSpread22(_objectSpread22({}, _this3.headers), { "x-upsert": String(options.upsert) });
+      const metadata = options.metadata;
       if (typeof Blob !== "undefined" && fileBody instanceof Blob) {
         body = new FormData;
         body.append("cacheControl", options.cacheControl);
+        if (metadata)
+          body.append("metadata", _this3.encodeMetadata(metadata));
         body.append("", fileBody);
       } else if (typeof FormData !== "undefined" && fileBody instanceof FormData) {
         body = fileBody;
-        body.append("cacheControl", options.cacheControl);
+        if (!body.has("cacheControl"))
+          body.append("cacheControl", options.cacheControl);
+        if (metadata && !body.has("metadata"))
+          body.append("metadata", _this3.encodeMetadata(metadata));
       } else {
         body = fileBody;
         headers["cache-control"] = `max-age=${options.cacheControl}`;
         headers["content-type"] = options.contentType;
+        if (metadata)
+          headers["x-metadata"] = _this3.toBase64(_this3.encodeMetadata(metadata));
+        if ((typeof ReadableStream !== "undefined" && body instanceof ReadableStream || body && typeof body === "object" && ("pipe" in body) && typeof body.pipe === "function") && !options.duplex)
+          options.duplex = "half";
       }
+      if (fileOptions === null || fileOptions === undefined ? undefined : fileOptions.headers)
+        for (const [key, value] of Object.entries(fileOptions.headers))
+          headers = setHeader(headers, key, value);
       return {
-        data: {
-          path: cleanPath,
-          fullPath: (await put(_this3.fetch, url.toString(), body, { headers })).Key
-        },
-        error: null
+        path: cleanPath,
+        fullPath: (await put(_this3.fetch, url.toString(), body, _objectSpread22({ headers }, (options === null || options === undefined ? undefined : options.duplex) ? { duplex: options.duplex } : {}))).Key
       };
-    } catch (error) {
-      if (_this3.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    });
   }
   async createSignedUploadUrl(path, options) {
     var _this4 = this;
-    try {
+    return _this4.handleOperation(async () => {
       let _path = _this4._getFinalPath(path);
-      const headers = _objectSpread2({}, _this4.headers);
+      const headers = _objectSpread22({}, _this4.headers);
       if (options === null || options === undefined ? undefined : options.upsert)
         headers["x-upsert"] = "true";
-      const data = await post$1(_this4.fetch, `${_this4.url}/object/upload/sign/${_path}`, {}, { headers });
+      const data = await post(_this4.fetch, `${_this4.url}/object/upload/sign/${_path}`, {}, { headers });
       const url = new URL(_this4.url + data.url);
       const token = url.searchParams.get("token");
       if (!token)
         throw new StorageError("No token returned by API");
       return {
-        data: {
-          signedUrl: url.toString(),
-          path,
-          token
-        },
-        error: null
+        signedUrl: url.toString(),
+        path,
+        token
       };
-    } catch (error) {
-      if (_this4.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    });
   }
   async update(path, fileBody, fileOptions) {
     return this.uploadOrUpdate("PUT", path, fileBody, fileOptions);
   }
   async move(fromPath, toPath, options) {
     var _this6 = this;
-    try {
-      return {
-        data: await post$1(_this6.fetch, `${_this6.url}/object/move`, {
-          bucketId: _this6.bucketId,
-          sourceKey: fromPath,
-          destinationKey: toPath,
-          destinationBucket: options === null || options === undefined ? undefined : options.destinationBucket
-        }, { headers: _this6.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this6.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this6.handleOperation(async () => {
+      return await post(_this6.fetch, `${_this6.url}/object/move`, {
+        bucketId: _this6.bucketId,
+        sourceKey: fromPath,
+        destinationKey: toPath,
+        destinationBucket: options === null || options === undefined ? undefined : options.destinationBucket
+      }, { headers: _this6.headers });
+    });
   }
   async copy(fromPath, toPath, options) {
     var _this7 = this;
-    try {
-      return {
-        data: { path: (await post$1(_this7.fetch, `${_this7.url}/object/copy`, {
-          bucketId: _this7.bucketId,
-          sourceKey: fromPath,
-          destinationKey: toPath,
-          destinationBucket: options === null || options === undefined ? undefined : options.destinationBucket
-        }, { headers: _this7.headers })).Key },
-        error: null
-      };
-    } catch (error) {
-      if (_this7.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this7.handleOperation(async () => {
+      return { path: (await post(_this7.fetch, `${_this7.url}/object/copy`, {
+        bucketId: _this7.bucketId,
+        sourceKey: fromPath,
+        destinationKey: toPath,
+        destinationBucket: options === null || options === undefined ? undefined : options.destinationBucket
+      }, { headers: _this7.headers })).Key };
+    });
   }
   async createSignedUrl(path, expiresIn, options) {
     var _this8 = this;
-    try {
+    return _this8.handleOperation(async () => {
       let _path = _this8._getFinalPath(path);
-      let data = await post$1(_this8.fetch, `${_this8.url}/object/sign/${_path}`, _objectSpread2({ expiresIn }, (options === null || options === undefined ? undefined : options.transform) ? { transform: options.transform } : {}), { headers: _this8.headers });
-      const downloadQueryParam = (options === null || options === undefined ? undefined : options.download) ? `&download=${options.download === true ? "" : options.download}` : "";
-      data = { signedUrl: encodeURI(`${_this8.url}${data.signedURL}${downloadQueryParam}`) };
-      return {
-        data,
-        error: null
-      };
-    } catch (error) {
-      if (_this8.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+      const hasTransform = typeof (options === null || options === undefined ? undefined : options.transform) === "object" && options.transform !== null && Object.keys(options.transform).length > 0;
+      let data = await post(_this8.fetch, `${_this8.url}/object/sign/${_path}`, _objectSpread22({ expiresIn }, hasTransform ? { transform: options.transform } : {}), { headers: _this8.headers });
+      const query = new URLSearchParams;
+      if (options === null || options === undefined ? undefined : options.download)
+        query.set("download", options.download === true ? "" : options.download);
+      if ((options === null || options === undefined ? undefined : options.cacheNonce) != null)
+        query.set("cacheNonce", String(options.cacheNonce));
+      const queryString = query.toString();
+      return { signedUrl: encodeURI(`${_this8.url}${data.signedURL}${queryString ? `&${queryString}` : ""}`) };
+    });
   }
   async createSignedUrls(paths, expiresIn, options) {
     var _this9 = this;
-    try {
-      const data = await post$1(_this9.fetch, `${_this9.url}/object/sign/${_this9.bucketId}`, {
+    return _this9.handleOperation(async () => {
+      const data = await post(_this9.fetch, `${_this9.url}/object/sign/${_this9.bucketId}`, {
         expiresIn,
         paths
       }, { headers: _this9.headers });
-      const downloadQueryParam = (options === null || options === undefined ? undefined : options.download) ? `&download=${options.download === true ? "" : options.download}` : "";
-      return {
-        data: data.map((datum) => _objectSpread2(_objectSpread2({}, datum), {}, { signedUrl: datum.signedURL ? encodeURI(`${_this9.url}${datum.signedURL}${downloadQueryParam}`) : null })),
-        error: null
-      };
-    } catch (error) {
-      if (_this9.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+      const query = new URLSearchParams;
+      if (options === null || options === undefined ? undefined : options.download)
+        query.set("download", options.download === true ? "" : options.download);
+      if ((options === null || options === undefined ? undefined : options.cacheNonce) != null)
+        query.set("cacheNonce", String(options.cacheNonce));
+      const queryString = query.toString();
+      return data.map((datum) => _objectSpread22(_objectSpread22({}, datum), {}, { signedUrl: datum.signedURL ? encodeURI(`${_this9.url}${datum.signedURL}${queryString ? `&${queryString}` : ""}`) : null }));
+    });
   }
-  download(path, options) {
-    const renderPath = typeof (options === null || options === undefined ? undefined : options.transform) !== "undefined" ? "render/image/authenticated" : "object";
-    const transformationQuery = this.transformOptsToQueryString((options === null || options === undefined ? undefined : options.transform) || {});
-    const queryString = transformationQuery ? `?${transformationQuery}` : "";
+  download(path, options, parameters) {
+    const renderPath = typeof (options === null || options === undefined ? undefined : options.transform) === "object" && options.transform !== null && Object.keys(options.transform).length > 0 ? "render/image/authenticated" : "object";
+    const query = new URLSearchParams;
+    if (options === null || options === undefined ? undefined : options.transform)
+      this.applyTransformOptsToQuery(query, options.transform);
+    if ((options === null || options === undefined ? undefined : options.cacheNonce) != null)
+      query.set("cacheNonce", String(options.cacheNonce));
+    const queryString = query.toString();
     const _path = this._getFinalPath(path);
-    const downloadFn = () => get(this.fetch, `${this.url}/${renderPath}/${_path}${queryString}`, {
+    const downloadFn = () => get(this.fetch, `${this.url}/${renderPath}/${_path}${queryString ? `?${queryString}` : ""}`, {
       headers: this.headers,
       noResolveJson: true
-    });
+    }, parameters);
     return new BlobDownloadBuilder(downloadFn, this.shouldThrowOnError);
   }
   async info(path) {
     var _this10 = this;
     const _path = _this10._getFinalPath(path);
-    try {
-      return {
-        data: recursiveToCamel(await get(_this10.fetch, `${_this10.url}/object/info/${_path}`, { headers: _this10.headers })),
-        error: null
-      };
-    } catch (error) {
-      if (_this10.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this10.handleOperation(async () => {
+      return recursiveToCamel(await get(_this10.fetch, `${_this10.url}/object/info/${_path}`, { headers: _this10.headers }));
+    });
   }
   async exists(path) {
     var _this11 = this;
@@ -12691,9 +16342,10 @@ var StorageFileApi = class {
     } catch (error) {
       if (_this11.shouldThrowOnError)
         throw error;
-      if (isStorageError(error) && error instanceof StorageUnknownError) {
-        const originalError = error.originalError;
-        if ([400, 404].includes(originalError === null || originalError === undefined ? undefined : originalError.status))
+      if (isStorageError(error)) {
+        var _error$originalError;
+        const status = error instanceof StorageApiError ? error.status : error instanceof StorageUnknownError ? (_error$originalError = error.originalError) === null || _error$originalError === undefined ? undefined : _error$originalError.status : undefined;
+        if (status !== undefined && [400, 404].includes(status))
           return {
             data: false,
             error
@@ -12704,74 +16356,36 @@ var StorageFileApi = class {
   }
   getPublicUrl(path, options) {
     const _path = this._getFinalPath(path);
-    const _queryString = [];
-    const downloadQueryParam = (options === null || options === undefined ? undefined : options.download) ? `download=${options.download === true ? "" : options.download}` : "";
-    if (downloadQueryParam !== "")
-      _queryString.push(downloadQueryParam);
-    const renderPath = typeof (options === null || options === undefined ? undefined : options.transform) !== "undefined" ? "render/image" : "object";
-    const transformationQuery = this.transformOptsToQueryString((options === null || options === undefined ? undefined : options.transform) || {});
-    if (transformationQuery !== "")
-      _queryString.push(transformationQuery);
-    let queryString = _queryString.join("&");
-    if (queryString !== "")
-      queryString = `?${queryString}`;
-    return { data: { publicUrl: encodeURI(`${this.url}/${renderPath}/public/${_path}${queryString}`) } };
+    const query = new URLSearchParams;
+    if (options === null || options === undefined ? undefined : options.download)
+      query.set("download", options.download === true ? "" : options.download);
+    if (options === null || options === undefined ? undefined : options.transform)
+      this.applyTransformOptsToQuery(query, options.transform);
+    if ((options === null || options === undefined ? undefined : options.cacheNonce) != null)
+      query.set("cacheNonce", String(options.cacheNonce));
+    const queryString = query.toString();
+    const renderPath = typeof (options === null || options === undefined ? undefined : options.transform) === "object" && options.transform !== null && Object.keys(options.transform).length > 0 ? "render/image" : "object";
+    return { data: { publicUrl: encodeURI(`${this.url}/${renderPath}/public/${_path}`) + (queryString ? `?${queryString}` : "") } };
   }
   async remove(paths) {
     var _this12 = this;
-    try {
-      return {
-        data: await remove(_this12.fetch, `${_this12.url}/object/${_this12.bucketId}`, { prefixes: paths }, { headers: _this12.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this12.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this12.handleOperation(async () => {
+      return await remove(_this12.fetch, `${_this12.url}/object/${_this12.bucketId}`, { prefixes: paths }, { headers: _this12.headers });
+    });
   }
   async list(path, options, parameters) {
     var _this13 = this;
-    try {
-      const body = _objectSpread2(_objectSpread2(_objectSpread2({}, DEFAULT_SEARCH_OPTIONS), options), {}, { prefix: path || "" });
-      return {
-        data: await post$1(_this13.fetch, `${_this13.url}/object/list/${_this13.bucketId}`, body, { headers: _this13.headers }, parameters),
-        error: null
-      };
-    } catch (error) {
-      if (_this13.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this13.handleOperation(async () => {
+      const body = _objectSpread22(_objectSpread22(_objectSpread22({}, DEFAULT_SEARCH_OPTIONS), options), {}, { prefix: path || "" });
+      return await post(_this13.fetch, `${_this13.url}/object/list/${_this13.bucketId}`, body, { headers: _this13.headers }, parameters);
+    });
   }
   async listV2(options, parameters) {
     var _this14 = this;
-    try {
-      const body = _objectSpread2({}, options);
-      return {
-        data: await post$1(_this14.fetch, `${_this14.url}/object/list-v2/${_this14.bucketId}`, body, { headers: _this14.headers }, parameters),
-        error: null
-      };
-    } catch (error) {
-      if (_this14.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this14.handleOperation(async () => {
+      const body = _objectSpread22({}, options);
+      return await post(_this14.fetch, `${_this14.url}/object/list-v2/${_this14.bucketId}`, body, { headers: _this14.headers }, parameters);
+    });
   }
   encodeMetadata(metadata) {
     return JSON.stringify(metadata);
@@ -12787,160 +16401,82 @@ var StorageFileApi = class {
   _removeEmptyFolders(path) {
     return path.replace(/^\/|\/$/g, "").replace(/\/+/g, "/");
   }
-  transformOptsToQueryString(transform) {
-    const params = [];
+  applyTransformOptsToQuery(query, transform) {
     if (transform.width)
-      params.push(`width=${transform.width}`);
+      query.set("width", transform.width.toString());
     if (transform.height)
-      params.push(`height=${transform.height}`);
+      query.set("height", transform.height.toString());
     if (transform.resize)
-      params.push(`resize=${transform.resize}`);
+      query.set("resize", transform.resize);
     if (transform.format)
-      params.push(`format=${transform.format}`);
+      query.set("format", transform.format);
     if (transform.quality)
-      params.push(`quality=${transform.quality}`);
-    return params.join("&");
+      query.set("quality", transform.quality.toString());
+    return query;
   }
 };
-var version2 = "2.89.0";
-var DEFAULT_HEADERS$1 = { "X-Client-Info": `storage-js/${version2}` };
-var StorageBucketApi = class {
+var version2 = "2.105.4";
+var DEFAULT_HEADERS = { "X-Client-Info": `storage-js/${version2}` };
+var StorageBucketApi = class extends BaseApiClient {
   constructor(url, headers = {}, fetch$1, opts) {
-    this.shouldThrowOnError = false;
     const baseUrl = new URL(url);
     if (opts === null || opts === undefined ? undefined : opts.useNewHostname) {
       if (/supabase\.(co|in|red)$/.test(baseUrl.hostname) && !baseUrl.hostname.includes("storage.supabase."))
         baseUrl.hostname = baseUrl.hostname.replace("supabase.", "storage.supabase.");
     }
-    this.url = baseUrl.href.replace(/\/$/, "");
-    this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS$1), headers);
-    this.fetch = resolveFetch$1(fetch$1);
-  }
-  throwOnError() {
-    this.shouldThrowOnError = true;
-    return this;
+    const finalUrl = baseUrl.href.replace(/\/$/, "");
+    const finalHeaders = _objectSpread22(_objectSpread22({}, DEFAULT_HEADERS), headers);
+    super(finalUrl, finalHeaders, fetch$1, "storage");
   }
   async listBuckets(options) {
     var _this = this;
-    try {
+    return _this.handleOperation(async () => {
       const queryString = _this.listBucketOptionsToQueryString(options);
-      return {
-        data: await get(_this.fetch, `${_this.url}/bucket${queryString}`, { headers: _this.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+      return await get(_this.fetch, `${_this.url}/bucket${queryString}`, { headers: _this.headers });
+    });
   }
   async getBucket(id) {
     var _this2 = this;
-    try {
-      return {
-        data: await get(_this2.fetch, `${_this2.url}/bucket/${id}`, { headers: _this2.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this2.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this2.handleOperation(async () => {
+      return await get(_this2.fetch, `${_this2.url}/bucket/${id}`, { headers: _this2.headers });
+    });
   }
   async createBucket(id, options = { public: false }) {
     var _this3 = this;
-    try {
-      return {
-        data: await post$1(_this3.fetch, `${_this3.url}/bucket`, {
-          id,
-          name: id,
-          type: options.type,
-          public: options.public,
-          file_size_limit: options.fileSizeLimit,
-          allowed_mime_types: options.allowedMimeTypes
-        }, { headers: _this3.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this3.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this3.handleOperation(async () => {
+      return await post(_this3.fetch, `${_this3.url}/bucket`, {
+        id,
+        name: id,
+        type: options.type,
+        public: options.public,
+        file_size_limit: options.fileSizeLimit,
+        allowed_mime_types: options.allowedMimeTypes
+      }, { headers: _this3.headers });
+    });
   }
   async updateBucket(id, options) {
     var _this4 = this;
-    try {
-      return {
-        data: await put(_this4.fetch, `${_this4.url}/bucket/${id}`, {
-          id,
-          name: id,
-          public: options.public,
-          file_size_limit: options.fileSizeLimit,
-          allowed_mime_types: options.allowedMimeTypes
-        }, { headers: _this4.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this4.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this4.handleOperation(async () => {
+      return await put(_this4.fetch, `${_this4.url}/bucket/${id}`, {
+        id,
+        name: id,
+        public: options.public,
+        file_size_limit: options.fileSizeLimit,
+        allowed_mime_types: options.allowedMimeTypes
+      }, { headers: _this4.headers });
+    });
   }
   async emptyBucket(id) {
     var _this5 = this;
-    try {
-      return {
-        data: await post$1(_this5.fetch, `${_this5.url}/bucket/${id}/empty`, {}, { headers: _this5.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this5.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this5.handleOperation(async () => {
+      return await post(_this5.fetch, `${_this5.url}/bucket/${id}/empty`, {}, { headers: _this5.headers });
+    });
   }
   async deleteBucket(id) {
     var _this6 = this;
-    try {
-      return {
-        data: await remove(_this6.fetch, `${_this6.url}/bucket/${id}`, {}, { headers: _this6.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this6.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this6.handleOperation(async () => {
+      return await remove(_this6.fetch, `${_this6.url}/bucket/${id}`, {}, { headers: _this6.headers });
+    });
   }
   listBucketOptionsToQueryString(options) {
     const params = {};
@@ -12959,38 +16495,21 @@ var StorageBucketApi = class {
     return Object.keys(params).length > 0 ? "?" + new URLSearchParams(params).toString() : "";
   }
 };
-var StorageAnalyticsClient = class {
+var StorageAnalyticsClient = class extends BaseApiClient {
   constructor(url, headers = {}, fetch$1) {
-    this.shouldThrowOnError = false;
-    this.url = url.replace(/\/$/, "");
-    this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS$1), headers);
-    this.fetch = resolveFetch$1(fetch$1);
-  }
-  throwOnError() {
-    this.shouldThrowOnError = true;
-    return this;
+    const finalUrl = url.replace(/\/$/, "");
+    const finalHeaders = _objectSpread22(_objectSpread22({}, DEFAULT_HEADERS), headers);
+    super(finalUrl, finalHeaders, fetch$1, "storage");
   }
   async createBucket(name) {
     var _this = this;
-    try {
-      return {
-        data: await post$1(_this.fetch, `${_this.url}/bucket`, { name }, { headers: _this.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this.handleOperation(async () => {
+      return await post(_this.fetch, `${_this.url}/bucket`, { name }, { headers: _this.headers });
+    });
   }
   async listBuckets(options) {
     var _this2 = this;
-    try {
+    return _this2.handleOperation(async () => {
       const queryParams = new URLSearchParams;
       if ((options === null || options === undefined ? undefined : options.limit) !== undefined)
         queryParams.set("limit", options.limit.toString());
@@ -13004,38 +16523,14 @@ var StorageAnalyticsClient = class {
         queryParams.set("search", options.search);
       const queryString = queryParams.toString();
       const url = queryString ? `${_this2.url}/bucket?${queryString}` : `${_this2.url}/bucket`;
-      return {
-        data: await get(_this2.fetch, url, { headers: _this2.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this2.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+      return await get(_this2.fetch, url, { headers: _this2.headers });
+    });
   }
   async deleteBucket(bucketName) {
     var _this3 = this;
-    try {
-      return {
-        data: await remove(_this3.fetch, `${_this3.url}/bucket/${bucketName}`, {}, { headers: _this3.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this3.shouldThrowOnError)
-        throw error;
-      if (isStorageError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this3.handleOperation(async () => {
+      return await remove(_this3.fetch, `${_this3.url}/bucket/${bucketName}`, {}, { headers: _this3.headers });
+    });
   }
   from(bucketName) {
     var _this4 = this;
@@ -13073,410 +16568,121 @@ var StorageAnalyticsClient = class {
     } });
   }
 };
-var DEFAULT_HEADERS = {
-  "X-Client-Info": `storage-js/${version2}`,
-  "Content-Type": "application/json"
-};
-var StorageVectorsError = class extends Error {
-  constructor(message) {
-    super(message);
-    this.__isStorageVectorsError = true;
-    this.name = "StorageVectorsError";
-  }
-};
-function isStorageVectorsError(error) {
-  return typeof error === "object" && error !== null && "__isStorageVectorsError" in error;
-}
-var StorageVectorsApiError = class extends StorageVectorsError {
-  constructor(message, status, statusCode) {
-    super(message);
-    this.name = "StorageVectorsApiError";
-    this.status = status;
-    this.statusCode = statusCode;
-  }
-  toJSON() {
-    return {
-      name: this.name,
-      message: this.message,
-      status: this.status,
-      statusCode: this.statusCode
-    };
-  }
-};
-var StorageVectorsUnknownError = class extends StorageVectorsError {
-  constructor(message, originalError) {
-    super(message);
-    this.name = "StorageVectorsUnknownError";
-    this.originalError = originalError;
-  }
-};
-var StorageVectorsErrorCode = /* @__PURE__ */ function(StorageVectorsErrorCode$1) {
-  StorageVectorsErrorCode$1["InternalError"] = "InternalError";
-  StorageVectorsErrorCode$1["S3VectorConflictException"] = "S3VectorConflictException";
-  StorageVectorsErrorCode$1["S3VectorNotFoundException"] = "S3VectorNotFoundException";
-  StorageVectorsErrorCode$1["S3VectorBucketNotEmpty"] = "S3VectorBucketNotEmpty";
-  StorageVectorsErrorCode$1["S3VectorMaxBucketsExceeded"] = "S3VectorMaxBucketsExceeded";
-  StorageVectorsErrorCode$1["S3VectorMaxIndexesExceeded"] = "S3VectorMaxIndexesExceeded";
-  return StorageVectorsErrorCode$1;
-}({});
-var resolveFetch = (customFetch) => {
-  if (customFetch)
-    return (...args) => customFetch(...args);
-  return (...args) => fetch(...args);
-};
-var resolveResponse = () => {
-  return Response;
-};
-var isPlainObject2 = (value) => {
-  if (typeof value !== "object" || value === null)
-    return false;
-  const prototype = Object.getPrototypeOf(value);
-  return (prototype === null || prototype === Object.prototype || Object.getPrototypeOf(prototype) === null) && !(Symbol.toStringTag in value) && !(Symbol.iterator in value);
-};
-var normalizeToFloat32 = (values) => {
-  return Array.from(new Float32Array(values));
-};
-var validateVectorDimension = (vector, expectedDimension) => {
-  if (expectedDimension !== undefined && vector.float32.length !== expectedDimension)
-    throw new Error(`Vector dimension mismatch: expected ${expectedDimension}, got ${vector.float32.length}`);
-};
-var _getErrorMessage = (err) => err.msg || err.message || err.error_description || err.error || JSON.stringify(err);
-var handleError = async (error, reject, options) => {
-  if (error && typeof error === "object" && "status" in error && "ok" in error && typeof error.status === "number" && !(options === null || options === undefined ? undefined : options.noResolveJson)) {
-    const status = error.status || 500;
-    const responseError = error;
-    if (typeof responseError.json === "function")
-      responseError.json().then((err) => {
-        const statusCode = (err === null || err === undefined ? undefined : err.statusCode) || (err === null || err === undefined ? undefined : err.code) || status + "";
-        reject(new StorageVectorsApiError(_getErrorMessage(err), status, statusCode));
-      }).catch(() => {
-        const statusCode = status + "";
-        reject(new StorageVectorsApiError(responseError.statusText || `HTTP ${status} error`, status, statusCode));
-      });
-    else {
-      const statusCode = status + "";
-      reject(new StorageVectorsApiError(responseError.statusText || `HTTP ${status} error`, status, statusCode));
-    }
-  } else
-    reject(new StorageVectorsUnknownError(_getErrorMessage(error), error));
-};
-var _getRequestParams = (method, options, parameters, body) => {
-  const params = {
-    method,
-    headers: (options === null || options === undefined ? undefined : options.headers) || {}
-  };
-  if (method === "GET" || !body)
-    return params;
-  if (isPlainObject2(body)) {
-    params.headers = _objectSpread2({ "Content-Type": "application/json" }, options === null || options === undefined ? undefined : options.headers);
-    params.body = JSON.stringify(body);
-  } else
-    params.body = body;
-  return _objectSpread2(_objectSpread2({}, params), parameters);
-};
-async function _handleRequest(fetcher, method, url, options, parameters, body) {
-  return new Promise((resolve, reject) => {
-    fetcher(url, _getRequestParams(method, options, parameters, body)).then((result) => {
-      if (!result.ok)
-        throw result;
-      if (options === null || options === undefined ? undefined : options.noResolveJson)
-        return result;
-      const contentType = result.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json"))
-        return {};
-      return result.json();
-    }).then((data) => resolve(data)).catch((error) => handleError(error, reject, options));
-  });
-}
-async function post(fetcher, url, body, options, parameters) {
-  return _handleRequest(fetcher, "POST", url, options, parameters, body);
-}
-var VectorIndexApi = class {
+var VectorIndexApi = class extends BaseApiClient {
   constructor(url, headers = {}, fetch$1) {
-    this.shouldThrowOnError = false;
-    this.url = url.replace(/\/$/, "");
-    this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS), headers);
-    this.fetch = resolveFetch(fetch$1);
-  }
-  throwOnError() {
-    this.shouldThrowOnError = true;
-    return this;
+    const finalUrl = url.replace(/\/$/, "");
+    const finalHeaders = _objectSpread22(_objectSpread22({}, DEFAULT_HEADERS), {}, { "Content-Type": "application/json" }, headers);
+    super(finalUrl, finalHeaders, fetch$1, "vectors");
   }
   async createIndex(options) {
     var _this = this;
-    try {
-      return {
-        data: await post(_this.fetch, `${_this.url}/CreateIndex`, options, { headers: _this.headers }) || {},
-        error: null
-      };
-    } catch (error) {
-      if (_this.shouldThrowOnError)
-        throw error;
-      if (isStorageVectorsError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this.handleOperation(async () => {
+      return await vectorsApi.post(_this.fetch, `${_this.url}/CreateIndex`, options, { headers: _this.headers }) || {};
+    });
   }
   async getIndex(vectorBucketName, indexName) {
     var _this2 = this;
-    try {
-      return {
-        data: await post(_this2.fetch, `${_this2.url}/GetIndex`, {
-          vectorBucketName,
-          indexName
-        }, { headers: _this2.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this2.shouldThrowOnError)
-        throw error;
-      if (isStorageVectorsError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this2.handleOperation(async () => {
+      return await vectorsApi.post(_this2.fetch, `${_this2.url}/GetIndex`, {
+        vectorBucketName,
+        indexName
+      }, { headers: _this2.headers });
+    });
   }
   async listIndexes(options) {
     var _this3 = this;
-    try {
-      return {
-        data: await post(_this3.fetch, `${_this3.url}/ListIndexes`, options, { headers: _this3.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this3.shouldThrowOnError)
-        throw error;
-      if (isStorageVectorsError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this3.handleOperation(async () => {
+      return await vectorsApi.post(_this3.fetch, `${_this3.url}/ListIndexes`, options, { headers: _this3.headers });
+    });
   }
   async deleteIndex(vectorBucketName, indexName) {
     var _this4 = this;
-    try {
-      return {
-        data: await post(_this4.fetch, `${_this4.url}/DeleteIndex`, {
-          vectorBucketName,
-          indexName
-        }, { headers: _this4.headers }) || {},
-        error: null
-      };
-    } catch (error) {
-      if (_this4.shouldThrowOnError)
-        throw error;
-      if (isStorageVectorsError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this4.handleOperation(async () => {
+      return await vectorsApi.post(_this4.fetch, `${_this4.url}/DeleteIndex`, {
+        vectorBucketName,
+        indexName
+      }, { headers: _this4.headers }) || {};
+    });
   }
 };
-var VectorDataApi = class {
+var VectorDataApi = class extends BaseApiClient {
   constructor(url, headers = {}, fetch$1) {
-    this.shouldThrowOnError = false;
-    this.url = url.replace(/\/$/, "");
-    this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS), headers);
-    this.fetch = resolveFetch(fetch$1);
-  }
-  throwOnError() {
-    this.shouldThrowOnError = true;
-    return this;
+    const finalUrl = url.replace(/\/$/, "");
+    const finalHeaders = _objectSpread22(_objectSpread22({}, DEFAULT_HEADERS), {}, { "Content-Type": "application/json" }, headers);
+    super(finalUrl, finalHeaders, fetch$1, "vectors");
   }
   async putVectors(options) {
     var _this = this;
-    try {
-      if (options.vectors.length < 1 || options.vectors.length > 500)
-        throw new Error("Vector batch size must be between 1 and 500 items");
-      return {
-        data: await post(_this.fetch, `${_this.url}/PutVectors`, options, { headers: _this.headers }) || {},
-        error: null
-      };
-    } catch (error) {
-      if (_this.shouldThrowOnError)
-        throw error;
-      if (isStorageVectorsError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    if (options.vectors.length < 1 || options.vectors.length > 500)
+      throw new Error("Vector batch size must be between 1 and 500 items");
+    return _this.handleOperation(async () => {
+      return await vectorsApi.post(_this.fetch, `${_this.url}/PutVectors`, options, { headers: _this.headers }) || {};
+    });
   }
   async getVectors(options) {
     var _this2 = this;
-    try {
-      return {
-        data: await post(_this2.fetch, `${_this2.url}/GetVectors`, options, { headers: _this2.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this2.shouldThrowOnError)
-        throw error;
-      if (isStorageVectorsError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this2.handleOperation(async () => {
+      return await vectorsApi.post(_this2.fetch, `${_this2.url}/GetVectors`, options, { headers: _this2.headers });
+    });
   }
   async listVectors(options) {
     var _this3 = this;
-    try {
-      if (options.segmentCount !== undefined) {
-        if (options.segmentCount < 1 || options.segmentCount > 16)
-          throw new Error("segmentCount must be between 1 and 16");
-        if (options.segmentIndex !== undefined) {
-          if (options.segmentIndex < 0 || options.segmentIndex >= options.segmentCount)
-            throw new Error(`segmentIndex must be between 0 and ${options.segmentCount - 1}`);
-        }
+    if (options.segmentCount !== undefined) {
+      if (options.segmentCount < 1 || options.segmentCount > 16)
+        throw new Error("segmentCount must be between 1 and 16");
+      if (options.segmentIndex !== undefined) {
+        if (options.segmentIndex < 0 || options.segmentIndex >= options.segmentCount)
+          throw new Error(`segmentIndex must be between 0 and ${options.segmentCount - 1}`);
       }
-      return {
-        data: await post(_this3.fetch, `${_this3.url}/ListVectors`, options, { headers: _this3.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this3.shouldThrowOnError)
-        throw error;
-      if (isStorageVectorsError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
     }
+    return _this3.handleOperation(async () => {
+      return await vectorsApi.post(_this3.fetch, `${_this3.url}/ListVectors`, options, { headers: _this3.headers });
+    });
   }
   async queryVectors(options) {
     var _this4 = this;
-    try {
-      return {
-        data: await post(_this4.fetch, `${_this4.url}/QueryVectors`, options, { headers: _this4.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this4.shouldThrowOnError)
-        throw error;
-      if (isStorageVectorsError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this4.handleOperation(async () => {
+      return await vectorsApi.post(_this4.fetch, `${_this4.url}/QueryVectors`, options, { headers: _this4.headers });
+    });
   }
   async deleteVectors(options) {
     var _this5 = this;
-    try {
-      if (options.keys.length < 1 || options.keys.length > 500)
-        throw new Error("Keys batch size must be between 1 and 500 items");
-      return {
-        data: await post(_this5.fetch, `${_this5.url}/DeleteVectors`, options, { headers: _this5.headers }) || {},
-        error: null
-      };
-    } catch (error) {
-      if (_this5.shouldThrowOnError)
-        throw error;
-      if (isStorageVectorsError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    if (options.keys.length < 1 || options.keys.length > 500)
+      throw new Error("Keys batch size must be between 1 and 500 items");
+    return _this5.handleOperation(async () => {
+      return await vectorsApi.post(_this5.fetch, `${_this5.url}/DeleteVectors`, options, { headers: _this5.headers }) || {};
+    });
   }
 };
-var VectorBucketApi = class {
+var VectorBucketApi = class extends BaseApiClient {
   constructor(url, headers = {}, fetch$1) {
-    this.shouldThrowOnError = false;
-    this.url = url.replace(/\/$/, "");
-    this.headers = _objectSpread2(_objectSpread2({}, DEFAULT_HEADERS), headers);
-    this.fetch = resolveFetch(fetch$1);
-  }
-  throwOnError() {
-    this.shouldThrowOnError = true;
-    return this;
+    const finalUrl = url.replace(/\/$/, "");
+    const finalHeaders = _objectSpread22(_objectSpread22({}, DEFAULT_HEADERS), {}, { "Content-Type": "application/json" }, headers);
+    super(finalUrl, finalHeaders, fetch$1, "vectors");
   }
   async createBucket(vectorBucketName) {
     var _this = this;
-    try {
-      return {
-        data: await post(_this.fetch, `${_this.url}/CreateVectorBucket`, { vectorBucketName }, { headers: _this.headers }) || {},
-        error: null
-      };
-    } catch (error) {
-      if (_this.shouldThrowOnError)
-        throw error;
-      if (isStorageVectorsError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this.handleOperation(async () => {
+      return await vectorsApi.post(_this.fetch, `${_this.url}/CreateVectorBucket`, { vectorBucketName }, { headers: _this.headers }) || {};
+    });
   }
   async getBucket(vectorBucketName) {
     var _this2 = this;
-    try {
-      return {
-        data: await post(_this2.fetch, `${_this2.url}/GetVectorBucket`, { vectorBucketName }, { headers: _this2.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this2.shouldThrowOnError)
-        throw error;
-      if (isStorageVectorsError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this2.handleOperation(async () => {
+      return await vectorsApi.post(_this2.fetch, `${_this2.url}/GetVectorBucket`, { vectorBucketName }, { headers: _this2.headers });
+    });
   }
   async listBuckets(options = {}) {
     var _this3 = this;
-    try {
-      return {
-        data: await post(_this3.fetch, `${_this3.url}/ListVectorBuckets`, options, { headers: _this3.headers }),
-        error: null
-      };
-    } catch (error) {
-      if (_this3.shouldThrowOnError)
-        throw error;
-      if (isStorageVectorsError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this3.handleOperation(async () => {
+      return await vectorsApi.post(_this3.fetch, `${_this3.url}/ListVectorBuckets`, options, { headers: _this3.headers });
+    });
   }
   async deleteBucket(vectorBucketName) {
     var _this4 = this;
-    try {
-      return {
-        data: await post(_this4.fetch, `${_this4.url}/DeleteVectorBucket`, { vectorBucketName }, { headers: _this4.headers }) || {},
-        error: null
-      };
-    } catch (error) {
-      if (_this4.shouldThrowOnError)
-        throw error;
-      if (isStorageVectorsError(error))
-        return {
-          data: null,
-          error
-        };
-      throw error;
-    }
+    return _this4.handleOperation(async () => {
+      return await vectorsApi.post(_this4.fetch, `${_this4.url}/DeleteVectorBucket`, { vectorBucketName }, { headers: _this4.headers }) || {};
+    });
   }
 };
 var StorageVectorsClient = class extends VectorBucketApi {
@@ -13510,11 +16716,11 @@ var VectorBucketScope = class extends VectorIndexApi {
   }
   async createIndex(options) {
     var _superprop_getCreateIndex = () => super.createIndex, _this5 = this;
-    return _superprop_getCreateIndex().call(_this5, _objectSpread2(_objectSpread2({}, options), {}, { vectorBucketName: _this5.vectorBucketName }));
+    return _superprop_getCreateIndex().call(_this5, _objectSpread22(_objectSpread22({}, options), {}, { vectorBucketName: _this5.vectorBucketName }));
   }
   async listIndexes(options = {}) {
     var _superprop_getListIndexes = () => super.listIndexes, _this6 = this;
-    return _superprop_getListIndexes().call(_this6, _objectSpread2(_objectSpread2({}, options), {}, { vectorBucketName: _this6.vectorBucketName }));
+    return _superprop_getListIndexes().call(_this6, _objectSpread22(_objectSpread22({}, options), {}, { vectorBucketName: _this6.vectorBucketName }));
   }
   async getIndex(indexName) {
     var _superprop_getGetIndex = () => super.getIndex, _this7 = this;
@@ -13536,35 +16742,35 @@ var VectorIndexScope = class extends VectorDataApi {
   }
   async putVectors(options) {
     var _superprop_getPutVectors = () => super.putVectors, _this9 = this;
-    return _superprop_getPutVectors().call(_this9, _objectSpread2(_objectSpread2({}, options), {}, {
+    return _superprop_getPutVectors().call(_this9, _objectSpread22(_objectSpread22({}, options), {}, {
       vectorBucketName: _this9.vectorBucketName,
       indexName: _this9.indexName
     }));
   }
   async getVectors(options) {
     var _superprop_getGetVectors = () => super.getVectors, _this10 = this;
-    return _superprop_getGetVectors().call(_this10, _objectSpread2(_objectSpread2({}, options), {}, {
+    return _superprop_getGetVectors().call(_this10, _objectSpread22(_objectSpread22({}, options), {}, {
       vectorBucketName: _this10.vectorBucketName,
       indexName: _this10.indexName
     }));
   }
   async listVectors(options = {}) {
     var _superprop_getListVectors = () => super.listVectors, _this11 = this;
-    return _superprop_getListVectors().call(_this11, _objectSpread2(_objectSpread2({}, options), {}, {
+    return _superprop_getListVectors().call(_this11, _objectSpread22(_objectSpread22({}, options), {}, {
       vectorBucketName: _this11.vectorBucketName,
       indexName: _this11.indexName
     }));
   }
   async queryVectors(options) {
     var _superprop_getQueryVectors = () => super.queryVectors, _this12 = this;
-    return _superprop_getQueryVectors().call(_this12, _objectSpread2(_objectSpread2({}, options), {}, {
+    return _superprop_getQueryVectors().call(_this12, _objectSpread22(_objectSpread22({}, options), {}, {
       vectorBucketName: _this12.vectorBucketName,
       indexName: _this12.indexName
     }));
   }
   async deleteVectors(options) {
     var _superprop_getDeleteVectors = () => super.deleteVectors, _this13 = this;
-    return _superprop_getDeleteVectors().call(_this13, _objectSpread2(_objectSpread2({}, options), {}, {
+    return _superprop_getDeleteVectors().call(_this13, _objectSpread22(_objectSpread22({}, options), {}, {
       vectorBucketName: _this13.vectorBucketName,
       indexName: _this13.indexName
     }));
@@ -13588,11 +16794,11 @@ var StorageClient = class extends StorageBucketApi {
   }
 };
 
-// ../../node_modules/.bun/@supabase+supabase-js@2.89.0/node_modules/@supabase/supabase-js/dist/index.mjs
+// ../../node_modules/.bun/@supabase+supabase-js@2.105.4/node_modules/@supabase/supabase-js/dist/index.mjs
 var import_auth_js = __toESM(require_main3(), 1);
 __reExport(exports_dist3, __toESM(require_main2(), 1));
 __reExport(exports_dist3, __toESM(require_main3(), 1));
-var version3 = "2.89.0";
+var version3 = "2.105.4";
 var JS_ENV = "";
 if (typeof Deno !== "undefined")
   JS_ENV = "deno";
@@ -13612,39 +16818,39 @@ var DEFAULT_AUTH_OPTIONS = {
   flowType: "implicit"
 };
 var DEFAULT_REALTIME_OPTIONS = {};
-function _typeof2(o) {
+function _typeof3(o) {
   "@babel/helpers - typeof";
-  return _typeof2 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o$1) {
+  return _typeof3 = typeof Symbol == "function" && typeof Symbol.iterator == "symbol" ? function(o$1) {
     return typeof o$1;
   } : function(o$1) {
     return o$1 && typeof Symbol == "function" && o$1.constructor === Symbol && o$1 !== Symbol.prototype ? "symbol" : typeof o$1;
-  }, _typeof2(o);
+  }, _typeof3(o);
 }
-function toPrimitive2(t, r) {
-  if (_typeof2(t) != "object" || !t)
+function toPrimitive3(t, r) {
+  if (_typeof3(t) != "object" || !t)
     return t;
   var e = t[Symbol.toPrimitive];
   if (e !== undefined) {
     var i = e.call(t, r || "default");
-    if (_typeof2(i) != "object")
+    if (_typeof3(i) != "object")
       return i;
     throw new TypeError("@@toPrimitive must return a primitive value.");
   }
   return (r === "string" ? String : Number)(t);
 }
-function toPropertyKey2(t) {
-  var i = toPrimitive2(t, "string");
-  return _typeof2(i) == "symbol" ? i : i + "";
+function toPropertyKey3(t) {
+  var i = toPrimitive3(t, "string");
+  return _typeof3(i) == "symbol" ? i : i + "";
 }
-function _defineProperty2(e, r, t) {
-  return (r = toPropertyKey2(r)) in e ? Object.defineProperty(e, r, {
+function _defineProperty3(e, r, t) {
+  return (r = toPropertyKey3(r)) in e ? Object.defineProperty(e, r, {
     value: t,
     enumerable: true,
     configurable: true,
     writable: true
   }) : e[r] = t, e;
 }
-function ownKeys2(e, r) {
+function ownKeys3(e, r) {
   var t = Object.keys(e);
   if (Object.getOwnPropertySymbols) {
     var o = Object.getOwnPropertySymbols(e);
@@ -13654,12 +16860,12 @@ function ownKeys2(e, r) {
   }
   return t;
 }
-function _objectSpread22(e) {
+function _objectSpread23(e) {
   for (var r = 1;r < arguments.length; r++) {
     var t = arguments[r] != null ? arguments[r] : {};
-    r % 2 ? ownKeys2(Object(t), true).forEach(function(r$1) {
-      _defineProperty2(e, r$1, t[r$1]);
-    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys2(Object(t)).forEach(function(r$1) {
+    r % 2 ? ownKeys3(Object(t), true).forEach(function(r$1) {
+      _defineProperty3(e, r$1, t[r$1]);
+    }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys3(Object(t)).forEach(function(r$1) {
       Object.defineProperty(e, r$1, Object.getOwnPropertyDescriptor(t, r$1));
     });
   }
@@ -13684,7 +16890,7 @@ var fetchWithAuth = (supabaseKey, getAccessToken, customFetch) => {
       headers.set("apikey", supabaseKey);
     if (!headers.has("Authorization"))
       headers.set("Authorization", `Bearer ${accessToken}`);
-    return fetch$1(input, _objectSpread22(_objectSpread22({}, init), {}, { headers }));
+    return fetch$1(input, _objectSpread23(_objectSpread23({}, init), {}, { headers }));
   };
 };
 function ensureTrailingSlash(url) {
@@ -13695,11 +16901,11 @@ function applySettingDefaults(options, defaults) {
   const { db: dbOptions, auth: authOptions, realtime: realtimeOptions, global: globalOptions } = options;
   const { db: DEFAULT_DB_OPTIONS$1, auth: DEFAULT_AUTH_OPTIONS$1, realtime: DEFAULT_REALTIME_OPTIONS$1, global: DEFAULT_GLOBAL_OPTIONS$1 } = defaults;
   const result = {
-    db: _objectSpread22(_objectSpread22({}, DEFAULT_DB_OPTIONS$1), dbOptions),
-    auth: _objectSpread22(_objectSpread22({}, DEFAULT_AUTH_OPTIONS$1), authOptions),
-    realtime: _objectSpread22(_objectSpread22({}, DEFAULT_REALTIME_OPTIONS$1), realtimeOptions),
+    db: _objectSpread23(_objectSpread23({}, DEFAULT_DB_OPTIONS$1), dbOptions),
+    auth: _objectSpread23(_objectSpread23({}, DEFAULT_AUTH_OPTIONS$1), authOptions),
+    realtime: _objectSpread23(_objectSpread23({}, DEFAULT_REALTIME_OPTIONS$1), realtimeOptions),
     storage: {},
-    global: _objectSpread22(_objectSpread22(_objectSpread22({}, DEFAULT_GLOBAL_OPTIONS$1), globalOptions), {}, { headers: _objectSpread22(_objectSpread22({}, (_DEFAULT_GLOBAL_OPTIO = DEFAULT_GLOBAL_OPTIONS$1 === null || DEFAULT_GLOBAL_OPTIONS$1 === undefined ? undefined : DEFAULT_GLOBAL_OPTIONS$1.headers) !== null && _DEFAULT_GLOBAL_OPTIO !== undefined ? _DEFAULT_GLOBAL_OPTIO : {}), (_globalOptions$header = globalOptions === null || globalOptions === undefined ? undefined : globalOptions.headers) !== null && _globalOptions$header !== undefined ? _globalOptions$header : {}) }),
+    global: _objectSpread23(_objectSpread23(_objectSpread23({}, DEFAULT_GLOBAL_OPTIONS$1), globalOptions), {}, { headers: _objectSpread23(_objectSpread23({}, (_DEFAULT_GLOBAL_OPTIO = DEFAULT_GLOBAL_OPTIONS$1 === null || DEFAULT_GLOBAL_OPTIONS$1 === undefined ? undefined : DEFAULT_GLOBAL_OPTIONS$1.headers) !== null && _DEFAULT_GLOBAL_OPTIO !== undefined ? _DEFAULT_GLOBAL_OPTIO : {}), (_globalOptions$header = globalOptions === null || globalOptions === undefined ? undefined : globalOptions.headers) !== null && _globalOptions$header !== undefined ? _globalOptions$header : {}) }),
     accessToken: async () => ""
   };
   if (options.accessToken)
@@ -13742,7 +16948,7 @@ var SupabaseClient = class {
     const DEFAULTS = {
       db: DEFAULT_DB_OPTIONS,
       realtime: DEFAULT_REALTIME_OPTIONS,
-      auth: _objectSpread22(_objectSpread22({}, DEFAULT_AUTH_OPTIONS), {}, { storageKey: defaultStorageKey }),
+      auth: _objectSpread23(_objectSpread23({}, DEFAULT_AUTH_OPTIONS), {}, { storageKey: defaultStorageKey }),
       global: DEFAULT_GLOBAL_OPTIONS
     };
     const settings = applySettingDefaults(options !== null && options !== undefined ? options : {}, DEFAULTS);
@@ -13758,16 +16964,19 @@ var SupabaseClient = class {
       } });
     }
     this.fetch = fetchWithAuth(supabaseKey, this._getAccessToken.bind(this), settings.global.fetch);
-    this.realtime = this._initRealtimeClient(_objectSpread22({
+    this.realtime = this._initRealtimeClient(_objectSpread23({
       headers: this.headers,
-      accessToken: this._getAccessToken.bind(this)
+      accessToken: this._getAccessToken.bind(this),
+      fetch: this.fetch
     }, settings.realtime));
     if (this.accessToken)
-      this.accessToken().then((token) => this.realtime.setAuth(token)).catch((e) => console.warn("Failed to set initial Realtime auth token:", e));
+      Promise.resolve(this.accessToken()).then((token) => this.realtime.setAuth(token)).catch((e) => console.warn("Failed to set initial Realtime auth token:", e));
     this.rest = new PostgrestClient(new URL("rest/v1", baseUrl).href, {
       headers: this.headers,
       schema: settings.db.schema,
-      fetch: this.fetch
+      fetch: this.fetch,
+      timeout: settings.db.timeout,
+      urlLengthLimit: settings.db.urlLengthLimit
     });
     this.storage = new StorageClient(this.storageUrl.href, this.headers, this.fetch, options === null || options === undefined ? undefined : options.storage);
     if (!settings.accessToken)
@@ -13812,14 +17021,14 @@ var SupabaseClient = class {
     const { data } = await _this.auth.getSession();
     return (_data$session$access_ = (_data$session = data.session) === null || _data$session === undefined ? undefined : _data$session.access_token) !== null && _data$session$access_ !== undefined ? _data$session$access_ : _this.supabaseKey;
   }
-  _initSupabaseAuthClient({ autoRefreshToken, persistSession, detectSessionInUrl, storage, userStorage, storageKey, flowType, lock, debug, throwOnError }, headers, fetch$1) {
+  _initSupabaseAuthClient({ autoRefreshToken, persistSession, detectSessionInUrl, storage, userStorage, storageKey, flowType, lock, debug, throwOnError, experimental, lockAcquireTimeout, skipAutoInitialize }, headers, fetch$1) {
     const authHeaders = {
       Authorization: `Bearer ${this.supabaseKey}`,
       apikey: `${this.supabaseKey}`
     };
     return new SupabaseAuthClient({
       url: this.authUrl.href,
-      headers: _objectSpread22(_objectSpread22({}, authHeaders), headers),
+      headers: _objectSpread23(_objectSpread23({}, authHeaders), headers),
       storageKey,
       autoRefreshToken,
       persistSession,
@@ -13830,12 +17039,15 @@ var SupabaseClient = class {
       lock,
       debug,
       throwOnError,
+      experimental,
       fetch: fetch$1,
+      lockAcquireTimeout,
+      skipAutoInitialize,
       hasCustomAuthorizationHeader: Object.keys(this.headers).some((key) => key.toLowerCase() === "authorization")
     });
   }
   _initRealtimeClient(options) {
-    return new import_realtime_js.RealtimeClient(this.realtimeUrl.href, _objectSpread22(_objectSpread22({}, options), {}, { params: _objectSpread22(_objectSpread22({}, { apikey: this.supabaseKey }), options === null || options === undefined ? undefined : options.params) }));
+    return new import_realtime_js.RealtimeClient(this.realtimeUrl.href, _objectSpread23(_objectSpread23({}, options), {}, { params: _objectSpread23(_objectSpread23({}, { apikey: this.supabaseKey }), options === null || options === undefined ? undefined : options.params) }));
   }
   _listenForAuthEvents() {
     return this.auth.onAuthStateChange((event, session) => {
@@ -13860,9 +17072,10 @@ var createClient = (supabaseUrl, supabaseKey, options) => {
 function shouldShowDeprecationWarning() {
   if (typeof window !== "undefined")
     return false;
-  if (typeof process === "undefined")
+  const _process = globalThis["process"];
+  if (!_process)
     return false;
-  const processVersion = process["version"];
+  const processVersion = _process["version"];
   if (processVersion === undefined || processVersion === null)
     return false;
   const versionMatch = processVersion.match(/^v(\d+)\./);
@@ -13883,14 +17096,14 @@ function createSupabaseClientInstance(options) {
   });
 }
 async function persistRefreshedSession(options, supabaseSession) {
-  const { sessionManager: sessionManager2, logger: logger2, onCaptureException } = options;
+  const { sessionManager: sessionManager2, logger: logger3, onCaptureException } = options;
   const withFileLock = resolveFileLock(options.withFileLock);
   const sessionFilePath = sessionManager2.getSessionFilePath();
   try {
     await withFileLock(sessionFilePath, async () => {
       const currentSession = await sessionManager2.loadSession();
       if (!currentSession) {
-        logger2?.warn("No current session found during refresh, skipping persistence");
+        logger3?.warn("No current session found during refresh, skipping persistence");
         return;
       }
       const updatedSession = {
@@ -13901,10 +17114,10 @@ async function persistRefreshedSession(options, supabaseSession) {
         email: supabaseSession.user.email || currentSession.email
       };
       await sessionManager2.saveSession(updatedSession);
-      logger2?.info("Session persisted after TOKEN_REFRESHED event");
+      logger3?.info("Session persisted after TOKEN_REFRESHED event");
     });
   } catch (error) {
-    logger2?.error("Failed to persist refreshed session", error);
+    logger3?.error("Failed to persist refreshed session", error);
     if (error instanceof Error) {
       onCaptureException?.(error, SUPABASE_SESSION_WRITE_FAILED, "supabase/client", {
         session_file: sessionFilePath
@@ -13913,13 +17126,13 @@ async function persistRefreshedSession(options, supabaseSession) {
   }
 }
 async function setClientSession(options, client, session) {
-  const { sessionManager: sessionManager2, logger: logger2, onCapture, onCaptureException } = options;
+  const { sessionManager: sessionManager2, logger: logger3, onCapture, onCaptureException } = options;
   const { error } = await client.auth.setSession({
     access_token: session.accessToken,
     refresh_token: session.refreshToken
   });
   if (error) {
-    logger2?.error(`Failed to set Supabase session: ${error.message}`);
+    logger3?.error(`Failed to set Supabase session: ${error.message}`);
     const isAlreadyUsed = error.code === "refresh_token_already_used";
     const isInvalidRefreshToken = isAlreadyUsed || error.message.includes("Invalid Refresh Token") || error.code === "refresh_token_not_found" || error.code === "session_not_found" || error.code === "session_expired";
     onCaptureException?.(error, SUPABASE_SESSION_WRITE_FAILED, "supabase/client", {
@@ -13930,41 +17143,41 @@ async function setClientSession(options, client, session) {
     if (isAlreadyUsed) {
       const freshSession = await sessionManager2.loadSession();
       if (freshSession && freshSession.refreshToken !== session.refreshToken) {
-        logger2?.info("refresh_token_already_used: concurrent refresh detected, retrying with fresh session");
+        logger3?.info("refresh_token_already_used: concurrent refresh detected, retrying with fresh session");
         const { error: retryError } = await client.auth.setSession({
           access_token: freshSession.accessToken,
           refresh_token: freshSession.refreshToken
         });
         if (!retryError) {
           onCapture?.(SUPABASE_SESSION_WRITE_FAILED, { error_code: error.code });
-          logger2?.info("Race recovery successful — session restored from concurrent refresh");
+          logger3?.info("Race recovery successful — session restored from concurrent refresh");
           return;
         }
         onCaptureException?.(retryError, SUPABASE_SESSION_WRITE_FAILED, "supabase/client", {
           error_code: retryError.code,
           original_error_code: error.code
         });
-        logger2?.warn(`Race recovery failed: ${retryError.message}`);
+        logger3?.warn(`Race recovery failed: ${retryError.message}`);
       }
-      logger2?.warn("refresh_token_already_used: no concurrent refresh found, clearing session");
+      logger3?.warn("refresh_token_already_used: no concurrent refresh found, clearing session");
       await sessionManager2.clearSessionIfStale(session.refreshToken);
       throw error;
     }
     if (isInvalidRefreshToken) {
-      logger2?.warn("Invalid refresh token, clearing session");
+      logger3?.warn("Invalid refresh token, clearing session");
       await sessionManager2.clearSession();
     }
     throw error;
   }
-  logger2?.debug("Supabase session set successfully");
+  logger3?.debug("Supabase session set successfully");
 }
 
 // ../../packages/plugin-common/src/supabase/on-demand-client.ts
 async function createOnDemandClient(options) {
-  const { logger: logger2, onCaptureException } = options;
+  const { logger: logger3, onCaptureException } = options;
   try {
     if (!options.supabaseUrl || !options.supabaseAnonKey) {
-      logger2?.warn("Supabase configuration missing (URL or anon key)");
+      logger3?.warn("Supabase configuration missing (URL or anon key)");
       return null;
     }
     const session = await options.sessionManager.getValidSession();
@@ -13974,13 +17187,13 @@ async function createOnDemandClient(options) {
     const client = createSupabaseClientInstance(options);
     await setClientSession(options, client, session);
     const { data } = client.auth.onAuthStateChange(async (event, supabaseSession) => {
-      logger2?.debug(`On-demand auth state change: ${event}`);
+      logger3?.debug(`On-demand auth state change: ${event}`);
       if (event === "TOKEN_REFRESHED" && supabaseSession) {
         await persistRefreshedSession(options, supabaseSession);
       }
     });
     const unsubscribe = data.subscription.unsubscribe;
-    logger2?.debug("On-demand Supabase client created");
+    logger3?.debug("On-demand Supabase client created");
     return {
       client,
       dispose: async () => {
@@ -13988,13 +17201,13 @@ async function createOnDemandClient(options) {
         try {
           await client.removeAllChannels();
         } catch (error) {
-          logger2?.warn(`Error removing on-demand channels: ${error.message}`);
+          logger3?.warn(`Error removing on-demand channels: ${error.message}`);
         }
-        logger2?.debug("On-demand Supabase client disposed");
+        logger3?.debug("On-demand Supabase client disposed");
       }
     };
   } catch (error) {
-    logger2?.error("Failed to create on-demand Supabase client", error);
+    logger3?.error("Failed to create on-demand Supabase client", error);
     if (error instanceof Error) {
       onCaptureException?.(error, SUPABASE_CLIENT_INIT_FAILED, "supabase/client", {
         has_supabase_url: Boolean(options.supabaseUrl),
@@ -14016,10 +17229,10 @@ class PersistentClient {
     this.options = options;
   }
   async getClient() {
-    const { logger: logger2, onCaptureException } = this.options;
+    const { logger: logger3, onCaptureException } = this.options;
     try {
       if (!this.options.supabaseUrl || !this.options.supabaseAnonKey) {
-        logger2?.warn("Supabase configuration missing (URL or anon key)");
+        logger3?.warn("Supabase configuration missing (URL or anon key)");
         return null;
       }
       const session = await this.options.sessionManager.getValidSession();
@@ -14033,21 +17246,21 @@ class PersistentClient {
         this.client = createSupabaseClientInstance(this.options);
         await setClientSession(this.options, this.client, session);
         const { data } = this.client.auth.onAuthStateChange(async (event, supabaseSession) => {
-          logger2?.debug(`Daemon auth state change: ${event}`);
+          logger3?.debug(`Daemon auth state change: ${event}`);
           if (event === "TOKEN_REFRESHED" && supabaseSession) {
             await persistRefreshedSession(this.options, supabaseSession);
           } else if (event === "SIGNED_OUT") {
-            logger2?.warn("Received SIGNED_OUT event from Supabase, destroying persistent client");
+            logger3?.warn("Received SIGNED_OUT event from Supabase, destroying persistent client");
             await this.destroy();
           }
         });
         this.authUnsubscribe = data.subscription.unsubscribe;
-        logger2?.debug("Daemon Supabase singleton client created with auto-refresh enabled");
+        logger3?.debug("Daemon Supabase singleton client created with auto-refresh enabled");
       }
       return this.client;
     } catch (error) {
       await this.destroy();
-      logger2?.error("Failed to get daemon Supabase client", error);
+      logger3?.error("Failed to get daemon Supabase client", error);
       if (error instanceof Error) {
         onCaptureException?.(error, SUPABASE_CLIENT_INIT_FAILED, "supabase/client", {
           has_supabase_url: Boolean(this.options.supabaseUrl),
@@ -14062,7 +17275,7 @@ class PersistentClient {
     if (this.destroying)
       return;
     this.destroying = true;
-    const { logger: logger2 } = this.options;
+    const { logger: logger3 } = this.options;
     try {
       if (this.authUnsubscribe) {
         this.authUnsubscribe();
@@ -14071,12 +17284,12 @@ class PersistentClient {
       if (this.client) {
         try {
           await this.client.removeAllChannels();
-          logger2?.debug("Daemon Supabase client channels removed");
+          logger3?.debug("Daemon Supabase client channels removed");
         } catch (error) {
-          logger2?.warn(`Error removing daemon Supabase channels: ${error.message}`);
+          logger3?.warn(`Error removing daemon Supabase channels: ${error.message}`);
         }
         this.client = null;
-        logger2?.debug("Daemon Supabase singleton client destroyed");
+        logger3?.debug("Daemon Supabase singleton client destroyed");
       }
     } finally {
       this.destroying = false;
@@ -14092,7 +17305,7 @@ var clientOptions = {
   supabaseUrl: SUPABASE_URL,
   supabaseAnonKey: SUPABASE_ANON_KEY,
   sessionManager,
-  logger,
+  logger: logger2,
   onCaptureException: captureException
 };
 function createOnDemandClient2() {
@@ -14120,7 +17333,7 @@ async function main() {
       return;
     }
     const workspaces = await withSupabaseClient((supabase) => fetchUserWorkspaces(supabase, session.userId, {
-      logger,
+      logger: logger2,
       onError: (error, { endpoint }) => captureException(error, API_WORKSPACE_FETCH_FAILED, "commands/workspace", {
         ...buildApiProperties({ endpoint })
       })
@@ -14152,7 +17365,7 @@ async function main() {
     await updateWorkspaceInSession(selectedWorkspace.id, selectedWorkspace.name);
     console.log(`✅ Switched to: ${selectedWorkspace.name}`);
   } catch (error) {
-    logger.error("Workspace command failed", error);
+    logger2.error("Workspace command failed", error);
     console.error("❌ Failed to manage workspace");
     if (error instanceof Error) {
       console.error(`   ${error.message}`);

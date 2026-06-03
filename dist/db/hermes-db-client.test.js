@@ -1,12 +1,40 @@
+// src/db/node-sqlite-adapter.ts
+import { DatabaseSync } from "node:sqlite";
+
+class Database {
+  db;
+  constructor(path, options) {
+    this.db = new DatabaseSync(path, {
+      open: true,
+      readOnly: options?.readonly ?? false
+    });
+  }
+  query(sql) {
+    const db = this.db;
+    return {
+      all(...params) {
+        const stmt = db.prepare(sql);
+        return params.length > 0 ? stmt.all(...params) : stmt.all();
+      },
+      get(...params) {
+        const stmt = db.prepare(sql);
+        const row = params.length > 0 ? stmt.get(...params) : stmt.get();
+        return row ?? null;
+      }
+    };
+  }
+  close() {
+    this.db.close();
+  }
+}
+
 // src/db/hermes-db-client.test.ts
-import { Database as Database2 } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync as existsSync2, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // src/db/hermes-db-client.ts
-import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 
 class HermesDbSqliteClient {
@@ -23,6 +51,14 @@ class HermesDbSqliteClient {
   getSessionsAfter(epoch) {
     const db = this.ensureDb();
     return epoch !== null ? db.query("SELECT * FROM sessions WHERE started_at > ? ORDER BY started_at ASC").all(epoch) : db.query("SELECT * FROM sessions ORDER BY started_at ASC").all();
+  }
+  getSessionsByIds(ids) {
+    const safeIds = ids.filter((id) => id.trim().length > 0);
+    if (safeIds.length === 0)
+      return [];
+    const db = this.ensureDb();
+    const placeholders = safeIds.map(() => "?").join(", ");
+    return db.query(`SELECT * FROM sessions WHERE id IN (${placeholders})`).all(...safeIds);
   }
   getMessagesAfter(lastId) {
     const db = this.ensureDb();
@@ -55,7 +91,7 @@ var TEST_DIR = join(tmpdir(), "hermes-db-client-test");
 var DB_PATH = join(TEST_DIR, "state.db");
 var EPOCH_BASE = 1776436892.92733;
 function createTestDb() {
-  const db = new Database2(DB_PATH);
+  const db = new Database(DB_PATH);
   db.exec(`
     CREATE TABLE sessions (
       id TEXT PRIMARY KEY,

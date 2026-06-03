@@ -248,6 +248,33 @@ function extractDiffEvents(messages) {
   return events;
 }
 
+// src/extractors/session-metadata-builder.ts
+var NORMAL_END_REASONS = new Set([
+  "stop",
+  "end_turn",
+  "tool_calls",
+  "max_tokens",
+  "cli_close",
+  "new_session"
+]);
+function buildSessionMetadata(row) {
+  return {
+    trigger: row.source,
+    model: row.model,
+    ended_at: row.ended_at ? new Date(row.ended_at * 1000).toISOString() : null,
+    end_reason: row.end_reason,
+    is_error: row.end_reason != null && !NORMAL_END_REASONS.has(row.end_reason),
+    input_tokens: row.input_tokens + row.cache_read_tokens + row.cache_write_tokens,
+    output_tokens: row.output_tokens,
+    cache_read_tokens: row.cache_read_tokens,
+    cache_write_tokens: row.cache_write_tokens,
+    reasoning_tokens: row.reasoning_tokens,
+    cost_usd: row.actual_cost_usd ?? row.estimated_cost_usd ?? null,
+    message_count: row.message_count,
+    tool_call_count: row.tool_call_count
+  };
+}
+
 // src/extractors/session-message-parser.ts
 var EXTRACTABLE_ROLES = new Set(["user", "assistant"]);
 var MAX_TRACKED_SESSIONS = 500;
@@ -268,20 +295,24 @@ class SessionMessageParser {
     }
     try {
       const state = await this.stateManager.read();
-      const sessions = this.extractSessions(state);
+      const newSessions = this.extractNewSessions(state);
       const { messages, updatedIndices, rows } = this.extractMessages(state);
       const diffEvents = extractDiffEvents(rows);
       const batchLastMessageId = rows.length > 0 ? Math.max(...rows.map((m) => m.id)) : 0;
-      if (sessions.length > 0 || messages.length > 0) {
+      const newSessionIds = new Set(newSessions.map((s) => s.id));
+      const activeSessionIds = [...new Set(rows.map((r) => r.session_id))].filter((id) => !newSessionIds.has(id));
+      const refreshedSessions = this.refreshSessions(activeSessionIds);
+      if (newSessions.length > 0 || messages.length > 0) {
         await this.stateManager.write({
-          lastSessionStartedAt: sessions.length > 0 ? sessions[sessions.length - 1].created_at_epoch : state.lastSessionStartedAt,
+          lastSessionStartedAt: newSessions.length > 0 ? newSessions[newSessions.length - 1].created_at_epoch : state.lastSessionStartedAt,
           lastMessageId: messages.length > 0 ? Math.max(...messages.map((m) => Number(m.id))) : state.lastMessageId,
           messageIndices: pruneIndices({ ...state.messageIndices, ...updatedIndices })
         });
-        this.logger.info(`Extracted ${sessions.length} sessions, ${messages.length} messages`);
+        this.logger.info(`Extracted ${newSessions.length} sessions, ${messages.length} messages`);
       }
+      const allSessions = [...newSessions, ...refreshedSessions];
       return {
-        sessions: sessions.map(({ created_at_epoch: _, ...s }) => s),
+        sessions: allSessions.map(({ created_at_epoch: _, ...s }) => s),
         messages,
         diffEvents,
         lastMessageId: batchLastMessageId
@@ -291,16 +322,24 @@ class SessionMessageParser {
       return { sessions: [], messages: [], diffEvents: [], lastMessageId: 0 };
     }
   }
-  extractSessions(state) {
-    const rows = this.dbClient.getSessionsAfter(state.lastSessionStartedAt);
-    return rows.map((row) => ({
+  toExtractedSession(row) {
+    return {
       id: row.id,
       title: row.title ?? undefined,
       created_at: epochToIso(row.started_at),
       created_at_epoch: row.started_at,
       project_id: undefined,
-      project_name: undefined
-    }));
+      project_name: undefined,
+      metadata: buildSessionMetadata(row)
+    };
+  }
+  extractNewSessions(state) {
+    return this.dbClient.getSessionsAfter(state.lastSessionStartedAt).map((row) => this.toExtractedSession(row));
+  }
+  refreshSessions(sessionIds) {
+    if (sessionIds.length === 0)
+      return [];
+    return this.dbClient.getSessionsByIds(sessionIds).map((row) => this.toExtractedSession(row));
   }
   extractMessages(state) {
     const rows = this.dbClient.getMessagesAfter(state.lastMessageId);
@@ -323,7 +362,7 @@ class SessionMessageParser {
       session_id: sessionId,
       message_index: messageIndex,
       role: row.role,
-      content: row.content ?? "",
+      content: row.content || summarizeToolCalls(row.tool_calls),
       created_at: epochToIso(row.timestamp),
       metadata: {
         hermes_message_id: row.id,
@@ -332,6 +371,19 @@ class SessionMessageParser {
         token_count: row.token_count
       }
     };
+  }
+}
+function summarizeToolCalls(toolCallsJson) {
+  if (!toolCallsJson)
+    return "";
+  try {
+    const calls = JSON.parse(toolCallsJson);
+    if (!Array.isArray(calls) || calls.length === 0)
+      return "";
+    const names = calls.map((c) => c.function?.name).filter(Boolean);
+    return names.length > 0 ? `[tool: ${names.join(", ")}]` : "";
+  } catch {
+    return "";
   }
 }
 function pruneIndices(indices) {
@@ -378,6 +430,10 @@ function createMockDbClient(sessions = [], messages = []) {
       if (epoch === null)
         return sessions;
       return sessions.filter((s) => s.started_at > epoch);
+    },
+    getSessionsByIds(ids) {
+      const idSet = new Set(ids);
+      return sessions.filter((s) => idSet.has(s.id));
     },
     getMessagesAfter(lastId) {
       return messages.filter((m) => m.id > lastId);
@@ -485,11 +541,21 @@ describe("SessionMessageParser", () => {
     expect(result.messages[1].role).toBe("assistant");
     expect(result.messages[1].message_index).toBe(1);
   });
-  test("incremental extraction - second poll only returns new data", async () => {
+  test("incremental extraction - second poll only returns new data (closed sessions)", async () => {
     const sess2Epoch = EPOCH_BASE + 3600;
     const allSessions = [
-      makeSession({ id: "sess_1", started_at: EPOCH_BASE }),
-      makeSession({ id: "sess_2", started_at: sess2Epoch })
+      makeSession({
+        id: "sess_1",
+        started_at: EPOCH_BASE,
+        ended_at: EPOCH_BASE + 300,
+        end_reason: "stop"
+      }),
+      makeSession({
+        id: "sess_2",
+        started_at: sess2Epoch,
+        ended_at: sess2Epoch + 300,
+        end_reason: "stop"
+      })
     ];
     const allMessages = [
       makeMessage({
@@ -539,6 +605,7 @@ describe("SessionMessageParser", () => {
     const dbClient = {
       isAvailable: () => true,
       getSessionsAfter: () => [],
+      getSessionsByIds: () => [],
       getMessagesAfter(lastId) {
         return messages.filter((m) => m.id > lastId);
       },
@@ -621,5 +688,40 @@ describe("SessionMessageParser", () => {
     const parser = new SessionMessageParser(dbClient, createMockStateManager(), noopLogger);
     const result = await parser.poll();
     expect(result.lastMessageId).toBe(0);
+  });
+  describe("session metadata refresh on new messages", () => {
+    test("re-reads session when new messages arrive for an existing session", async () => {
+      const sessions = [makeSession({ id: "sess_1", started_at: EPOCH_BASE, input_tokens: 100 })];
+      const messages = [
+        makeMessage({ id: 1, session_id: "sess_1", role: "user", timestamp: EPOCH_BASE + 1 })
+      ];
+      const dbClient = createMockDbClient(sessions, messages);
+      const stateManager = createMockStateManager();
+      const parser = new SessionMessageParser(dbClient, stateManager, noopLogger);
+      await parser.poll();
+      sessions[0] = makeSession({ id: "sess_1", started_at: EPOCH_BASE, input_tokens: 500 });
+      messages.push(makeMessage({ id: 2, session_id: "sess_1", role: "assistant", timestamp: EPOCH_BASE + 2 }));
+      const second = await parser.poll();
+      expect(second.sessions).toHaveLength(1);
+      expect(second.sessions[0].id).toBe("sess_1");
+      const meta = second.sessions[0].metadata;
+      expect(meta.input_tokens).toBe(500);
+    });
+    test("does not refresh sessions without new messages", async () => {
+      const sessions = [makeSession({ id: "sess_1", started_at: EPOCH_BASE })];
+      const dbClient = createMockDbClient(sessions, [
+        makeMessage({ id: 1, session_id: "sess_1", role: "user" })
+      ]);
+      const parser = new SessionMessageParser(dbClient, createMockStateManager(), noopLogger);
+      await parser.poll();
+      const second = await parser.poll();
+      expect(second.sessions).toHaveLength(0);
+    });
+    test("does not duplicate session when it is both new and has messages", async () => {
+      const dbClient = createMockDbClient([makeSession({ id: "sess_1", started_at: EPOCH_BASE })], [makeMessage({ id: 1, session_id: "sess_1", role: "user" })]);
+      const parser = new SessionMessageParser(dbClient, createMockStateManager(), noopLogger);
+      const result = await parser.poll();
+      expect(result.sessions).toHaveLength(1);
+    });
   });
 });
