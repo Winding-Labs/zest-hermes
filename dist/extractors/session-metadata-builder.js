@@ -21,7 +21,8 @@ function buildSessionMetadata(row) {
     reasoning_tokens: row.reasoning_tokens,
     cost_usd: row.actual_cost_usd ?? row.estimated_cost_usd ?? null,
     message_count: row.message_count,
-    tool_call_count: row.tool_call_count
+    tool_call_count: row.tool_call_count,
+    duration_ms: row.ended_at ? Math.round((row.ended_at - row.started_at) * 1000) : null
   };
 }
 export {

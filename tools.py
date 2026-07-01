@@ -326,6 +326,22 @@ def daemon_status(**kwargs) -> dict:
     return {"status": "running" if alive else "stale", "pid": pid}
 
 
+def cli_provision_handler(args) -> None:
+    """Run the zest-provision Node command with the parsed CLI flags.
+
+    Streams Node's stdout/stderr straight to the terminal (the command prints
+    user-facing messages itself) and propagates its exit code.
+    """
+    cmd = ["node", str(COMMANDS_DIR / "provision.js"), f"--agent-id={args.agent_id}"]
+    cmd.append(f"--provisioning-key={args.provisioning_key}")
+    if getattr(args, "workspace_id", None):
+        cmd.append(f"--workspace-id={args.workspace_id}")
+
+    result = subprocess.run(cmd, text=True)
+    if result.returncode != 0:
+        raise SystemExit(result.returncode)
+
+
 def cli_daemon_handler(args) -> None:
     action = getattr(args, "action", None)
     if action == "start":

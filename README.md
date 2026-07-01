@@ -27,6 +27,25 @@ Zest tracks your coding sessions and generates AI-powered daily standups automat
 
 3. **Start coding!** The plugin works automatically in the background.
 
+> The `--enable` flag adds `zest-hermes` to Hermes' plugin allow-list for you -
+> there is no `plugins:` block to hand-edit.
+
+## Agent mode
+
+Agents provisioned from the Zest dashboard authenticate with a one-time
+provisioning key instead of the interactive `/zest_login` flow. The dashboard's
+"Add agent" wizard hands you the exact command - run it on the agent's Hermes box:
+
+```bash
+hermes zest-provision --agent-id <uuid> --provisioning-key <uuid> --workspace-id <uuid>
+```
+
+This writes `~/.hermes-zest/settings.json` (mode `0600`) with `authMode: "agent"`
+and the provisioning key. On the next daemon boot the plugin exchanges the key for
+session credentials and starts syncing - no `/zest_login` needed. Re-running the
+command is safe: it merges into existing settings, preserving your privacy and log
+preferences.
+
 ## Updating
 
 ```bash

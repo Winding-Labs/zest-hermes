@@ -11856,6 +11856,10 @@ var EVENTS = {
   NAV_LINK_CLICKED: "Nav Link Clicked",
   WORKSPACE_SWITCHED: "Workspace Switched",
   TEAM_SWITCHED: "Team Switched",
+  ASK_ZEST_CONVERSATION_STARTED: "Ask Zest Conversation Started",
+  ASK_ZEST_QUICK_ACTION_CLICKED: "Ask Zest Quick Action Clicked",
+  ASK_ZEST_PROMPT_SELECTED: "Ask Zest Prompt Selected",
+  ASK_ZEST_MENU_OPENED: "Ask Zest Menu Opened",
   STANDUP_GENERATED: "Standup Generated",
   STANDUP_VIEWED: "Standup Viewed",
   STANDUP_SHARED: "Standup Shared",
@@ -11872,6 +11876,9 @@ var EVENTS = {
   WORKSPACE_MEMBERS_PROVISIONED: "Workspace Members Provisioned",
   WORKSPACE_SETTINGS_VIEWED: "Workspace Settings Viewed",
   TEAM_SETTINGS_VIEWED: "Team Settings Viewed",
+  GITHUB_CONNECT_STARTED: "GitHub Connect Started",
+  GITHUB_CONNECTION_REQUESTED: "GitHub Connection Requested",
+  GITHUB_CONNECTED: "GitHub Connected",
   CLI_SIGNED_IN: "CLI Signed In",
   TRIAL_STARTED: "Trial Started",
   PLAN_SELECTED: "Plan Selected",
@@ -17354,7 +17361,7 @@ var {
 
 // src/utils/plugin-version.ts
 function getPluginVersion() {
-  return "0.1.0";
+  return "0.1.1";
 }
 
 // src/analytics/client.ts
@@ -17720,9 +17727,12 @@ async function fetchLatestVersion() {
   const client = getAnonClient();
   if (!client)
     throw new Error("Supabase not configured - cannot check for updates");
-  const { data, error } = await client.from("extension_versions").select("latest_version").eq("platform", "hermes").abortSignal(AbortSignal.timeout(VERSION_CHECK_TIMEOUT_MS)).single();
+  const { data, error } = await client.from("extension_versions").select("latest_version").eq("platform", "hermes").abortSignal(AbortSignal.timeout(VERSION_CHECK_TIMEOUT_MS)).maybeSingle();
   if (error) {
     throw new Error(`extension_versions query failed: ${error.message}`);
+  }
+  if (!data) {
+    throw new Error("extension_versions: no row for platform=hermes");
   }
   if (!data.latest_version || typeof data.latest_version !== "string") {
     throw new Error("extension_versions: missing or invalid latest_version");

@@ -97,9 +97,8 @@ async function ensureDirectory(dirPath) {
 
 // src/utils/bundled-skills.ts
 import { readdirSync } from "node:fs";
-import { homedir as homedir2 } from "node:os";
 import { join as join3 } from "node:path";
-var BUNDLED_SKILLS_DIR = join3(process.env.HERMES_DIR ?? join3(homedir2(), ".hermes"), "hermes-agent", "skills");
+var BUNDLED_SKILLS_DIR = join3(HERMES_HOME, "hermes-agent", "skills");
 var bundledSkills;
 function scanBundledSkills() {
   const names = new Set;
@@ -172,18 +171,15 @@ function categorizeTool(name) {
     return "builtin";
   return "unknown";
 }
-function resolveUsageKey(name, argsJson) {
+function resolveUsageKey(name, args) {
   if (name === "skill_view") {
-    const args = parseArguments(argsJson);
     return typeof args?.name === "string" && args.name || "skill_view";
   }
   if (name === "skill_manage") {
-    const args = parseArguments(argsJson);
     const action = typeof args?.action === "string" ? args.action : "unknown";
     return `skill_manage:${action}`;
   }
   if (name === "memory") {
-    const args = parseArguments(argsJson);
     const action = typeof args?.action === "string" ? args.action : "unknown";
     return `memory:${action}`;
   }
@@ -191,6 +187,14 @@ function resolveUsageKey(name, argsJson) {
 }
 function incrementRecord(map, key) {
   map[key] = (map[key] ?? 0) + 1;
+}
+function incrementSkillUsage(usage, skillKey) {
+  const recorded = usage[skillKey];
+  if (typeof recorded === "object" && recorded !== null) {
+    usage[skillKey] = { ...recorded, count: recorded.count + 1 };
+    return;
+  }
+  usage[skillKey] = (recorded ?? 0) + 1;
 }
 function extractSignalsFromMessages(messages, previous = EMPTY_SIGNALS) {
   const signals = {
@@ -200,7 +204,9 @@ function extractSignalsFromMessages(messages, previous = EMPTY_SIGNALS) {
     builtin_usage: { ...previous.builtin_usage },
     unknown_usage: { ...previous.unknown_usage },
     image_count: previous.image_count,
-    tool_metadata: previous.tool_metadata ? { ...previous.tool_metadata } : undefined
+    tool_metadata: previous.tool_metadata ? { ...previous.tool_metadata } : undefined,
+    skills: previous.skills ? [...previous.skills] : undefined,
+    memories: previous.memories ? [...previous.memories] : undefined
   };
   for (const msg of messages) {
     if (!msg.tool_calls)
@@ -209,14 +215,15 @@ function extractSignalsFromMessages(messages, previous = EMPTY_SIGNALS) {
     for (const call of toolCalls) {
       const name = call.function.name;
       const category = categorizeTool(name);
-      const key = resolveUsageKey(name, call.function.arguments);
+      const args = parseArguments(call.function.arguments);
+      const key = resolveUsageKey(name, args);
       switch (category) {
         case "mcp":
           incrementRecord(signals.mcp_usage, key);
           break;
         case "skill":
-          incrementRecord(signals.skill_usage, key);
-          populateSkillMetadata(signals, name, call.function.arguments);
+          incrementSkillUsage(signals.skill_usage, key);
+          populateSkillMetadata(signals, name, args);
           break;
         case "builtin":
           incrementRecord(signals.builtin_usage, key);
@@ -225,14 +232,33 @@ function extractSignalsFromMessages(messages, previous = EMPTY_SIGNALS) {
           incrementRecord(signals.unknown_usage, key);
           break;
       }
+      collectActivity(signals, name, args);
     }
   }
   return signals;
 }
-function populateSkillMetadata(signals, toolName, argsJson) {
+function collectActivity(signals, toolName, args) {
+  if (toolName === "skill_manage") {
+    const action = typeof args?.action === "string" ? args.action : null;
+    const name = typeof args?.name === "string" && args.name ? args.name : null;
+    if (!action || !name)
+      return;
+    signals.skills ??= [];
+    signals.skills.push({ action, name });
+    return;
+  }
+  if (toolName === "memory") {
+    const action = typeof args?.action === "string" ? args.action : null;
+    if (!action)
+      return;
+    const target = args?.target === "user" || args?.target === "memory" ? args.target : "unknown";
+    signals.memories ??= [];
+    signals.memories.push({ action, target });
+  }
+}
+function populateSkillMetadata(signals, toolName, args) {
   if (toolName !== "skill_view")
     return;
-  const args = parseArguments(argsJson);
   const skillName = typeof args?.name === "string" ? args.name : null;
   if (!skillName)
     return;
@@ -246,7 +272,7 @@ function populateSkillMetadata(signals, toolName, argsJson) {
   };
 }
 function hasSignalData(signals) {
-  return Object.keys(signals.mcp_usage).length > 0 || Object.keys(signals.skill_usage).length > 0 || Object.keys(signals.agent_usage).length > 0 || Object.keys(signals.builtin_usage).length > 0 || Object.keys(signals.unknown_usage).length > 0 || signals.image_count > 0;
+  return Object.keys(signals.mcp_usage).length > 0 || Object.keys(signals.skill_usage).length > 0 || Object.keys(signals.agent_usage).length > 0 || Object.keys(signals.builtin_usage).length > 0 || Object.keys(signals.unknown_usage).length > 0 || signals.image_count > 0 || (signals.skills?.length ?? 0) > 0 || (signals.memories?.length ?? 0) > 0;
 }
 
 class SignalExtractor {

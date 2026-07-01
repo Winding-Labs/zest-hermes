@@ -57,11 +57,12 @@ __export(exports_constants, {
   DAEMON_LOG_FILE: () => DAEMON_LOG_FILE,
   CLIENT_ID: () => CLIENT_ID,
   CHECKPOINT_PATH: () => CHECKPOINT_PATH,
+  AGENT_MIN_MESSAGES_PER_SESSION: () => AGENT_MIN_MESSAGES_PER_SESSION,
   ACTIVE_SESSIONS_FILE: () => ACTIVE_SESSIONS_FILE
 });
 import { homedir } from "node:os";
 import { join } from "node:path";
-var HERMES_HOME, HERMES_ZEST_HOME, HERMES_CONFIG_PATH, STATE_DB_PATH, CHECKPOINT_PATH, PENDING_FINALIZE_FILE, QUEUE_DIR, EVENTS_QUEUE_FILE, SESSIONS_QUEUE_FILE, MESSAGES_QUEUE_FILE, STATE_DIR, LOGS_DIR, SESSION_FILE, SETTINGS_FILE, DAEMON_PID_FILE, DAEMON_LOG_FILE, ACTIVE_SESSIONS_FILE, ORPHAN_CHECK_INTERVAL_MS = 30000, ORPHAN_MISS_THRESHOLD = 3, SYNC_METRICS_FILE, SYNC_METRICS_RETENTION_MS, STATUS_CACHE_FILE, PLATFORM = "cli", SOURCE = "hermes", CLIENT_ID = "hermes", ZEST_SESSION_NAMESPACE = "a7e3f1d9-8b4c-4e2a-9f6d-3c5b7a1e0d82", SYNC_INTERVAL_MS = 30000, VERSION_CHECK_INTERVAL_MS, VERSION_CHECK_TIMEOUT_MS = 5000, UPDATE_CHECK_CACHE_TTL_MS, MIN_MESSAGES_PER_SESSION = 3, STALE_SESSION_AGE_MS, NOTIFICATION_DURATION_MS, STANDUP_NOTIFICATION_THROTTLE_MS, FIRST_DATA_THRESHOLD_MESSAGES = 5, LOG_RETENTION_DAYS = 7, WEB_APP_URL = "https://app.meetzest.com", SUPABASE_URL = "https://fnnlebrtmlxxjwdvngck.supabase.co", SUPABASE_ANON_KEY = "sb_publishable_gJsE8TaVHipVQfLNDFV3tA_z7SRAZBY", POSTHOG_API_KEY = "phc_cSYAEzsJX9gr0sgCp4tfnr7QJ71PwGD04eUQSglw4iQ", DEFAULT_STANDUP_MODEL = "anthropic/claude-opus-4-5";
+var HERMES_HOME, HERMES_ZEST_HOME, HERMES_CONFIG_PATH, STATE_DB_PATH, CHECKPOINT_PATH, PENDING_FINALIZE_FILE, QUEUE_DIR, EVENTS_QUEUE_FILE, SESSIONS_QUEUE_FILE, MESSAGES_QUEUE_FILE, STATE_DIR, LOGS_DIR, SESSION_FILE, SETTINGS_FILE, DAEMON_PID_FILE, DAEMON_LOG_FILE, ACTIVE_SESSIONS_FILE, ORPHAN_CHECK_INTERVAL_MS = 30000, ORPHAN_MISS_THRESHOLD = 3, SYNC_METRICS_FILE, SYNC_METRICS_RETENTION_MS, STATUS_CACHE_FILE, PLATFORM = "cli", SOURCE = "hermes", CLIENT_ID = "hermes", ZEST_SESSION_NAMESPACE = "a7e3f1d9-8b4c-4e2a-9f6d-3c5b7a1e0d82", SYNC_INTERVAL_MS = 30000, VERSION_CHECK_INTERVAL_MS, VERSION_CHECK_TIMEOUT_MS = 5000, UPDATE_CHECK_CACHE_TTL_MS, STALE_SESSION_AGE_MS, AGENT_MIN_MESSAGES_PER_SESSION = 1, MIN_MESSAGES_PER_SESSION = 3, NOTIFICATION_DURATION_MS, STANDUP_NOTIFICATION_THROTTLE_MS, FIRST_DATA_THRESHOLD_MESSAGES = 5, LOG_RETENTION_DAYS = 7, WEB_APP_URL = "https://app.meetzest.com", SUPABASE_URL = "https://fnnlebrtmlxxjwdvngck.supabase.co", SUPABASE_ANON_KEY = "sb_publishable_gJsE8TaVHipVQfLNDFV3tA_z7SRAZBY", POSTHOG_API_KEY = "phc_cSYAEzsJX9gr0sgCp4tfnr7QJ71PwGD04eUQSglw4iQ", DEFAULT_STANDUP_MODEL = "anthropic/claude-opus-4-5";
 var init_constants = __esm(() => {
   HERMES_HOME = process.env.HERMES_DIR ?? join(homedir(), ".hermes");
   HERMES_ZEST_HOME = join(homedir(), ".hermes-zest");
@@ -15219,27 +15220,45 @@ var init_logger = __esm(() => {
 var exports_settings = {};
 __export(exports_settings, {
   saveSettings: () => saveSettings,
+  loadSettingsSync: () => loadSettingsSync,
   loadSettings: () => loadSettings,
   UserSettingsSchema: () => UserSettingsSchema
 });
+import { readFileSync } from "node:fs";
 import { chmod, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+function validateSettings(rawSettings) {
+  const validated = UserSettingsSchema.parse(rawSettings);
+  return { ...DEFAULT_SETTINGS, ...validated };
+}
+function logSettingsLoadError(error51) {
+  if (error51 instanceof exports_external.ZodError) {
+    logger.warn("Invalid settings format, using defaults:", error51.issues);
+  } else if (error51.code !== "ENOENT") {
+    logger.warn("Failed to load settings, using defaults:", error51);
+  }
+}
 async function loadSettings() {
   let rawSettings;
   try {
     const content = await readFile(SETTINGS_FILE, "utf-8");
     rawSettings = JSON.parse(content);
-    const validated = UserSettingsSchema.parse(rawSettings);
-    return { ...DEFAULT_SETTINGS, ...validated };
+    return validateSettings(rawSettings);
   } catch (error51) {
     if (error51 instanceof exports_external.ZodError && rawSettings?.authMode === "agent") {
       throw new Error(`Invalid agent settings: ${JSON.stringify(error51.issues)}`);
     }
-    if (error51 instanceof exports_external.ZodError) {
-      logger.warn("Invalid settings format, using defaults:", error51.issues);
-    } else if (error51.code !== "ENOENT") {
-      logger.warn("Failed to load settings, using defaults:", error51);
-    }
+    logSettingsLoadError(error51);
+    return DEFAULT_SETTINGS;
+  }
+}
+function loadSettingsSync() {
+  try {
+    const content = readFileSync(SETTINGS_FILE, "utf-8");
+    const rawSettings = JSON.parse(content);
+    return validateSettings(rawSettings);
+  } catch (error51) {
+    logSettingsLoadError(error51);
     return DEFAULT_SETTINGS;
   }
 }
@@ -15270,13 +15289,15 @@ var init_settings = __esm(() => {
     authMode: exports_external.enum(["user", "agent"]).default("user"),
     agentId: exports_external.string().uuid().optional(),
     provisioningKey: exports_external.string().uuid().optional(),
-    workspaceId: exports_external.string().uuid().optional()
+    workspaceId: exports_external.string().uuid().optional(),
+    minMessagesPerSession: exports_external.number().int().min(1).default(MIN_MESSAGES_PER_SESSION)
   }).refine((data) => data.authMode !== "agent" || Boolean(data.agentId) && Boolean(data.provisioningKey), { message: "agentId and provisioningKey are required when authMode is 'agent'" });
   DEFAULT_SETTINGS = {
     enableRemotePersistence: true,
     logLevel: "info",
     privacy: DEFAULT_PRIVACY_SETTINGS,
-    authMode: "user"
+    authMode: "user",
+    minMessagesPerSession: MIN_MESSAGES_PER_SESSION
   };
 });
 
@@ -15302,12 +15323,19 @@ describe3("loadSettings", () => {
     await saveSettings2({
       enableRemotePersistence: false,
       logLevel: "debug",
-      authMode: "user"
+      authMode: "user",
+      minMessagesPerSession: 5
     });
     const loaded = await loadSettings2();
     expect(loaded.enableRemotePersistence).toBe(false);
     expect(loaded.logLevel).toBe("debug");
     expect(loaded.authMode).toBe("user");
+    expect(loaded.minMessagesPerSession).toBe(5);
+  });
+  test("defaults minMessagesPerSession when the file omits it", async () => {
+    writeFileSync(SETTINGS_FILE2, JSON.stringify({ enableRemotePersistence: true, logLevel: "info", authMode: "user" }));
+    const loaded = await loadSettings2();
+    expect(loaded.minMessagesPerSession).toBe(MIN_MESSAGES_PER_SESSION);
   });
   test("returns defaults when the file does not exist", async () => {
     const loaded = await loadSettings2();
@@ -15328,7 +15356,12 @@ describe3("loadSettings", () => {
 describe3("saveSettings", () => {
   test("enforces 0600 permissions on a pre-existing world-readable file", async () => {
     writeFileSync(SETTINGS_FILE2, "{}", { mode: 420 });
-    await saveSettings2({ enableRemotePersistence: true, logLevel: "info", authMode: "user" });
+    await saveSettings2({
+      enableRemotePersistence: true,
+      logLevel: "info",
+      authMode: "user",
+      minMessagesPerSession: 3
+    });
     const { mode } = await stat2(SETTINGS_FILE2);
     expect(mode & 511).toBe(384);
   });

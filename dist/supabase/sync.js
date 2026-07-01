@@ -14947,18 +14947,22 @@ var PROMPT_TAGS = {
 var AVAILABLE_PROMPT_TAGS = Object.values(PROMPT_TAGS);
 var tagIds = AVAILABLE_PROMPT_TAGS.map((tag) => tag.id);
 // ../../packages/types/schemas.ts
+var SkillOutputFormatSchema = exports_external.enum(["skill_report_markdown", "markdown", "json"]);
 var CustomPromptMetadataSchema = exports_external.object({
   tags: exports_external.array(exports_external.string()).optional(),
   cascade_category: exports_external.string().optional(),
-  description: exports_external.string().optional()
+  description: exports_external.string().optional(),
+  output_format: SkillOutputFormatSchema.optional(),
+  example_output: exports_external.unknown().optional()
 });
 // ../../packages/types/token-usage.ts
-var TOKEN_SOURCES = ["provider_reported"];
+var TOKEN_SOURCES = ["provider_reported", "estimated_heuristic"];
 var COST_SOURCES = [
   "provider_reported",
   "derived_openrouter",
   "cursor_dashboard_api"
 ];
+var BILLING_MODES = ["api", "subscription", "unknown"];
 var SessionTokenUsageSchema = exports_external.object({
   input_tokens: exports_external.number().int().nonnegative(),
   output_tokens: exports_external.number().int().nonnegative(),
@@ -14966,6 +14970,8 @@ var SessionTokenUsageSchema = exports_external.object({
   token_source: exports_external.enum(TOKEN_SOURCES),
   cost_usd: exports_external.number().nonnegative().nullable().optional(),
   cost_source: exports_external.enum(COST_SOURCES).nullable().optional(),
+  api_equivalent_cost_usd: exports_external.number().nonnegative().nullable().optional(),
+  api_equivalent_cost_source: exports_external.enum(["derived_openrouter", "derived_openrouter_stale"]).nullable().optional(),
   cache_read_tokens: exports_external.number().int().nonnegative().optional(),
   cache_creation_tokens: exports_external.number().int().nonnegative().optional(),
   cache_creation_5m_tokens: exports_external.number().int().nonnegative().optional(),
@@ -14979,13 +14985,32 @@ var SessionTokenUsageSchema = exports_external.object({
     output_tokens: exports_external.number().nonnegative(),
     cache_read_input_tokens: exports_external.number().nonnegative().optional(),
     cache_creation_input_tokens: exports_external.number().nonnegative().optional(),
+    cache_creation_5m_input_tokens: exports_external.number().nonnegative().optional(),
+    cache_creation_1h_input_tokens: exports_external.number().nonnegative().optional(),
+    reasoning_tokens: exports_external.number().nonnegative().optional(),
     cost_usd: exports_external.number().nonnegative().optional()
   })).optional(),
   context_used_percent: exports_external.number().nonnegative().max(100).optional(),
   context_window_size: exports_external.number().int().nonnegative().optional(),
+  context_tokens_used: exports_external.number().int().nonnegative().optional(),
+  context_token_breakdown: exports_external.record(exports_external.string(), exports_external.number().int().nonnegative()).optional(),
+  copilot_credits: exports_external.number().nonnegative().optional(),
+  copilot_sku: exports_external.string().min(1).optional(),
   rate_limit_percent: exports_external.number().nonnegative().optional(),
   rate_limit_type: exports_external.string().optional(),
-  rate_limit_is_overage: exports_external.boolean().optional()
+  rate_limit_is_overage: exports_external.boolean().optional(),
+  plan: exports_external.string().min(1).optional(),
+  billing_mode: exports_external.enum(BILLING_MODES).optional(),
+  overage: exports_external.boolean().optional(),
+  rate_limits: exports_external.array(exports_external.object({
+    window: exports_external.enum(["5h", "weekly", "monthly"]),
+    used_percent: exports_external.number().nonnegative(),
+    resets_at: exports_external.string().optional(),
+    credits: exports_external.number().nonnegative().optional(),
+    individual_limit: exports_external.number().nonnegative().optional(),
+    limit_name: exports_external.string().optional(),
+    rate_limit_reached_type: exports_external.string().optional()
+  })).optional()
 });
 // ../../packages/types/data-controls-schemas.ts
 var collectionSettingsSchema = exports_external.object({
@@ -15200,8 +15225,8 @@ var SOURCE = "hermes";
 var ZEST_SESSION_NAMESPACE = "a7e3f1d9-8b4c-4e2a-9f6d-3c5b7a1e0d82";
 var VERSION_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 var UPDATE_CHECK_CACHE_TTL_MS = 60 * 60 * 1000;
-var MIN_MESSAGES_PER_SESSION = 3;
 var STALE_SESSION_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+var MIN_MESSAGES_PER_SESSION = 3;
 var NOTIFICATION_DURATION_MS = 5 * 60 * 1000;
 var STANDUP_NOTIFICATION_THROTTLE_MS = 2 * 60 * 60 * 1000;
 var POSTHOG_API_KEY = "phc_cSYAEzsJX9gr0sgCp4tfnr7QJ71PwGD04eUQSglw4iQ";
@@ -15645,6 +15670,23 @@ function createQueueManager(config2) {
       throw error51;
     }
   }
+  async function patchQueuedSession(sessionId, metadata, title) {
+    let found = false;
+    await atomicUpdateQueue(queueFiles.sessions, (sessions) => sessions.map((session) => {
+      if (session.id !== sessionId)
+        return session;
+      found = true;
+      return {
+        ...session,
+        title: title ?? session.title,
+        metadata: {
+          ...session.metadata ?? {},
+          ...metadata
+        }
+      };
+    }));
+    return found;
+  }
   async function readQueue(queueFile) {
     try {
       return await readJsonl(queueFile);
@@ -15844,6 +15886,7 @@ function createQueueManager(config2) {
     enqueueEvent,
     enqueueChatSession,
     enqueueChatMessage,
+    patchQueuedSession,
     getDetailedQueueStats
   };
 }
@@ -15933,6 +15976,10 @@ var EVENTS = {
   NAV_LINK_CLICKED: "Nav Link Clicked",
   WORKSPACE_SWITCHED: "Workspace Switched",
   TEAM_SWITCHED: "Team Switched",
+  ASK_ZEST_CONVERSATION_STARTED: "Ask Zest Conversation Started",
+  ASK_ZEST_QUICK_ACTION_CLICKED: "Ask Zest Quick Action Clicked",
+  ASK_ZEST_PROMPT_SELECTED: "Ask Zest Prompt Selected",
+  ASK_ZEST_MENU_OPENED: "Ask Zest Menu Opened",
   STANDUP_GENERATED: "Standup Generated",
   STANDUP_VIEWED: "Standup Viewed",
   STANDUP_SHARED: "Standup Shared",
@@ -15949,6 +15996,9 @@ var EVENTS = {
   WORKSPACE_MEMBERS_PROVISIONED: "Workspace Members Provisioned",
   WORKSPACE_SETTINGS_VIEWED: "Workspace Settings Viewed",
   TEAM_SETTINGS_VIEWED: "Team Settings Viewed",
+  GITHUB_CONNECT_STARTED: "GitHub Connect Started",
+  GITHUB_CONNECTION_REQUESTED: "GitHub Connection Requested",
+  GITHUB_CONNECTED: "GitHub Connected",
   CLI_SIGNED_IN: "CLI Signed In",
   TRIAL_STARTED: "Trial Started",
   PLAN_SELECTED: "Plan Selected",
@@ -21377,7 +21427,7 @@ var {
 
 // src/utils/plugin-version.ts
 function getPluginVersion() {
-  return "0.1.0";
+  return "0.1.1";
 }
 
 // src/analytics/client.ts
@@ -21421,6 +21471,9 @@ async function captureException(error51, errorType, errorSource, additionalPrope
     logger.debug("Failed to capture exception in PostHog", e);
   }
 }
+
+// src/config/settings.ts
+import { readFileSync } from "node:fs";
 
 // ../../packages/privacy-redaction/src/config/defaults.ts
 var DEFAULT_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
@@ -22661,6 +22714,14 @@ var PrivacySettingsSchema = exports_external.object({
   enableZestRules: exports_external.boolean().default(true),
   customExclusionPatterns: exports_external.array(exports_external.string()).default([])
 });
+var DEFAULT_PRIVACY_SETTINGS = {
+  approach: "detection",
+  aggressiveMode: false,
+  enableGitignore: true,
+  enableZestRules: true,
+  customExclusionPatterns: []
+};
+
 class PrivacyManager {
   service = null;
   initialized = false;
@@ -22787,6 +22848,47 @@ class PrivacyManager {
   }
 }
 
+// src/config/settings.ts
+var UserSettingsSchema = exports_external.object({
+  enableRemotePersistence: exports_external.boolean(),
+  logLevel: exports_external.enum(["debug", "info", "warn", "error"]),
+  privacy: PrivacySettingsSchema.optional(),
+  disabledTools: exports_external.array(exports_external.string()).optional(),
+  authMode: exports_external.enum(["user", "agent"]).default("user"),
+  agentId: exports_external.string().uuid().optional(),
+  provisioningKey: exports_external.string().uuid().optional(),
+  workspaceId: exports_external.string().uuid().optional(),
+  minMessagesPerSession: exports_external.number().int().min(1).default(MIN_MESSAGES_PER_SESSION)
+}).refine((data) => data.authMode !== "agent" || Boolean(data.agentId) && Boolean(data.provisioningKey), { message: "agentId and provisioningKey are required when authMode is 'agent'" });
+var DEFAULT_SETTINGS = {
+  enableRemotePersistence: true,
+  logLevel: "info",
+  privacy: DEFAULT_PRIVACY_SETTINGS,
+  authMode: "user",
+  minMessagesPerSession: MIN_MESSAGES_PER_SESSION
+};
+function validateSettings(rawSettings) {
+  const validated = UserSettingsSchema.parse(rawSettings);
+  return { ...DEFAULT_SETTINGS, ...validated };
+}
+function logSettingsLoadError(error51) {
+  if (error51 instanceof exports_external.ZodError) {
+    logger.warn("Invalid settings format, using defaults:", error51.issues);
+  } else if (error51.code !== "ENOENT") {
+    logger.warn("Failed to load settings, using defaults:", error51);
+  }
+}
+function loadSettingsSync() {
+  try {
+    const content = readFileSync(SETTINGS_FILE, "utf-8");
+    const rawSettings = JSON.parse(content);
+    return validateSettings(rawSettings);
+  } catch (error51) {
+    logSettingsLoadError(error51);
+    return DEFAULT_SETTINGS;
+  }
+}
+
 // src/privacy/privacy-manager.ts
 var instance = null;
 function getPrivacyManager() {
@@ -22805,6 +22907,7 @@ var fileLock = createFileLock({
 var { withFileLock } = fileLock;
 
 // src/utils/queue-manager.ts
+var { minMessagesPerSession } = loadSettingsSync();
 var queueManager = createQueueManager({
   queueDir: QUEUE_DIR,
   queueFiles: {
@@ -22813,7 +22916,7 @@ var queueManager = createQueueManager({
     messages: MESSAGES_QUEUE_FILE
   },
   privacyManager: getPrivacyManager(),
-  minMessagesPerSession: MIN_MESSAGES_PER_SESSION,
+  minMessagesPerSession,
   logger,
   withFileLock,
   onCaptureException: captureException
@@ -22828,11 +22931,12 @@ var {
   enqueueEvent,
   enqueueChatSession,
   enqueueChatMessage,
+  patchQueuedSession,
   getDetailedQueueStats
 } = queueManager;
 
 // ../../packages/plugin-common/src/cache/status-cache-manager.ts
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync as readFileSync2, writeFileSync } from "node:fs";
 var DEFAULT_VERSION_CHECK = {
   updateAvailable: false,
   currentVersion: "unknown",
@@ -22873,7 +22977,7 @@ function createStatusCacheManager(config2) {
   const withFileLock2 = resolveFileLock(config2.withFileLock);
   function readStatusCache() {
     try {
-      const data = readFileSync(statusCacheFile, "utf-8");
+      const data = readFileSync2(statusCacheFile, "utf-8");
       const parsed = JSON.parse(data);
       if (parsed.updateAvailable !== undefined && !parsed.versionCheck) {
         logger3?.info("Migrating old update-check.json format to new status-cache.json format");
@@ -23243,7 +23347,13 @@ var HermesSessionMetadataSchema = exports_external.object({
   reasoning_tokens: exports_external.number(),
   cost_usd: exports_external.number().nullable(),
   message_count: exports_external.number(),
-  tool_call_count: exports_external.number()
+  tool_call_count: exports_external.number(),
+  duration_ms: exports_external.number().nullable().optional(),
+  available_skills_count: exports_external.number().nullable().optional(),
+  memory_chars: exports_external.number().nullable().optional(),
+  memory_entry_count: exports_external.number().nullable().optional(),
+  user_entry_count: exports_external.number().nullable().optional(),
+  user_chars: exports_external.number().nullable().optional()
 });
 var TokenUsageSchema = exports_external.object({
   input_tokens: exports_external.number().optional(),
@@ -23259,6 +23369,10 @@ var RateLimitWindowSchema = exports_external.object({
 });
 var CodexSessionMetadataSchema = exports_external.object({
   model_with_reasoning: exports_external.string().optional(),
+  token_source: exports_external.enum(TOKEN_SOURCES).optional(),
+  plan: exports_external.string().optional(),
+  billing_mode: exports_external.enum(BILLING_MODES).optional(),
+  overage: exports_external.boolean().optional(),
   context_remaining: exports_external.number().optional(),
   context_used: exports_external.number().optional(),
   five_hour_limit: exports_external.number().optional(),
@@ -23291,16 +23405,29 @@ var ClaudeCodeSessionMetadataSchema = exports_external.object({
   reasoning_tokens: exports_external.number().optional(),
   cost_usd: exports_external.number().nullable().optional(),
   cost_source: exports_external.string().optional(),
+  plan: exports_external.string().optional(),
+  billing_mode: exports_external.enum(BILLING_MODES).optional(),
+  overage: exports_external.boolean().optional(),
   context_used: exports_external.number().optional(),
+  context_tokens_used: exports_external.number().optional(),
+  context_peak_tokens: exports_external.number().optional(),
   model_context_window: exports_external.number().optional(),
+  used_tokens: exports_external.number().optional(),
   five_hour_limit: exports_external.number().optional(),
   weekly_limit: exports_external.number().optional(),
+  rate_limits_latest: exports_external.object({
+    limit_id: exports_external.string().optional(),
+    primary: RateLimitWindowSchema.optional(),
+    secondary: RateLimitWindowSchema.optional()
+  }).optional(),
   token_data_source: exports_external.string().optional()
 }).passthrough();
 var metadataSchemasBySource = {
   codex: CodexSessionMetadataSchema,
   hermes: HermesSessionMetadataSchema,
-  claude_code: ClaudeCodeSessionMetadataSchema
+  "claude-code": ClaudeCodeSessionMetadataSchema,
+  claude_code: ClaudeCodeSessionMetadataSchema,
+  "claude-desktop": ClaudeCodeSessionMetadataSchema
 };
 function validateSessionMetadata(source, metadata) {
   const schema = metadataSchemasBySource[source];
@@ -23311,6 +23438,97 @@ function validateSessionMetadata(source, metadata) {
     return { valid: true, data: result.data };
   return { valid: false, error: result.error.message };
 }
+
+// ../../packages/utils/src/command-xml.ts
+var CLAUDE_BUILTIN_COMMANDS = new Set([
+  "add-dir",
+  "agents",
+  "allowed-tools",
+  "android",
+  "app",
+  "autofix-pr",
+  "bashes",
+  "branch",
+  "btw",
+  "bug",
+  "checkpoint",
+  "chrome",
+  "clear",
+  "color",
+  "compact",
+  "config",
+  "context",
+  "continue",
+  "copy",
+  "cost",
+  "desktop",
+  "diff",
+  "doctor",
+  "effort",
+  "exit",
+  "export",
+  "extra-usage",
+  "fast",
+  "feedback",
+  "fork",
+  "help",
+  "hooks",
+  "ide",
+  "init",
+  "insights",
+  "install-github-app",
+  "install-slack-app",
+  "ios",
+  "keybindings",
+  "login",
+  "logout",
+  "mcp",
+  "memory",
+  "mobile",
+  "model",
+  "new",
+  "output-style",
+  "passes",
+  "permissions",
+  "plan",
+  "plugin",
+  "powerup",
+  "pr-comments",
+  "privacy-settings",
+  "quit",
+  "rc",
+  "release-notes",
+  "reload-plugins",
+  "remote-control",
+  "remote-env",
+  "rename",
+  "reset",
+  "resume",
+  "review",
+  "rewind",
+  "sandbox",
+  "schedule",
+  "security-review",
+  "settings",
+  "setup-bedrock",
+  "skills",
+  "stats",
+  "status",
+  "statusline",
+  "stickers",
+  "tasks",
+  "teleport",
+  "terminal-setup",
+  "theme",
+  "todos",
+  "tp",
+  "ultraplan",
+  "upgrade",
+  "usage",
+  "vim",
+  "voice",
+  "web-setup"
+]);
 // ../../packages/utils/src/date-range.ts
 var PERIOD_TYPE_LABELS = {
   ["today" /* Today */]: "Today",
@@ -23537,7 +23755,7 @@ function createChatUploader(config2) {
     platform,
     source,
     sessionNamespace,
-    minMessagesPerSession,
+    minMessagesPerSession: minMessagesPerSession2,
     staleSessionAgeMs,
     logger: logger3,
     readQueue: readQueue2,
@@ -23558,7 +23776,7 @@ function createChatUploader(config2) {
         continue;
       const maxMessageIndex = maxMessageIndexBySession.get(session.id) ?? -1;
       const sessionAge = session.created_at ? new Date(session.created_at).getTime() : now;
-      if (maxMessageIndex >= minMessagesPerSession - 1) {
+      if (maxMessageIndex >= minMessagesPerSession2 - 1) {
         valid.push(session);
       } else if (sessionAge < staleThreshold) {
         stale.push(session);
@@ -23577,10 +23795,10 @@ function createChatUploader(config2) {
   }
   function logSessionCategorization(categories, messagePartition) {
     if (categories.stale.length > 0) {
-      logger3?.info(`Removing ${categories.stale.length} stale sessions (< ${minMessagesPerSession} messages, > ${staleSessionAgeDays} days old) with ${messagePartition.stale.length} messages`);
+      logger3?.info(`Removing ${categories.stale.length} stale sessions (< ${minMessagesPerSession2} messages, > ${staleSessionAgeDays} days old) with ${messagePartition.stale.length} messages`);
     }
     if (categories.pending.length > 0) {
-      logger3?.info(`Keeping ${categories.pending.length} pending sessions (< ${minMessagesPerSession} messages, within ${staleSessionAgeDays} days) with ${messagePartition.pending.length} messages`);
+      logger3?.info(`Keeping ${categories.pending.length} pending sessions (< ${minMessagesPerSession2} messages, within ${staleSessionAgeDays} days) with ${messagePartition.pending.length} messages`);
     }
   }
   async function enrichSessionsForUpload(sessions, userId, workspaceId) {
@@ -23771,7 +23989,11 @@ function createChatUploader(config2) {
           ...buildSyncProperties({ sessionsAttempted: uniqueSessions.length }),
           reason: "precondition_failed"
         });
-        return { success: false, uploaded: { sessions: 0, messages: 0 }, errorCategory: "auth_error" };
+        return {
+          success: false,
+          uploaded: { sessions: 0, messages: 0 },
+          errorCategory: "auth_error"
+        };
       }
       const sessionsToUpload = await enrichSessionsForUpload(uniqueSessions, session.userId, workspaceId);
       let sessionsForThisCycle = sessionsToUpload;
@@ -23919,9 +24141,8 @@ import { join as join4 } from "node:path";
 
 // src/utils/bundled-skills.ts
 import { readdirSync } from "node:fs";
-import { homedir as homedir2 } from "node:os";
 import { join as join3 } from "node:path";
-var BUNDLED_SKILLS_DIR = join3(process.env.HERMES_DIR ?? join3(homedir2(), ".hermes"), "hermes-agent", "skills");
+var BUNDLED_SKILLS_DIR = join3(HERMES_HOME, "hermes-agent", "skills");
 var bundledSkills;
 function scanBundledSkills() {
   const names = new Set;
@@ -23994,18 +24215,15 @@ function categorizeTool(name) {
     return "builtin";
   return "unknown";
 }
-function resolveUsageKey(name, argsJson) {
+function resolveUsageKey(name, args) {
   if (name === "skill_view") {
-    const args = parseArguments(argsJson);
     return typeof args?.name === "string" && args.name || "skill_view";
   }
   if (name === "skill_manage") {
-    const args = parseArguments(argsJson);
     const action = typeof args?.action === "string" ? args.action : "unknown";
     return `skill_manage:${action}`;
   }
   if (name === "memory") {
-    const args = parseArguments(argsJson);
     const action = typeof args?.action === "string" ? args.action : "unknown";
     return `memory:${action}`;
   }
@@ -24013,6 +24231,14 @@ function resolveUsageKey(name, argsJson) {
 }
 function incrementRecord(map2, key) {
   map2[key] = (map2[key] ?? 0) + 1;
+}
+function incrementSkillUsage(usage, skillKey) {
+  const recorded = usage[skillKey];
+  if (typeof recorded === "object" && recorded !== null) {
+    usage[skillKey] = { ...recorded, count: recorded.count + 1 };
+    return;
+  }
+  usage[skillKey] = (recorded ?? 0) + 1;
 }
 function extractSignalsFromMessages(messages, previous = EMPTY_SIGNALS) {
   const signals = {
@@ -24022,7 +24248,9 @@ function extractSignalsFromMessages(messages, previous = EMPTY_SIGNALS) {
     builtin_usage: { ...previous.builtin_usage },
     unknown_usage: { ...previous.unknown_usage },
     image_count: previous.image_count,
-    tool_metadata: previous.tool_metadata ? { ...previous.tool_metadata } : undefined
+    tool_metadata: previous.tool_metadata ? { ...previous.tool_metadata } : undefined,
+    skills: previous.skills ? [...previous.skills] : undefined,
+    memories: previous.memories ? [...previous.memories] : undefined
   };
   for (const msg of messages) {
     if (!msg.tool_calls)
@@ -24031,14 +24259,15 @@ function extractSignalsFromMessages(messages, previous = EMPTY_SIGNALS) {
     for (const call of toolCalls) {
       const name = call.function.name;
       const category = categorizeTool(name);
-      const key = resolveUsageKey(name, call.function.arguments);
+      const args = parseArguments(call.function.arguments);
+      const key = resolveUsageKey(name, args);
       switch (category) {
         case "mcp":
           incrementRecord(signals.mcp_usage, key);
           break;
         case "skill":
-          incrementRecord(signals.skill_usage, key);
-          populateSkillMetadata(signals, name, call.function.arguments);
+          incrementSkillUsage(signals.skill_usage, key);
+          populateSkillMetadata(signals, name, args);
           break;
         case "builtin":
           incrementRecord(signals.builtin_usage, key);
@@ -24047,14 +24276,33 @@ function extractSignalsFromMessages(messages, previous = EMPTY_SIGNALS) {
           incrementRecord(signals.unknown_usage, key);
           break;
       }
+      collectActivity(signals, name, args);
     }
   }
   return signals;
 }
-function populateSkillMetadata(signals, toolName, argsJson) {
+function collectActivity(signals, toolName, args) {
+  if (toolName === "skill_manage") {
+    const action = typeof args?.action === "string" ? args.action : null;
+    const name = typeof args?.name === "string" && args.name ? args.name : null;
+    if (!action || !name)
+      return;
+    signals.skills ??= [];
+    signals.skills.push({ action, name });
+    return;
+  }
+  if (toolName === "memory") {
+    const action = typeof args?.action === "string" ? args.action : null;
+    if (!action)
+      return;
+    const target = args?.target === "user" || args?.target === "memory" ? args.target : "unknown";
+    signals.memories ??= [];
+    signals.memories.push({ action, target });
+  }
+}
+function populateSkillMetadata(signals, toolName, args) {
   if (toolName !== "skill_view")
     return;
-  const args = parseArguments(argsJson);
   const skillName = typeof args?.name === "string" ? args.name : null;
   if (!skillName)
     return;
@@ -24068,7 +24316,7 @@ function populateSkillMetadata(signals, toolName, argsJson) {
   };
 }
 function hasSignalData(signals) {
-  return Object.keys(signals.mcp_usage).length > 0 || Object.keys(signals.skill_usage).length > 0 || Object.keys(signals.agent_usage).length > 0 || Object.keys(signals.builtin_usage).length > 0 || Object.keys(signals.unknown_usage).length > 0 || signals.image_count > 0;
+  return Object.keys(signals.mcp_usage).length > 0 || Object.keys(signals.skill_usage).length > 0 || Object.keys(signals.agent_usage).length > 0 || Object.keys(signals.builtin_usage).length > 0 || Object.keys(signals.unknown_usage).length > 0 || signals.image_count > 0 || (signals.skills?.length ?? 0) > 0 || (signals.memories?.length ?? 0) > 0;
 }
 
 class SignalExtractor {
@@ -24134,13 +24382,14 @@ var signalExtractor = new SignalExtractor({
 });
 
 // src/supabase/chat-uploader.ts
+var { minMessagesPerSession: minMessagesPerSession2 } = loadSettingsSync();
 var chatUploader = createChatUploader({
   sessionsQueueFile: SESSIONS_QUEUE_FILE,
   messagesQueueFile: MESSAGES_QUEUE_FILE,
   platform: PLATFORM,
   source: SOURCE,
   sessionNamespace: ZEST_SESSION_NAMESPACE,
-  minMessagesPerSession: MIN_MESSAGES_PER_SESSION,
+  minMessagesPerSession: minMessagesPerSession2,
   staleSessionAgeMs: STALE_SESSION_AGE_MS,
   logger,
   readQueue,
@@ -24193,6 +24442,15 @@ function extractProjectName(workingDirectory) {
       }
     } catch {}
     try {
+      const gitCommonDir = execSync("git rev-parse --git-common-dir", {
+        cwd: workingDirectory,
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+        timeout: 5000
+      }).trim();
+      if (path.isAbsolute(gitCommonDir) && path.basename(gitCommonDir) === ".git") {
+        return path.basename(path.dirname(gitCommonDir));
+      }
       const repoRoot = execSync("git rev-parse --show-toplevel", {
         cwd: workingDirectory,
         encoding: "utf-8",
@@ -24286,7 +24544,7 @@ function createEventsUploader(config2) {
     maxEventAgeDays,
     maxEventsPerCycle
   } = config2;
-  function transformEventForUpload(event, userId, projectInfo) {
+  function transformEventForUpload(event, userId, workspaceId, projectInfo) {
     let normalizedPayload = event.payload;
     if (event.payload && typeof event.payload === "object" && !Array.isArray(event.payload) && "session_id" in event.payload && typeof event.payload.session_id === "string") {
       normalizedPayload = {
@@ -24299,6 +24557,7 @@ function createEventsUploader(config2) {
       session_id: event.session_id ? normalizeSessionId(event.session_id, sessionNamespace) : event.session_id,
       event_type: "file.changed",
       user_id: userId,
+      workspace_id: event.workspace_id ?? workspaceId,
       platform,
       source,
       payload: sanitizeNullBytes(normalizedPayload),
@@ -24375,7 +24634,7 @@ function createEventsUploader(config2) {
       }
       const allTransformedEvents = eventsForThisCycle.map((e) => {
         const projectInfo = e.workspace_folder_uri ? projectInfoCache.get(parseFileUri(e.workspace_folder_uri)) ?? UNKNOWN_PROJECT2 : UNKNOWN_PROJECT2;
-        return transformEventForUpload(e, session.userId, projectInfo);
+        return transformEventForUpload(e, session.userId, session.workspaceId ?? null, projectInfo);
       });
       const droppedIds = new Set;
       const eventsToUpload = allTransformedEvents.filter((e) => {

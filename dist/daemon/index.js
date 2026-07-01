@@ -8747,7 +8747,7 @@ var require_main3 = __commonJS((exports2) => {
 });
 
 // src/daemon/index.ts
-import { readFileSync as readFileSync2 } from "node:fs";
+import { readFileSync as readFileSync4 } from "node:fs";
 
 // ../../packages/plugin-common/src/analytics/events.ts
 var AUTH_DEVICE_CODE_INITIATION_FAILED = "auth_device_code_initiation_failed";
@@ -9049,6 +9049,10 @@ var EVENTS = {
   NAV_LINK_CLICKED: "Nav Link Clicked",
   WORKSPACE_SWITCHED: "Workspace Switched",
   TEAM_SWITCHED: "Team Switched",
+  ASK_ZEST_CONVERSATION_STARTED: "Ask Zest Conversation Started",
+  ASK_ZEST_QUICK_ACTION_CLICKED: "Ask Zest Quick Action Clicked",
+  ASK_ZEST_PROMPT_SELECTED: "Ask Zest Prompt Selected",
+  ASK_ZEST_MENU_OPENED: "Ask Zest Menu Opened",
   STANDUP_GENERATED: "Standup Generated",
   STANDUP_VIEWED: "Standup Viewed",
   STANDUP_SHARED: "Standup Shared",
@@ -9065,6 +9069,9 @@ var EVENTS = {
   WORKSPACE_MEMBERS_PROVISIONED: "Workspace Members Provisioned",
   WORKSPACE_SETTINGS_VIEWED: "Workspace Settings Viewed",
   TEAM_SETTINGS_VIEWED: "Team Settings Viewed",
+  GITHUB_CONNECT_STARTED: "GitHub Connect Started",
+  GITHUB_CONNECTION_REQUESTED: "GitHub Connection Requested",
+  GITHUB_CONNECTED: "GitHub Connected",
   CLI_SIGNED_IN: "CLI Signed In",
   TRIAL_STARTED: "Trial Started",
   PLAN_SELECTED: "Plan Selected",
@@ -14717,8 +14724,8 @@ var SYNC_INTERVAL_MS = 30000;
 var VERSION_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 var VERSION_CHECK_TIMEOUT_MS = 5000;
 var UPDATE_CHECK_CACHE_TTL_MS = 60 * 60 * 1000;
-var MIN_MESSAGES_PER_SESSION = 3;
 var STALE_SESSION_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+var MIN_MESSAGES_PER_SESSION = 3;
 var NOTIFICATION_DURATION_MS = 5 * 60 * 1000;
 var STANDUP_NOTIFICATION_THROTTLE_MS = 2 * 60 * 60 * 1000;
 var FIRST_DATA_THRESHOLD_MESSAGES = 5;
@@ -14806,7 +14813,7 @@ var {
 
 // src/utils/plugin-version.ts
 function getPluginVersion() {
-  return "0.1.0";
+  return "0.1.1";
 }
 
 // src/analytics/client.ts
@@ -17809,6 +17816,7 @@ async function selectDefaultWorkspace(supabase, session) {
 }
 
 // src/config/settings.ts
+import { readFileSync } from "node:fs";
 import { chmod, readFile as readFile4, writeFile as writeFile3 } from "node:fs/promises";
 
 // ../../node_modules/.bun/zod@4.4.3/node_modules/zod/v4/classic/external.js
@@ -33469,30 +33477,48 @@ var UserSettingsSchema = exports_external.object({
   authMode: exports_external.enum(["user", "agent"]).default("user"),
   agentId: exports_external.string().uuid().optional(),
   provisioningKey: exports_external.string().uuid().optional(),
-  workspaceId: exports_external.string().uuid().optional()
+  workspaceId: exports_external.string().uuid().optional(),
+  minMessagesPerSession: exports_external.number().int().min(1).default(MIN_MESSAGES_PER_SESSION)
 }).refine((data) => data.authMode !== "agent" || Boolean(data.agentId) && Boolean(data.provisioningKey), { message: "agentId and provisioningKey are required when authMode is 'agent'" });
 var DEFAULT_SETTINGS = {
   enableRemotePersistence: true,
   logLevel: "info",
   privacy: DEFAULT_PRIVACY_SETTINGS,
-  authMode: "user"
+  authMode: "user",
+  minMessagesPerSession: MIN_MESSAGES_PER_SESSION
 };
+function validateSettings(rawSettings) {
+  const validated = UserSettingsSchema.parse(rawSettings);
+  return { ...DEFAULT_SETTINGS, ...validated };
+}
+function logSettingsLoadError(error51) {
+  if (error51 instanceof exports_external.ZodError) {
+    logger2.warn("Invalid settings format, using defaults:", error51.issues);
+  } else if (error51.code !== "ENOENT") {
+    logger2.warn("Failed to load settings, using defaults:", error51);
+  }
+}
 async function loadSettings() {
   let rawSettings;
   try {
     const content = await readFile4(SETTINGS_FILE, "utf-8");
     rawSettings = JSON.parse(content);
-    const validated = UserSettingsSchema.parse(rawSettings);
-    return { ...DEFAULT_SETTINGS, ...validated };
+    return validateSettings(rawSettings);
   } catch (error51) {
     if (error51 instanceof exports_external.ZodError && rawSettings?.authMode === "agent") {
       throw new Error(`Invalid agent settings: ${JSON.stringify(error51.issues)}`);
     }
-    if (error51 instanceof exports_external.ZodError) {
-      logger2.warn("Invalid settings format, using defaults:", error51.issues);
-    } else if (error51.code !== "ENOENT") {
-      logger2.warn("Failed to load settings, using defaults:", error51);
-    }
+    logSettingsLoadError(error51);
+    return DEFAULT_SETTINGS;
+  }
+}
+function loadSettingsSync() {
+  try {
+    const content = readFileSync(SETTINGS_FILE, "utf-8");
+    const rawSettings = JSON.parse(content);
+    return validateSettings(rawSettings);
+  } catch (error51) {
+    logSettingsLoadError(error51);
     return DEFAULT_SETTINGS;
   }
 }
@@ -33580,11 +33606,341 @@ class HermesDbSqliteClient {
 }
 
 // src/extractors/pending-finalize.ts
-import { readFile as readFile6, rename, unlink as unlink4 } from "node:fs/promises";
+import { appendFile as appendFile2, readFile as readFile6, rename, unlink as unlink4 } from "node:fs/promises";
 
-// ../../packages/plugin-common/src/queue/queue-manager.ts
-import { appendFile, readFile as readFile5, unlink as unlink3, writeFile as writeFile4 } from "node:fs/promises";
-import { dirname as dirname4 } from "node:path";
+// ../../packages/types/token-usage.ts
+var TOKEN_SOURCES = ["provider_reported", "estimated_heuristic"];
+var COST_SOURCES = [
+  "provider_reported",
+  "derived_openrouter",
+  "cursor_dashboard_api"
+];
+var BILLING_MODES = ["api", "subscription", "unknown"];
+var SessionTokenUsageSchema = exports_external.object({
+  input_tokens: exports_external.number().int().nonnegative(),
+  output_tokens: exports_external.number().int().nonnegative(),
+  total_tokens: exports_external.number().int().nonnegative(),
+  token_source: exports_external.enum(TOKEN_SOURCES),
+  cost_usd: exports_external.number().nonnegative().nullable().optional(),
+  cost_source: exports_external.enum(COST_SOURCES).nullable().optional(),
+  api_equivalent_cost_usd: exports_external.number().nonnegative().nullable().optional(),
+  api_equivalent_cost_source: exports_external.enum(["derived_openrouter", "derived_openrouter_stale"]).nullable().optional(),
+  cache_read_tokens: exports_external.number().int().nonnegative().optional(),
+  cache_creation_tokens: exports_external.number().int().nonnegative().optional(),
+  cache_creation_5m_tokens: exports_external.number().int().nonnegative().optional(),
+  cache_creation_1h_tokens: exports_external.number().int().nonnegative().optional(),
+  reasoning_tokens: exports_external.number().int().nonnegative().optional(),
+  server_tool_use_input_tokens: exports_external.number().int().nonnegative().optional(),
+  server_tool_use_output_tokens: exports_external.number().int().nonnegative().optional(),
+  message_count_with_tokens: exports_external.number().int().nonnegative().optional(),
+  model_usage: exports_external.record(exports_external.string(), exports_external.object({
+    input_tokens: exports_external.number().nonnegative(),
+    output_tokens: exports_external.number().nonnegative(),
+    cache_read_input_tokens: exports_external.number().nonnegative().optional(),
+    cache_creation_input_tokens: exports_external.number().nonnegative().optional(),
+    cache_creation_5m_input_tokens: exports_external.number().nonnegative().optional(),
+    cache_creation_1h_input_tokens: exports_external.number().nonnegative().optional(),
+    reasoning_tokens: exports_external.number().nonnegative().optional(),
+    cost_usd: exports_external.number().nonnegative().optional()
+  })).optional(),
+  context_used_percent: exports_external.number().nonnegative().max(100).optional(),
+  context_window_size: exports_external.number().int().nonnegative().optional(),
+  context_tokens_used: exports_external.number().int().nonnegative().optional(),
+  context_token_breakdown: exports_external.record(exports_external.string(), exports_external.number().int().nonnegative()).optional(),
+  copilot_credits: exports_external.number().nonnegative().optional(),
+  copilot_sku: exports_external.string().min(1).optional(),
+  rate_limit_percent: exports_external.number().nonnegative().optional(),
+  rate_limit_type: exports_external.string().optional(),
+  rate_limit_is_overage: exports_external.boolean().optional(),
+  plan: exports_external.string().min(1).optional(),
+  billing_mode: exports_external.enum(BILLING_MODES).optional(),
+  overage: exports_external.boolean().optional(),
+  rate_limits: exports_external.array(exports_external.object({
+    window: exports_external.enum(["5h", "weekly", "monthly"]),
+    used_percent: exports_external.number().nonnegative(),
+    resets_at: exports_external.string().optional(),
+    credits: exports_external.number().nonnegative().optional(),
+    individual_limit: exports_external.number().nonnegative().optional(),
+    limit_name: exports_external.string().optional(),
+    rate_limit_reached_type: exports_external.string().optional()
+  })).optional()
+});
+
+// ../../packages/types/session-metadata.ts
+var HermesSessionMetadataSchema = exports_external.object({
+  trigger: exports_external.string(),
+  model: exports_external.string(),
+  ended_at: exports_external.string().nullable(),
+  end_reason: exports_external.string().nullable(),
+  is_error: exports_external.boolean(),
+  input_tokens: exports_external.number(),
+  output_tokens: exports_external.number(),
+  cache_read_tokens: exports_external.number(),
+  cache_write_tokens: exports_external.number(),
+  reasoning_tokens: exports_external.number(),
+  cost_usd: exports_external.number().nullable(),
+  message_count: exports_external.number(),
+  tool_call_count: exports_external.number(),
+  duration_ms: exports_external.number().nullable().optional(),
+  available_skills_count: exports_external.number().nullable().optional(),
+  memory_chars: exports_external.number().nullable().optional(),
+  memory_entry_count: exports_external.number().nullable().optional(),
+  user_entry_count: exports_external.number().nullable().optional(),
+  user_chars: exports_external.number().nullable().optional()
+});
+var TokenUsageSchema = exports_external.object({
+  input_tokens: exports_external.number().optional(),
+  cached_input_tokens: exports_external.number().optional(),
+  output_tokens: exports_external.number().optional(),
+  reasoning_output_tokens: exports_external.number().optional(),
+  total_tokens: exports_external.number().optional()
+});
+var RateLimitWindowSchema = exports_external.object({
+  used_percent: exports_external.number().optional(),
+  window_minutes: exports_external.number().optional(),
+  resets_at: exports_external.number().optional()
+});
+var CodexSessionMetadataSchema = exports_external.object({
+  model_with_reasoning: exports_external.string().optional(),
+  token_source: exports_external.enum(TOKEN_SOURCES).optional(),
+  plan: exports_external.string().optional(),
+  billing_mode: exports_external.enum(BILLING_MODES).optional(),
+  overage: exports_external.boolean().optional(),
+  context_remaining: exports_external.number().optional(),
+  context_used: exports_external.number().optional(),
+  five_hour_limit: exports_external.number().optional(),
+  weekly_limit: exports_external.number().optional(),
+  used_tokens: exports_external.number().optional(),
+  input_tokens: exports_external.number().optional(),
+  output_tokens: exports_external.number().optional(),
+  cache_read_tokens: exports_external.number().optional(),
+  reasoning_tokens: exports_external.number().optional(),
+  model_context_window: exports_external.number().optional(),
+  token_count_latest: exports_external.object({
+    timestamp: exports_external.string().optional(),
+    total_token_usage: TokenUsageSchema.optional(),
+    last_token_usage: TokenUsageSchema.optional(),
+    model_context_window: exports_external.number().optional()
+  }).optional(),
+  rate_limits_latest: exports_external.object({
+    limit_id: exports_external.string().optional(),
+    plan_type: exports_external.string().optional(),
+    primary: RateLimitWindowSchema.optional(),
+    secondary: RateLimitWindowSchema.optional()
+  }).optional()
+});
+var ClaudeCodeSessionMetadataSchema = exports_external.object({
+  model: exports_external.string().optional(),
+  input_tokens: exports_external.number().optional(),
+  output_tokens: exports_external.number().optional(),
+  cache_read_tokens: exports_external.number().optional(),
+  cache_creation_tokens: exports_external.number().optional(),
+  reasoning_tokens: exports_external.number().optional(),
+  cost_usd: exports_external.number().nullable().optional(),
+  cost_source: exports_external.string().optional(),
+  plan: exports_external.string().optional(),
+  billing_mode: exports_external.enum(BILLING_MODES).optional(),
+  overage: exports_external.boolean().optional(),
+  context_used: exports_external.number().optional(),
+  context_tokens_used: exports_external.number().optional(),
+  context_peak_tokens: exports_external.number().optional(),
+  model_context_window: exports_external.number().optional(),
+  used_tokens: exports_external.number().optional(),
+  five_hour_limit: exports_external.number().optional(),
+  weekly_limit: exports_external.number().optional(),
+  rate_limits_latest: exports_external.object({
+    limit_id: exports_external.string().optional(),
+    primary: RateLimitWindowSchema.optional(),
+    secondary: RateLimitWindowSchema.optional()
+  }).optional(),
+  token_data_source: exports_external.string().optional()
+}).passthrough();
+var metadataSchemasBySource = {
+  codex: CodexSessionMetadataSchema,
+  hermes: HermesSessionMetadataSchema,
+  "claude-code": ClaudeCodeSessionMetadataSchema,
+  claude_code: ClaudeCodeSessionMetadataSchema,
+  "claude-desktop": ClaudeCodeSessionMetadataSchema
+};
+function validateSessionMetadata(source, metadata) {
+  const schema = metadataSchemasBySource[source];
+  if (!schema)
+    return { valid: true, data: metadata };
+  const result = schema.safeParse(metadata);
+  if (result.success)
+    return { valid: true, data: result.data };
+  return { valid: false, error: result.error.message };
+}
+
+// ../../packages/utils/src/command-xml.ts
+var CLAUDE_BUILTIN_COMMANDS = new Set([
+  "add-dir",
+  "agents",
+  "allowed-tools",
+  "android",
+  "app",
+  "autofix-pr",
+  "bashes",
+  "branch",
+  "btw",
+  "bug",
+  "checkpoint",
+  "chrome",
+  "clear",
+  "color",
+  "compact",
+  "config",
+  "context",
+  "continue",
+  "copy",
+  "cost",
+  "desktop",
+  "diff",
+  "doctor",
+  "effort",
+  "exit",
+  "export",
+  "extra-usage",
+  "fast",
+  "feedback",
+  "fork",
+  "help",
+  "hooks",
+  "ide",
+  "init",
+  "insights",
+  "install-github-app",
+  "install-slack-app",
+  "ios",
+  "keybindings",
+  "login",
+  "logout",
+  "mcp",
+  "memory",
+  "mobile",
+  "model",
+  "new",
+  "output-style",
+  "passes",
+  "permissions",
+  "plan",
+  "plugin",
+  "powerup",
+  "pr-comments",
+  "privacy-settings",
+  "quit",
+  "rc",
+  "release-notes",
+  "reload-plugins",
+  "remote-control",
+  "remote-env",
+  "rename",
+  "reset",
+  "resume",
+  "review",
+  "rewind",
+  "sandbox",
+  "schedule",
+  "security-review",
+  "settings",
+  "setup-bedrock",
+  "skills",
+  "stats",
+  "status",
+  "statusline",
+  "stickers",
+  "tasks",
+  "teleport",
+  "terminal-setup",
+  "theme",
+  "todos",
+  "tp",
+  "ultraplan",
+  "upgrade",
+  "usage",
+  "vim",
+  "voice",
+  "web-setup"
+]);
+// ../../packages/utils/src/date-range.ts
+var PERIOD_TYPE_LABELS = {
+  ["today" /* Today */]: "Today",
+  ["this_week" /* ThisWeek */]: "This Week",
+  ["this_month" /* ThisMonth */]: "This Month"
+};
+var PERIOD_SUMMARY_LABELS = {
+  ["today" /* Today */]: "Daily Summary",
+  ["this_week" /* ThisWeek */]: "Weekly Summary",
+  ["this_month" /* ThisMonth */]: "Monthly Summary",
+  custom: "Custom Period"
+};
+// ../../packages/utils/src/frontmatter.ts
+var FRONTMATTER_KEYS = new Set(["name", "description"]);
+// ../../packages/utils/src/mcp-registry.ts
+var CACHE_TTL_MS = 30 * 60 * 1000;
+var CACHE_MAX_SIZE = 100;
+class TtlCache {
+  map = new Map;
+  get(key) {
+    const entry = this.map.get(key);
+    if (!entry)
+      return { hit: false };
+    if (Date.now() > entry.expiry) {
+      this.map.delete(key);
+      return { hit: false };
+    }
+    return { hit: true, value: entry.value };
+  }
+  set(key, value) {
+    if (this.map.size >= CACHE_MAX_SIZE && !this.map.has(key)) {
+      const firstKey = this.map.keys().next().value;
+      if (firstKey !== undefined)
+        this.map.delete(firstKey);
+    }
+    this.map.set(key, { value, expiry: Date.now() + CACHE_TTL_MS });
+  }
+  clear() {
+    this.map.clear();
+  }
+}
+var cache = new TtlCache;
+var toolCache = new TtlCache;
+var serverCache = new TtlCache;
+var GENERIC_SEGMENTS = new Set(["mcp", "com", "org", "io", "dev", "server", "api"]);
+var VERB_PREFIXES = new Set([
+  "get",
+  "list",
+  "create",
+  "delete",
+  "update",
+  "search",
+  "query",
+  "fetch",
+  "run",
+  "execute",
+  "resolve",
+  "find",
+  "read",
+  "write",
+  "set",
+  "send",
+  "check",
+  "add",
+  "remove"
+]);
+// ../../packages/utils/src/sanitize-null-bytes.ts
+function sanitizeNullBytes(value) {
+  if (typeof value === "string") {
+    return value.replace(/\u0000/g, "");
+  }
+  if (Array.isArray(value)) {
+    return value.map(sanitizeNullBytes);
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, sanitizeNullBytes(v)]));
+  }
+  return value;
+}
 // ../../node_modules/.bun/uuid@13.0.2/node_modules/uuid/dist-node/sha1.js
 import { createHash } from "node:crypto";
 function sha1(bytes) {
@@ -33682,7 +34038,634 @@ function normalizeSessionId(sessionId, namespace) {
 function toWellFormed(str) {
   return str.toWellFormed?.() ?? str;
 }
+// ../../packages/plugin-common/src/sync/error-classifier.ts
+var AUTH_ERROR_STATUSES = new Set([401, 403]);
+var DATA_ERROR_PG_CODES = new Set(["22021", "22P02", "22001"]);
+var INSUFFICIENT_PRIVILEGE_PG_CODE = "42501";
+var DATA_ERROR_PATTERNS = [
+  "unsupported unicode escape sequence",
+  "invalid byte sequence",
+  "invalid input syntax for type json",
+  "value too long for type character varying"
+];
+var NETWORK_ERRNO_CODES = new Set([
+  "ENOTFOUND",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "ENETUNREACH"
+]);
+function isServerOverload(httpStatus) {
+  return httpStatus >= 500;
+}
+function isRateLimited(httpStatus) {
+  return httpStatus === 429;
+}
+function isNetworkError(httpStatus) {
+  return httpStatus === 0;
+}
+var HTML_RESPONSE_PATTERN = /<!doctype|<html|<head/i;
+function isHtmlResponse(message) {
+  return HTML_RESPONSE_PATTERN.test(message);
+}
+function isProxyGlitch(httpStatus) {
+  return httpStatus >= 200 && httpStatus < 300;
+}
+function isAuthError(httpStatus, pgCode) {
+  return AUTH_ERROR_STATUSES.has(httpStatus) || pgCode === INSUFFICIENT_PRIVILEGE_PG_CODE;
+}
+function isDataError(message, pgCode) {
+  if (pgCode && DATA_ERROR_PG_CODES.has(pgCode)) {
+    return true;
+  }
+  const lower = message.toLowerCase();
+  return DATA_ERROR_PATTERNS.some((pattern) => lower.includes(pattern));
+}
+var RETRYABLE_CATEGORIES = new Set([
+  "unknown",
+  "network_error",
+  "server_overload",
+  "rate_limited"
+]);
+function isRetryableCategory(category) {
+  return RETRYABLE_CATEGORIES.has(category);
+}
+function classifyPostgrestError(error51, httpStatus) {
+  if (isNetworkError(httpStatus))
+    return "network_error";
+  if (isHtmlResponse(error51.message))
+    return "server_overload";
+  if (isRateLimited(httpStatus))
+    return "rate_limited";
+  if (isServerOverload(httpStatus))
+    return "server_overload";
+  if (isAuthError(httpStatus, error51.code))
+    return "auth_error";
+  if (isProxyGlitch(httpStatus) && !error51.code)
+    return "server_overload";
+  if (isDataError(error51.message, error51.code))
+    return "data_error";
+  return "unknown";
+}
+function classifyException(error51) {
+  const message = error51 instanceof Error ? error51.message : String(error51);
+  const messageLower = message.toLowerCase();
+  const errnoCode = error51?.code ?? "";
+  if (NETWORK_ERRNO_CODES.has(errnoCode))
+    return "network_error";
+  if (error51 instanceof TypeError && messageLower.includes("fetch"))
+    return "network_error";
+  if (messageLower.includes("network") || messageLower.includes("econnrefused") || messageLower.includes("etimedout") || messageLower.includes("timeout") || messageLower.includes("fetch")) {
+    return "network_error";
+  }
+  if (isDataError(message))
+    return "data_error";
+  return "unknown";
+}
+
+// ../../packages/plugin-common/src/sync/upsert-fallback.ts
+var FALLBACK_CHUNK_SIZE = 50;
+async function upsertWithFallback(options) {
+  const { rows, upsert, rowId, logger: logger3 } = options;
+  if (rows.length === 0)
+    return { success: true, uploadedCount: 0, failedIndices: new Set };
+  const { error: error51, status } = await upsert(rows);
+  if (!error51) {
+    return { success: true, uploadedCount: rows.length, failedIndices: new Set };
+  }
+  const category = classifyPostgrestError(error51, status);
+  if (category !== "data_error") {
+    return {
+      success: false,
+      uploadedCount: 0,
+      failedIndices: new Set,
+      errorCategory: category
+    };
+  }
+  let uploaded = 0;
+  const failedIndices = new Set;
+  for (let ci = 0;ci < rows.length; ci += FALLBACK_CHUNK_SIZE) {
+    const chunk = rows.slice(ci, ci + FALLBACK_CHUNK_SIZE);
+    const { error: chunkError, status: chunkStatus } = await upsert(chunk);
+    if (!chunkError) {
+      uploaded += chunk.length;
+      continue;
+    }
+    const chunkCategory = classifyPostgrestError(chunkError, chunkStatus);
+    if (chunkCategory !== "data_error") {
+      for (let j = ci;j < rows.length; j++)
+        failedIndices.add(j);
+      return {
+        success: false,
+        uploadedCount: uploaded,
+        failedIndices,
+        errorCategory: chunkCategory
+      };
+    }
+    for (let ri = 0;ri < chunk.length; ri++) {
+      const row = chunk[ri];
+      const { error: rowError, status: rowStatus } = await upsert([row]);
+      if (!rowError) {
+        uploaded++;
+        continue;
+      }
+      const rowCategory = classifyPostgrestError(rowError, rowStatus);
+      if (rowCategory !== "data_error") {
+        const globalIndex = ci + ri;
+        for (let j = globalIndex;j < rows.length; j++)
+          failedIndices.add(j);
+        return {
+          success: false,
+          uploadedCount: uploaded,
+          failedIndices,
+          errorCategory: rowCategory
+        };
+      }
+      logger3?.warn?.(`Skipping row ${rowId(row)} due to data error [${rowError.code ?? "unknown"}]`);
+      failedIndices.add(ci + ri);
+    }
+  }
+  return { success: true, uploadedCount: uploaded, failedIndices };
+}
+
+// ../../packages/plugin-common/src/sync/chat-uploader.ts
+function excludeMessagesForFailedSessions(messages, failedSessionIds) {
+  if (failedSessionIds.size === 0)
+    return messages;
+  return messages.filter((m) => !failedSessionIds.has(m.session_id));
+}
+function getMaxMessageIndexPerSession(messages) {
+  const maxIndices = new Map;
+  for (const message of messages) {
+    if (!message.session_id || message.message_index === undefined)
+      continue;
+    const currentMax = maxIndices.get(message.session_id) ?? -1;
+    if (message.message_index > currentMax) {
+      maxIndices.set(message.session_id, message.message_index);
+    }
+  }
+  return maxIndices;
+}
+function partitionMessagesBySessionCategory(messages, categories) {
+  const orphaned = [];
+  const valid = [];
+  const stale = [];
+  const pending = [];
+  for (const message of messages) {
+    if (!message.session_id)
+      continue;
+    if (categories.validIds.has(message.session_id)) {
+      valid.push(message);
+    } else if (categories.staleIds.has(message.session_id)) {
+      stale.push(message);
+    } else if (categories.pendingIds.has(message.session_id)) {
+      pending.push(message);
+    } else {
+      orphaned.push(message);
+    }
+  }
+  return { valid, stale, pending, orphaned };
+}
+function deduplicateSessions(sessions) {
+  const sessionMap = new Map;
+  for (const session of sessions) {
+    if (!session.id)
+      continue;
+    const existing = sessionMap.get(session.id);
+    if (!existing) {
+      sessionMap.set(session.id, session);
+      continue;
+    }
+    const existingTime = existing.created_at ? new Date(existing.created_at).getTime() : 0;
+    const currentTime = session.created_at ? new Date(session.created_at).getTime() : 0;
+    if (currentTime >= existingTime) {
+      sessionMap.set(session.id, session);
+    }
+  }
+  return Array.from(sessionMap.values());
+}
+function deduplicateMessages(messages) {
+  const messageMap = new Map;
+  for (const message of messages) {
+    if (!message.session_id)
+      continue;
+    const key = `${message.session_id}:${message.message_index}`;
+    const existing = messageMap.get(key);
+    if (!existing) {
+      messageMap.set(key, message);
+      continue;
+    }
+    const existingTime = existing.created_at ? new Date(existing.created_at).getTime() : 0;
+    const currentTime = message.created_at ? new Date(message.created_at).getTime() : 0;
+    if (currentTime >= existingTime) {
+      messageMap.set(key, message);
+    }
+  }
+  return Array.from(messageMap.values());
+}
+async function patchDbSession(supabase, sessionId, sessionNamespace, metadata, logger3, title) {
+  const normalizedId = normalizeSessionId(sessionId, sessionNamespace);
+  const { error: error51 } = await supabase.rpc("patch_session", {
+    p_session_id: normalizedId,
+    p_metadata: metadata,
+    p_title: title
+  });
+  if (error51) {
+    logger3?.warn(`Failed to patch DB session: ${error51.message}`);
+    return false;
+  }
+  return true;
+}
+function createChatUploader(config2) {
+  const {
+    sessionsQueueFile,
+    messagesQueueFile,
+    platform,
+    source,
+    sessionNamespace,
+    minMessagesPerSession,
+    staleSessionAgeMs,
+    logger: logger3,
+    readQueue,
+    atomicUpdateQueue,
+    onCaptureException,
+    maxSessionsPerCycle,
+    maxMessagesPerCycle
+  } = config2;
+  const staleSessionAgeDays = Math.round(staleSessionAgeMs / (24 * 60 * 60 * 1000));
+  function categorizeSessions(sessions, maxMessageIndexBySession) {
+    const now = Date.now();
+    const staleThreshold = now - staleSessionAgeMs;
+    const valid = [];
+    const stale = [];
+    const pending = [];
+    for (const session of sessions) {
+      if (!session.id)
+        continue;
+      const maxMessageIndex = maxMessageIndexBySession.get(session.id) ?? -1;
+      const sessionAge = session.created_at ? new Date(session.created_at).getTime() : now;
+      if (maxMessageIndex >= minMessagesPerSession - 1) {
+        valid.push(session);
+      } else if (sessionAge < staleThreshold) {
+        stale.push(session);
+      } else {
+        pending.push(session);
+      }
+    }
+    return {
+      valid,
+      stale,
+      pending,
+      validIds: new Set(valid.map((s) => s.id).filter((id) => !!id)),
+      staleIds: new Set(stale.map((s) => s.id).filter((id) => !!id)),
+      pendingIds: new Set(pending.map((s) => s.id).filter((id) => !!id))
+    };
+  }
+  function logSessionCategorization(categories, messagePartition) {
+    if (categories.stale.length > 0) {
+      logger3?.info(`Removing ${categories.stale.length} stale sessions (< ${minMessagesPerSession} messages, > ${staleSessionAgeDays} days old) with ${messagePartition.stale.length} messages`);
+    }
+    if (categories.pending.length > 0) {
+      logger3?.info(`Keeping ${categories.pending.length} pending sessions (< ${minMessagesPerSession} messages, within ${staleSessionAgeDays} days) with ${messagePartition.pending.length} messages`);
+    }
+  }
+  async function enrichSessionsForUpload(sessions, userId, workspaceId) {
+    const filteredSessions = sessions.filter((s) => !!s.id);
+    if (filteredSessions.length < sessions.length) {
+      logger3?.warn(`Filtered out ${sessions.length - filteredSessions.length} sessions without IDs`);
+    }
+    const enriched = [];
+    for (const s of filteredSessions) {
+      const signals = config2.readSessionSignals ? await config2.readSessionSignals(s.id) : null;
+      let metadata = s.metadata ?? null;
+      if (metadata !== null) {
+        const validation = validateSessionMetadata(source, metadata);
+        if (!validation.valid) {
+          logger3?.warn(`Invalid session metadata for ${s.id}: ${validation.error}`);
+          metadata = null;
+        }
+      }
+      const session = {
+        ...s,
+        id: normalizeSessionId(s.id, sessionNamespace),
+        title: s.title ? sanitizeNullBytes(toWellFormed(s.title)) : s.title,
+        user_id: userId,
+        platform,
+        source,
+        analysis_status: "pending",
+        metadata
+      };
+      if (workspaceId) {
+        session.workspace_id = workspaceId;
+      }
+      if (signals) {
+        session.signals = signals;
+      }
+      enriched.push(session);
+    }
+    return enriched;
+  }
+  function enrichMessagesForUpload(messages, userId) {
+    const filteredMessages = messages.filter((m) => m.session_id);
+    if (filteredMessages.length < messages.length) {
+      logger3?.warn(`Filtered out ${messages.length - filteredMessages.length} messages without session IDs`);
+    }
+    return filteredMessages.map((m) => ({
+      ...m,
+      session_id: normalizeSessionId(m.session_id, sessionNamespace),
+      content: sanitizeNullBytes(toWellFormed(m.content)),
+      user_id: userId,
+      code_diffs: null,
+      metadata: m.metadata ? sanitizeNullBytes(m.metadata) : null
+    }));
+  }
+  async function uploadSessionsToSupabase(supabase, sessions) {
+    if (sessions.length === 0)
+      return { success: true, uploadedCount: 0, failedSessionIds: new Set };
+    const result = await upsertWithFallback({
+      rows: sessions,
+      upsert: (batch) => supabase.from("chat_sessions").upsert(batch, { onConflict: "id", defaultToNull: false }),
+      rowId: (row) => row.id ?? "unknown",
+      logger: logger3
+    });
+    if (result.success) {
+      logger3?.info(`✓ Uploaded ${result.uploadedCount} chat sessions`);
+    }
+    const failedSessionIds = new Set([...result.failedIndices].map((idx) => sessions[idx].id).filter((id) => !!id));
+    if (result.failedIndices.size > 0) {
+      logger3?.warn(`Session fallback: ${result.failedIndices.size} sessions discarded`);
+      onCaptureException?.(new Error(`${result.failedIndices.size} sessions failed during fallback`), SYNC_DATA_ERROR, "chat-uploader", {
+        ...buildSyncProperties({ syncErrorType: "data_error" }),
+        skipped: result.failedIndices.size,
+        uploaded: result.uploadedCount
+      });
+    }
+    return {
+      success: result.success,
+      uploadedCount: result.uploadedCount,
+      failedSessionIds,
+      errorCategory: result.errorCategory
+    };
+  }
+  async function uploadMessagesToSupabase(supabase, messages) {
+    if (messages.length === 0)
+      return { success: true, uploadedCount: 0 };
+    const messagesWithoutId = messages.map(({ id, ...rest }) => rest);
+    const result = await upsertWithFallback({
+      rows: messagesWithoutId,
+      upsert: (batch) => supabase.from("chat_messages").upsert(batch, { onConflict: "session_id,message_index", defaultToNull: false }),
+      rowId: (row) => `${row.session_id}:${row.message_index}`,
+      logger: logger3
+    });
+    if (result.success) {
+      logger3?.info(`✓ Uploaded ${result.uploadedCount} chat messages`);
+    }
+    if (result.failedIndices.size > 0) {
+      logger3?.warn(`Message fallback: ${result.failedIndices.size} messages discarded`);
+      onCaptureException?.(new Error(`${result.failedIndices.size} messages failed during fallback`), SYNC_DATA_ERROR, "chat-uploader", {
+        ...buildSyncProperties({ syncErrorType: "data_error" }),
+        skipped: result.failedIndices.size,
+        uploaded: result.uploadedCount
+      });
+    }
+    return {
+      success: result.success,
+      uploadedCount: result.uploadedCount,
+      errorCategory: result.errorCategory
+    };
+  }
+  async function removeMessagesFromQueue(messageIdsToRemove) {
+    await atomicUpdateQueue(messagesQueueFile, (currentMessages) => currentMessages.filter((m) => m.id && !messageIdsToRemove.has(m.id)));
+  }
+  async function removeStaleSessionsFromQueue(staleSessionIds) {
+    await atomicUpdateQueue(sessionsQueueFile, (currentSessions) => currentSessions.filter((s) => s.id && !staleSessionIds.has(s.id)));
+    await atomicUpdateQueue(messagesQueueFile, (currentMessages) => currentMessages.filter((m) => m.session_id && !staleSessionIds.has(m.session_id)));
+  }
+  async function uploadChatData(supabase, session, dataControls) {
+    try {
+      const queuedSessions = await readQueue(sessionsQueueFile);
+      const queuedMessages = await readQueue(messagesQueueFile);
+      if (queuedSessions.length === 0 && queuedMessages.length === 0) {
+        logger3?.debug("No chat data to upload");
+        return { success: true, uploaded: { sessions: 0, messages: 0 } };
+      }
+      const maxMessageIndexBySession = getMaxMessageIndexPerSession(queuedMessages);
+      const categories = categorizeSessions(queuedSessions, maxMessageIndexBySession);
+      const messagePartition = partitionMessagesBySessionCategory(queuedMessages, categories);
+      logSessionCategorization(categories, messagePartition);
+      if (messagePartition.orphaned.length > 0) {
+        const orphanedSessionIds2 = [
+          ...new Set(messagePartition.orphaned.map((m) => m.session_id).filter((id) => !!id).map((id) => normalizeSessionId(id, sessionNamespace)))
+        ];
+        const { data: existingSessions, error: queryError } = await supabase.from("chat_sessions").select("id").in("id", orphanedSessionIds2);
+        if (queryError) {
+          const orphanedMessageIds = new Set(messagePartition.orphaned.map((m) => m.id).filter((id) => !!id));
+          const droppedSessionIds = [
+            ...new Set(messagePartition.orphaned.map((m) => m.session_id).filter(Boolean))
+          ];
+          logger3?.warn("orphaned_messages_dropped_query_error", {
+            dropped_count: orphanedMessageIds.size,
+            session_ids: droppedSessionIds
+          });
+          onCaptureException?.(new Error(`Dropped ${orphanedMessageIds.size} orphaned messages due to query error`), SYNC_ORPHANED_MESSAGES_DROPPED, "chat-uploader", { dropped_count: orphanedMessageIds.size, session_ids: droppedSessionIds });
+          await removeMessagesFromQueue(orphanedMessageIds);
+          messagePartition.orphaned = [];
+        } else {
+          const existingSessionIds = new Set(existingSessions?.map((s) => s.id) || []);
+          const validOrphaned = [];
+          const invalidOrphaned = [];
+          for (const message of messagePartition.orphaned) {
+            if (!message.session_id) {
+              invalidOrphaned.push(message);
+              continue;
+            }
+            const normalized = normalizeSessionId(message.session_id, sessionNamespace);
+            if (existingSessionIds.has(normalized)) {
+              validOrphaned.push(message);
+            } else {
+              invalidOrphaned.push(message);
+            }
+          }
+          if (invalidOrphaned.length > 0) {
+            const invalidMessageIds = new Set(invalidOrphaned.map((m) => m.id).filter((id) => !!id));
+            const droppedSessionIds = [
+              ...new Set(invalidOrphaned.map((m) => m.session_id).filter(Boolean))
+            ];
+            logger3?.warn("orphaned_messages_dropped_invalid", {
+              dropped_count: invalidMessageIds.size,
+              session_ids: droppedSessionIds
+            });
+            onCaptureException?.(new Error(`Dropped ${invalidMessageIds.size} orphaned messages - sessions not found`), SYNC_ORPHANED_MESSAGES_DROPPED, "chat-uploader", { dropped_count: invalidMessageIds.size, session_ids: droppedSessionIds });
+            await removeMessagesFromQueue(invalidMessageIds);
+          }
+          messagePartition.orphaned = validOrphaned;
+        }
+      }
+      if (categories.stale.length > 0) {
+        await removeStaleSessionsFromQueue(categories.staleIds);
+      }
+      if (categories.valid.length === 0 && messagePartition.orphaned.length === 0) {
+        return { success: true, uploaded: { sessions: 0, messages: 0 } };
+      }
+      const uniqueSessions = deduplicateSessions(categories.valid);
+      const allMessagesToUpload = [...messagePartition.valid, ...messagePartition.orphaned];
+      const uniqueMessages = deduplicateMessages(allMessagesToUpload);
+      const workspaceId = session.workspaceId ?? null;
+      if (!workspaceId) {
+        logger3?.warn("Skipping chat upload: workspace_id is missing from auth session");
+        onCaptureException?.(new Error("Chat upload blocked: no workspace_id in auth session"), SYNC_BLOCKED_NO_WORKSPACE, "chat-uploader", {
+          ...buildSyncProperties({ sessionsAttempted: uniqueSessions.length }),
+          reason: "precondition_failed"
+        });
+        return {
+          success: false,
+          uploaded: { sessions: 0, messages: 0 },
+          errorCategory: "auth_error"
+        };
+      }
+      const sessionsToUpload = await enrichSessionsForUpload(uniqueSessions, session.userId, workspaceId);
+      let sessionsForThisCycle = sessionsToUpload;
+      if (maxSessionsPerCycle && sessionsToUpload.length > maxSessionsPerCycle) {
+        sessionsForThisCycle = sessionsToUpload.slice(0, maxSessionsPerCycle);
+        logger3?.info(`Drain throttle: uploading ${sessionsForThisCycle.length} of ${sessionsToUpload.length} sessions`);
+        onCaptureException?.(new Error(`Drain throttle active: ${sessionsToUpload.length} sessions in queue`), SYNC_DRAIN_THROTTLED, "chat-uploader", {
+          queue_size: sessionsToUpload.length,
+          cycle_cap: maxSessionsPerCycle,
+          queue_type: "sessions"
+        });
+      }
+      const uploadedSessionIdSet = new Set(sessionsForThisCycle.map((s) => s.id).filter((id) => !!id));
+      const orphanedSessionIds = new Set(messagePartition.orphaned.map((m) => normalizeSessionId(m.session_id, sessionNamespace)).filter((id) => !!id));
+      const allValidSessionIds = new Set([...uploadedSessionIdSet, ...orphanedSessionIds]);
+      const messagesToUpload = enrichMessagesForUpload(uniqueMessages, session.userId).filter((m) => allValidSessionIds.has(m.session_id));
+      let filteredMessages = messagesToUpload;
+      if (dataControls) {
+        const uploadUser = dataControls.shouldUploadUserMessages();
+        const uploadAssistant = dataControls.shouldUploadAssistantMessages();
+        const uploadDiffs = dataControls.shouldUploadCodeDiffs();
+        if (!uploadUser && !uploadAssistant) {
+          logger3?.info("Skipping chat upload: both user_messages and assistant_messages disabled");
+          if (categories.stale.length > 0) {
+            await removeStaleSessionsFromQueue(categories.staleIds);
+          }
+          return { success: true, uploaded: { sessions: 0, messages: 0 } };
+        }
+        filteredMessages = messagesToUpload.filter((m) => {
+          if (m.role === "user" && !uploadUser)
+            return false;
+          if (m.role === "assistant" && !uploadAssistant)
+            return false;
+          return true;
+        }).map((m) => uploadDiffs ? m : { ...m, code_diffs: null });
+        if (filteredMessages.length === 0) {
+          logger3?.info("No messages to upload after data controls filtering");
+          return { success: true, uploaded: { sessions: 0, messages: 0 } };
+        }
+      }
+      let messagesForThisCycle = filteredMessages;
+      if (maxMessagesPerCycle && filteredMessages.length > maxMessagesPerCycle) {
+        messagesForThisCycle = filteredMessages.slice(0, maxMessagesPerCycle);
+        logger3?.info(`Drain throttle: uploading ${messagesForThisCycle.length} of ${filteredMessages.length} messages`);
+        onCaptureException?.(new Error(`Drain throttle active: ${filteredMessages.length} messages in queue`), SYNC_DRAIN_THROTTLED, "chat-uploader", {
+          queue_size: filteredMessages.length,
+          cycle_cap: maxMessagesPerCycle,
+          queue_type: "messages"
+        });
+      }
+      const messageSessionIds = new Set(messagesForThisCycle.map((m) => m.session_id));
+      const missingSessionIds = [...messageSessionIds].filter((id) => !allValidSessionIds.has(id));
+      if (missingSessionIds.length > 0) {
+        return { success: false, uploaded: { sessions: 0, messages: 0 } };
+      }
+      const sessionsResult = await uploadSessionsToSupabase(supabase, sessionsForThisCycle);
+      if (!sessionsResult.success) {
+        return {
+          success: false,
+          uploaded: { sessions: 0, messages: 0 },
+          errorCategory: sessionsResult.errorCategory
+        };
+      }
+      const messagesForUpload = excludeMessagesForFailedSessions(messagesForThisCycle, sessionsResult.failedSessionIds);
+      const messagesResult = await uploadMessagesToSupabase(supabase, messagesForUpload);
+      if (!messagesResult.success) {
+        return {
+          success: false,
+          uploaded: { sessions: sessionsResult.uploadedCount, messages: 0 },
+          errorCategory: messagesResult.errorCategory
+        };
+      }
+      const normalizedToRaw = new Map(uniqueSessions.filter((s) => !!s.id).map((s) => [normalizeSessionId(s.id, sessionNamespace), s.id]));
+      const uploadedRawSessionIds = new Set(sessionsForThisCycle.map((s) => normalizedToRaw.get(s.id)).filter((id) => !!id));
+      const sessionsToRemove = new Set([...uploadedRawSessionIds, ...categories.staleIds]);
+      await atomicUpdateQueue(sessionsQueueFile, (currentSessions) => currentSessions.filter((s) => s.id && !sessionsToRemove.has(s.id)));
+      const uploadedMessageIds = new Set(messagesForThisCycle.map((m) => m.id).filter((id) => !!id));
+      const fingerprintMsg = (m) => `${m.session_id}:${m.message_index}:${m.role}`;
+      const uploadedNoIdFingerprints = new Set(messagesForThisCycle.filter((m) => !m.id).map(fingerprintMsg));
+      await atomicUpdateQueue(messagesQueueFile, (currentMessages) => currentMessages.filter((m) => {
+        if (m.session_id && categories.staleIds.has(m.session_id))
+          return false;
+        if (m.id && uploadedMessageIds.has(m.id))
+          return false;
+        if (!m.id && uploadedNoIdFingerprints.has(fingerprintMsg(m)))
+          return false;
+        return true;
+      }));
+      return {
+        success: true,
+        uploaded: {
+          sessions: sessionsResult.uploadedCount,
+          messages: messagesResult.uploadedCount
+        }
+      };
+    } catch (error51) {
+      logger3?.error("Failed to upload chat data", error51);
+      const category = classifyException(error51);
+      if (error51 instanceof Error) {
+        onCaptureException?.(error51, SYNC_CHAT_UPLOAD_FAILED, "chat-uploader", {
+          ...buildSyncProperties({ syncErrorType: "upload_failed" }),
+          error_category: category
+        });
+      }
+      return {
+        success: false,
+        uploaded: { sessions: 0, messages: 0 },
+        errorCategory: category
+      };
+    }
+  }
+  async function uploadChatDataWithRetry(supabase, session, dataControls, maxRetries = 3, backoffMs = 5000) {
+    let lastResult = null;
+    for (let attempt = 1;attempt <= maxRetries; attempt++) {
+      const result = await uploadChatData(supabase, session, dataControls);
+      if (result.success) {
+        return result;
+      }
+      lastResult = result;
+      if (result.errorCategory && !isRetryableCategory(result.errorCategory)) {
+        return result;
+      }
+      logger3?.warn(`Chat upload attempt ${attempt}/${maxRetries} failed`);
+      if (attempt < maxRetries) {
+        const delay = backoffMs * attempt;
+        logger3?.debug(`Retrying in ${delay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+    logger3?.error(`Chat upload failed after ${maxRetries} attempts`);
+    return lastResult ?? { success: false, uploaded: { sessions: 0, messages: 0 } };
+  }
+  return {
+    uploadChatData,
+    uploadChatDataWithRetry,
+    categorizeSessions,
+    enrichSessionsForUpload,
+    enrichMessagesForUpload
+  };
+}
+
 // ../../packages/plugin-common/src/queue/queue-manager.ts
+import { appendFile, readFile as readFile5, unlink as unlink3, writeFile as writeFile4 } from "node:fs/promises";
+import { dirname as dirname4 } from "node:path";
 function createQueueManager(config2) {
   const {
     queueDir,
@@ -33810,6 +34793,23 @@ function createQueueManager(config2) {
       logger3?.error("Failed to enqueue message:", error51);
       throw error51;
     }
+  }
+  async function patchQueuedSession(sessionId, metadata, title) {
+    let found = false;
+    await atomicUpdateQueue(queueFiles.sessions, (sessions) => sessions.map((session) => {
+      if (session.id !== sessionId)
+        return session;
+      found = true;
+      return {
+        ...session,
+        title: title ?? session.title,
+        metadata: {
+          ...session.metadata ?? {},
+          ...metadata
+        }
+      };
+    }));
+    return found;
   }
   async function readQueue(queueFile) {
     try {
@@ -34010,6 +35010,7 @@ function createQueueManager(config2) {
     enqueueEvent,
     enqueueChatSession,
     enqueueChatMessage,
+    patchQueuedSession,
     getDetailedQueueStats
   };
 }
@@ -34032,6 +35033,7 @@ var fileLock = createFileLock({
 var { withFileLock } = fileLock;
 
 // src/utils/queue-manager.ts
+var { minMessagesPerSession } = loadSettingsSync();
 var queueManager = createQueueManager({
   queueDir: QUEUE_DIR,
   queueFiles: {
@@ -34040,7 +35042,7 @@ var queueManager = createQueueManager({
     messages: MESSAGES_QUEUE_FILE
   },
   privacyManager: getPrivacyManager(),
-  minMessagesPerSession: MIN_MESSAGES_PER_SESSION,
+  minMessagesPerSession,
   logger: logger2,
   withFileLock,
   onCaptureException: captureException
@@ -34055,12 +35057,55 @@ var {
   enqueueEvent,
   enqueueChatSession,
   enqueueChatMessage,
+  patchQueuedSession,
   getDetailedQueueStats
 } = queueManager;
 
-// src/utils/time.ts
-function epochToIso(epoch) {
-  return new Date(epoch * 1000).toISOString();
+// src/extractors/inventory-metadata-builder.ts
+import { readdirSync, readFileSync as readFileSync2 } from "node:fs";
+import { join as join3 } from "node:path";
+var CUSTOM_SKILLS_DIR = join3(HERMES_HOME, "skills");
+var BUNDLED_SKILLS_DIR = join3(HERMES_HOME, "hermes-agent", "skills");
+var MEMORY_FILE = join3(HERMES_HOME, "memories", "MEMORY.md");
+var USER_FILE = join3(HERMES_HOME, "memories", "USER.md");
+var ENTRY_SEPARATOR = `
+§
+`;
+function countSkillsIn(dir) {
+  let count = 0;
+  try {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        count += countSkillsIn(join3(dir, entry.name));
+      } else if (entry.name === "SKILL.md") {
+        count++;
+      }
+    }
+  } catch {}
+  return count;
+}
+function readFileOrNull(path) {
+  try {
+    return readFileSync2(path, "utf-8");
+  } catch {
+    return null;
+  }
+}
+function countEntries(content) {
+  return content.split(ENTRY_SEPARATOR).filter((s) => s.trim().length > 0).length;
+}
+function buildInventoryMetadata() {
+  const skillsCount = countSkillsIn(CUSTOM_SKILLS_DIR) + countSkillsIn(BUNDLED_SKILLS_DIR);
+  const memoryContent = readFileOrNull(MEMORY_FILE);
+  const userContent = readFileOrNull(USER_FILE);
+  return {
+    available_skills_count: skillsCount > 0 ? skillsCount : null,
+    memory_chars: memoryContent?.length ?? null,
+    memory_entry_count: memoryContent ? countEntries(memoryContent) : null,
+    user_entry_count: userContent ? countEntries(userContent) : null,
+    user_chars: userContent?.length ?? null
+  };
 }
 
 // src/extractors/session-metadata-builder.ts
@@ -34086,13 +35131,14 @@ function buildSessionMetadata(row) {
     reasoning_tokens: row.reasoning_tokens,
     cost_usd: row.actual_cost_usd ?? row.estimated_cost_usd ?? null,
     message_count: row.message_count,
-    tool_call_count: row.tool_call_count
+    tool_call_count: row.tool_call_count,
+    duration_ms: row.ended_at ? Math.round((row.ended_at - row.started_at) * 1000) : null
   };
 }
 
 // src/extractors/pending-finalize.ts
 var PROCESSING_FILE = `${PENDING_FINALIZE_FILE}.tmp`;
-async function processPendingFinalizations(db, ignoredIds, logger3) {
+async function processPendingFinalizations(db, ignoredIds, logger3, supabase) {
   let raw;
   try {
     await rename(PENDING_FINALIZE_FILE, PROCESSING_FILE);
@@ -34106,15 +35152,27 @@ async function processPendingFinalizations(db, ignoredIds, logger3) {
   if (pendingIds.length === 0)
     return;
   const rows = db.getSessionsByIds(pendingIds);
+  const inventoryMetadata = buildInventoryMetadata();
+  const droppedIds = [];
   for (const row of rows) {
-    await enqueueChatSession({
-      id: row.id,
-      title: row.title ?? undefined,
-      created_at: epochToIso(row.started_at),
-      project_id: undefined,
-      project_name: undefined,
-      metadata: buildSessionMetadata(row)
-    });
+    const metadata = { ...buildSessionMetadata(row), ...inventoryMetadata };
+    const title = row.title ?? undefined;
+    const patchedInQueue = await patchQueuedSession(row.id, metadata, title);
+    if (!patchedInQueue) {
+      const patchedInDb = supabase ? await patchDbSession(supabase, row.id, ZEST_SESSION_NAMESPACE, metadata, logger3, title) : false;
+      if (!patchedInDb) {
+        droppedIds.push(row.id);
+        logger3.warn("pending_finalize_dropped", {
+          sessionId: row.id,
+          reason: supabase ? "db_patch_failed" : "no_supabase_client"
+        });
+      }
+    }
+  }
+  if (droppedIds.length > 0) {
+    await appendFile2(PENDING_FINALIZE_FILE, `${droppedIds.join(`
+`)}
+`, "utf-8");
   }
   logger3.info("pending_finalize_processed", { count: rows.length });
 }
@@ -34342,7 +35400,7 @@ function createStandupNotifications(opts) {
 }
 
 // ../../packages/plugin-common/src/cache/status-cache-manager.ts
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync as readFileSync3, writeFileSync } from "node:fs";
 var DEFAULT_VERSION_CHECK = {
   updateAvailable: false,
   currentVersion: "unknown",
@@ -34383,7 +35441,7 @@ function createStatusCacheManager(config2) {
   const withFileLock2 = resolveFileLock(config2.withFileLock);
   function readStatusCache() {
     try {
-      const data = readFileSync(statusCacheFile, "utf-8");
+      const data = readFileSync3(statusCacheFile, "utf-8");
       const parsed = JSON.parse(data);
       if (parsed.updateAvailable !== undefined && !parsed.versionCheck) {
         logger3?.info("Migrating old update-check.json format to new status-cache.json format");
@@ -34555,8 +35613,8 @@ function createStatusCacheManager(config2) {
   }
   function hasActiveStandupNotification() {
     try {
-      const cache = readStatusCache();
-      const { message, expiresAt } = cache.standupNotification;
+      const cache2 = readStatusCache();
+      const { message, expiresAt } = cache2.standupNotification;
       return message !== null && expiresAt !== null && expiresAt > Date.now();
     } catch (error51) {
       logger3?.warn("Failed to check for active standup notification", error51);
@@ -34565,8 +35623,8 @@ function createStatusCacheManager(config2) {
   }
   function shouldShowFirstDataReady() {
     try {
-      const cache = readStatusCache();
-      const { firstDataReadyLastShownAt } = cache.standupNotification;
+      const cache2 = readStatusCache();
+      const { firstDataReadyLastShownAt } = cache2.standupNotification;
       if (!firstDataReadyLastShownAt)
         return true;
       return Date.now() - firstDataReadyLastShownAt >= standupNotificationThrottleMs;
@@ -34592,8 +35650,8 @@ function createStatusCacheManager(config2) {
   }
   function shouldShowStandupRefreshed() {
     try {
-      const cache = readStatusCache();
-      const { standupRefreshedLastShownAt } = cache.standupNotification;
+      const cache2 = readStatusCache();
+      const { standupRefreshedLastShownAt } = cache2.standupNotification;
       if (!standupRefreshedLastShownAt)
         return true;
       return Date.now() - standupRefreshedLastShownAt >= standupNotificationThrottleMs;
@@ -34699,9 +35757,12 @@ async function fetchLatestVersion() {
   const client = getAnonClient();
   if (!client)
     throw new Error("Supabase not configured - cannot check for updates");
-  const { data, error: error51 } = await client.from("extension_versions").select("latest_version").eq("platform", "hermes").abortSignal(AbortSignal.timeout(VERSION_CHECK_TIMEOUT_MS)).single();
+  const { data, error: error51 } = await client.from("extension_versions").select("latest_version").eq("platform", "hermes").abortSignal(AbortSignal.timeout(VERSION_CHECK_TIMEOUT_MS)).maybeSingle();
   if (error51) {
     throw new Error(`extension_versions query failed: ${error51.message}`);
+  }
+  if (!data) {
+    throw new Error("extension_versions: no row for platform=hermes");
   }
   if (!data.latest_version || typeof data.latest_version !== "string") {
     throw new Error("extension_versions: missing or invalid latest_version");
@@ -34713,16 +35774,16 @@ async function fetchLatestVersion() {
 }
 async function checkForHermesUpdate() {
   const currentVersion = getPluginVersion();
-  const cache = readStatusCache();
-  const { checkedAt } = cache.versionCheck;
-  const cacheMatchesRunningVersion = cache.versionCheck.currentVersion === currentVersion;
+  const cache2 = readStatusCache();
+  const { checkedAt } = cache2.versionCheck;
+  const cacheMatchesRunningVersion = cache2.versionCheck.currentVersion === currentVersion;
   const cacheWithinTtl = !!checkedAt && Date.now() - checkedAt < UPDATE_CHECK_CACHE_TTL_MS;
   if (cacheWithinTtl && cacheMatchesRunningVersion) {
     logger2.debug("version_check_cached", { checkedAt });
     return {
-      updateAvailable: cache.versionCheck.updateAvailable,
-      currentVersion: cache.versionCheck.currentVersion,
-      latestVersion: cache.versionCheck.latestVersion
+      updateAvailable: cache2.versionCheck.updateAvailable,
+      currentVersion: cache2.versionCheck.currentVersion,
+      latestVersion: cache2.versionCheck.latestVersion
     };
   }
   if (currentVersion === "unknown") {
@@ -34762,8 +35823,8 @@ async function checkForHermesUpdate() {
 
 // src/utils/ignored-sessions.ts
 import { mkdir as mkdir3, readFile as readFile7, writeFile as writeFile5 } from "node:fs/promises";
-import { dirname as dirname5, join as join3 } from "node:path";
-var IGNORED_SESSIONS_FILE = join3(HERMES_ZEST_HOME, "ignored-sessions.json");
+import { dirname as dirname5, join as join4 } from "node:path";
+var IGNORED_SESSIONS_FILE = join4(HERMES_ZEST_HOME, "ignored-sessions.json");
 async function loadIgnoredSessions() {
   try {
     const content = await readFile7(IGNORED_SESSIONS_FILE, "utf-8");
@@ -34784,8 +35845,8 @@ async function loadIgnoredSessions() {
 // src/daemon/daemon-lock.ts
 import { mkdir as mkdir4, readFile as readFile8, unlink as unlink5, writeFile as writeFile6 } from "node:fs/promises";
 import { hostname as hostname3 } from "node:os";
-import { join as join4 } from "node:path";
-var LOCK_FILE = join4(HERMES_ZEST_HOME, "daemon.lock");
+import { join as join5 } from "node:path";
+var LOCK_FILE = join5(HERMES_ZEST_HOME, "daemon.lock");
 var heldLock = null;
 function buildPayload() {
   return {
@@ -34871,91 +35932,6 @@ async function releaseDaemonLock() {
   } finally {
     heldLock = null;
   }
-}
-
-// ../../packages/plugin-common/src/sync/error-classifier.ts
-var AUTH_ERROR_STATUSES = new Set([401, 403]);
-var DATA_ERROR_PG_CODES = new Set(["22021", "22P02", "22001"]);
-var INSUFFICIENT_PRIVILEGE_PG_CODE = "42501";
-var DATA_ERROR_PATTERNS = [
-  "unsupported unicode escape sequence",
-  "invalid byte sequence",
-  "invalid input syntax for type json",
-  "value too long for type character varying"
-];
-var NETWORK_ERRNO_CODES = new Set([
-  "ENOTFOUND",
-  "ECONNREFUSED",
-  "ECONNRESET",
-  "ETIMEDOUT",
-  "ENETUNREACH"
-]);
-function isServerOverload(httpStatus) {
-  return httpStatus >= 500;
-}
-function isRateLimited(httpStatus) {
-  return httpStatus === 429;
-}
-function isNetworkError(httpStatus) {
-  return httpStatus === 0;
-}
-var HTML_RESPONSE_PATTERN = /<!doctype|<html|<head/i;
-function isHtmlResponse(message) {
-  return HTML_RESPONSE_PATTERN.test(message);
-}
-function isProxyGlitch(httpStatus) {
-  return httpStatus >= 200 && httpStatus < 300;
-}
-function isAuthError(httpStatus, pgCode) {
-  return AUTH_ERROR_STATUSES.has(httpStatus) || pgCode === INSUFFICIENT_PRIVILEGE_PG_CODE;
-}
-function isDataError(message, pgCode) {
-  if (pgCode && DATA_ERROR_PG_CODES.has(pgCode)) {
-    return true;
-  }
-  const lower = message.toLowerCase();
-  return DATA_ERROR_PATTERNS.some((pattern) => lower.includes(pattern));
-}
-var RETRYABLE_CATEGORIES = new Set([
-  "unknown",
-  "network_error",
-  "server_overload",
-  "rate_limited"
-]);
-function isRetryableCategory(category) {
-  return RETRYABLE_CATEGORIES.has(category);
-}
-function classifyPostgrestError(error51, httpStatus) {
-  if (isNetworkError(httpStatus))
-    return "network_error";
-  if (isHtmlResponse(error51.message))
-    return "server_overload";
-  if (isRateLimited(httpStatus))
-    return "rate_limited";
-  if (isServerOverload(httpStatus))
-    return "server_overload";
-  if (isAuthError(httpStatus, error51.code))
-    return "auth_error";
-  if (isProxyGlitch(httpStatus) && !error51.code)
-    return "server_overload";
-  if (isDataError(error51.message, error51.code))
-    return "data_error";
-  return "unknown";
-}
-function classifyException(error51) {
-  const message = error51 instanceof Error ? error51.message : String(error51);
-  const messageLower = message.toLowerCase();
-  const errnoCode = error51?.code ?? "";
-  if (NETWORK_ERRNO_CODES.has(errnoCode))
-    return "network_error";
-  if (error51 instanceof TypeError && messageLower.includes("fetch"))
-    return "network_error";
-  if (messageLower.includes("network") || messageLower.includes("econnrefused") || messageLower.includes("etimedout") || messageLower.includes("timeout") || messageLower.includes("fetch")) {
-    return "network_error";
-  }
-  if (isDataError(message))
-    return "data_error";
-  return "unknown";
 }
 
 // ../../packages/plugin-common/src/sync/sync-orchestrator.ts
@@ -35386,45 +36362,13 @@ var PROMPT_TAGS = {
 var AVAILABLE_PROMPT_TAGS = Object.values(PROMPT_TAGS);
 var tagIds = AVAILABLE_PROMPT_TAGS.map((tag) => tag.id);
 // ../../packages/types/schemas.ts
+var SkillOutputFormatSchema = exports_external.enum(["skill_report_markdown", "markdown", "json"]);
 var CustomPromptMetadataSchema = exports_external.object({
   tags: exports_external.array(exports_external.string()).optional(),
   cascade_category: exports_external.string().optional(),
-  description: exports_external.string().optional()
-});
-// ../../packages/types/token-usage.ts
-var TOKEN_SOURCES = ["provider_reported"];
-var COST_SOURCES = [
-  "provider_reported",
-  "derived_openrouter",
-  "cursor_dashboard_api"
-];
-var SessionTokenUsageSchema = exports_external.object({
-  input_tokens: exports_external.number().int().nonnegative(),
-  output_tokens: exports_external.number().int().nonnegative(),
-  total_tokens: exports_external.number().int().nonnegative(),
-  token_source: exports_external.enum(TOKEN_SOURCES),
-  cost_usd: exports_external.number().nonnegative().nullable().optional(),
-  cost_source: exports_external.enum(COST_SOURCES).nullable().optional(),
-  cache_read_tokens: exports_external.number().int().nonnegative().optional(),
-  cache_creation_tokens: exports_external.number().int().nonnegative().optional(),
-  cache_creation_5m_tokens: exports_external.number().int().nonnegative().optional(),
-  cache_creation_1h_tokens: exports_external.number().int().nonnegative().optional(),
-  reasoning_tokens: exports_external.number().int().nonnegative().optional(),
-  server_tool_use_input_tokens: exports_external.number().int().nonnegative().optional(),
-  server_tool_use_output_tokens: exports_external.number().int().nonnegative().optional(),
-  message_count_with_tokens: exports_external.number().int().nonnegative().optional(),
-  model_usage: exports_external.record(exports_external.string(), exports_external.object({
-    input_tokens: exports_external.number().nonnegative(),
-    output_tokens: exports_external.number().nonnegative(),
-    cache_read_input_tokens: exports_external.number().nonnegative().optional(),
-    cache_creation_input_tokens: exports_external.number().nonnegative().optional(),
-    cost_usd: exports_external.number().nonnegative().optional()
-  })).optional(),
-  context_used_percent: exports_external.number().nonnegative().max(100).optional(),
-  context_window_size: exports_external.number().int().nonnegative().optional(),
-  rate_limit_percent: exports_external.number().nonnegative().optional(),
-  rate_limit_type: exports_external.string().optional(),
-  rate_limit_is_overage: exports_external.boolean().optional()
+  description: exports_external.string().optional(),
+  output_format: SkillOutputFormatSchema.optional(),
+  example_output: exports_external.unknown().optional()
 });
 // ../../packages/types/data-controls-schemas.ts
 var collectionSettingsSchema = exports_external.object({
@@ -35441,7 +36385,7 @@ var retentionSettingsSchema = exports_external.object({
 });
 
 // ../../packages/plugin-common/src/supabase/data-controls-provider.ts
-var CACHE_TTL_MS = 5 * 60 * 1000;
+var CACHE_TTL_MS2 = 5 * 60 * 1000;
 
 class DataControlsProvider {
   effectiveCollection = null;
@@ -35495,7 +36439,7 @@ class DataControlsProvider {
     if (!this.lastFetchedAt) {
       return true;
     }
-    return Date.now() - this.lastFetchedAt > CACHE_TTL_MS;
+    return Date.now() - this.lastFetchedAt > CACHE_TTL_MS2;
   }
   invalidate() {
     this.effectiveCollection = null;
@@ -35710,708 +36654,23 @@ var syncMetricsManager = createSyncMetricsManager({
 });
 var { recordSyncMetric, getLastHourMetrics, aggregateLastHourStats } = syncMetricsManager;
 
-// ../../packages/types/session-metadata.ts
-var HermesSessionMetadataSchema = exports_external.object({
-  trigger: exports_external.string(),
-  model: exports_external.string(),
-  ended_at: exports_external.string().nullable(),
-  end_reason: exports_external.string().nullable(),
-  is_error: exports_external.boolean(),
-  input_tokens: exports_external.number(),
-  output_tokens: exports_external.number(),
-  cache_read_tokens: exports_external.number(),
-  cache_write_tokens: exports_external.number(),
-  reasoning_tokens: exports_external.number(),
-  cost_usd: exports_external.number().nullable(),
-  message_count: exports_external.number(),
-  tool_call_count: exports_external.number()
-});
-var TokenUsageSchema = exports_external.object({
-  input_tokens: exports_external.number().optional(),
-  cached_input_tokens: exports_external.number().optional(),
-  output_tokens: exports_external.number().optional(),
-  reasoning_output_tokens: exports_external.number().optional(),
-  total_tokens: exports_external.number().optional()
-});
-var RateLimitWindowSchema = exports_external.object({
-  used_percent: exports_external.number().optional(),
-  window_minutes: exports_external.number().optional(),
-  resets_at: exports_external.number().optional()
-});
-var CodexSessionMetadataSchema = exports_external.object({
-  model_with_reasoning: exports_external.string().optional(),
-  context_remaining: exports_external.number().optional(),
-  context_used: exports_external.number().optional(),
-  five_hour_limit: exports_external.number().optional(),
-  weekly_limit: exports_external.number().optional(),
-  used_tokens: exports_external.number().optional(),
-  input_tokens: exports_external.number().optional(),
-  output_tokens: exports_external.number().optional(),
-  cache_read_tokens: exports_external.number().optional(),
-  reasoning_tokens: exports_external.number().optional(),
-  model_context_window: exports_external.number().optional(),
-  token_count_latest: exports_external.object({
-    timestamp: exports_external.string().optional(),
-    total_token_usage: TokenUsageSchema.optional(),
-    last_token_usage: TokenUsageSchema.optional(),
-    model_context_window: exports_external.number().optional()
-  }).optional(),
-  rate_limits_latest: exports_external.object({
-    limit_id: exports_external.string().optional(),
-    plan_type: exports_external.string().optional(),
-    primary: RateLimitWindowSchema.optional(),
-    secondary: RateLimitWindowSchema.optional()
-  }).optional()
-});
-var ClaudeCodeSessionMetadataSchema = exports_external.object({
-  model: exports_external.string().optional(),
-  input_tokens: exports_external.number().optional(),
-  output_tokens: exports_external.number().optional(),
-  cache_read_tokens: exports_external.number().optional(),
-  cache_creation_tokens: exports_external.number().optional(),
-  reasoning_tokens: exports_external.number().optional(),
-  cost_usd: exports_external.number().nullable().optional(),
-  cost_source: exports_external.string().optional(),
-  context_used: exports_external.number().optional(),
-  model_context_window: exports_external.number().optional(),
-  five_hour_limit: exports_external.number().optional(),
-  weekly_limit: exports_external.number().optional(),
-  token_data_source: exports_external.string().optional()
-}).passthrough();
-var metadataSchemasBySource = {
-  codex: CodexSessionMetadataSchema,
-  hermes: HermesSessionMetadataSchema,
-  claude_code: ClaudeCodeSessionMetadataSchema
-};
-function validateSessionMetadata(source, metadata) {
-  const schema = metadataSchemasBySource[source];
-  if (!schema)
-    return { valid: true, data: metadata };
-  const result = schema.safeParse(metadata);
-  if (result.success)
-    return { valid: true, data: result.data };
-  return { valid: false, error: result.error.message };
-}
-// ../../packages/utils/src/date-range.ts
-var PERIOD_TYPE_LABELS = {
-  ["today" /* Today */]: "Today",
-  ["this_week" /* ThisWeek */]: "This Week",
-  ["this_month" /* ThisMonth */]: "This Month"
-};
-var PERIOD_SUMMARY_LABELS = {
-  ["today" /* Today */]: "Daily Summary",
-  ["this_week" /* ThisWeek */]: "Weekly Summary",
-  ["this_month" /* ThisMonth */]: "Monthly Summary",
-  custom: "Custom Period"
-};
-// ../../packages/utils/src/frontmatter.ts
-var FRONTMATTER_KEYS = new Set(["name", "description"]);
-// ../../packages/utils/src/mcp-registry.ts
-var CACHE_TTL_MS2 = 30 * 60 * 1000;
-var CACHE_MAX_SIZE = 100;
-class TtlCache {
-  map = new Map;
-  get(key) {
-    const entry = this.map.get(key);
-    if (!entry)
-      return { hit: false };
-    if (Date.now() > entry.expiry) {
-      this.map.delete(key);
-      return { hit: false };
-    }
-    return { hit: true, value: entry.value };
-  }
-  set(key, value) {
-    if (this.map.size >= CACHE_MAX_SIZE && !this.map.has(key)) {
-      const firstKey = this.map.keys().next().value;
-      if (firstKey !== undefined)
-        this.map.delete(firstKey);
-    }
-    this.map.set(key, { value, expiry: Date.now() + CACHE_TTL_MS2 });
-  }
-  clear() {
-    this.map.clear();
-  }
-}
-var cache = new TtlCache;
-var toolCache = new TtlCache;
-var serverCache = new TtlCache;
-var GENERIC_SEGMENTS = new Set(["mcp", "com", "org", "io", "dev", "server", "api"]);
-var VERB_PREFIXES = new Set([
-  "get",
-  "list",
-  "create",
-  "delete",
-  "update",
-  "search",
-  "query",
-  "fetch",
-  "run",
-  "execute",
-  "resolve",
-  "find",
-  "read",
-  "write",
-  "set",
-  "send",
-  "check",
-  "add",
-  "remove"
-]);
-// ../../packages/utils/src/sanitize-null-bytes.ts
-function sanitizeNullBytes(value) {
-  if (typeof value === "string") {
-    return value.replace(/\u0000/g, "");
-  }
-  if (Array.isArray(value)) {
-    return value.map(sanitizeNullBytes);
-  }
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, sanitizeNullBytes(v)]));
-  }
-  return value;
-}
-// ../../packages/plugin-common/src/sync/upsert-fallback.ts
-var FALLBACK_CHUNK_SIZE = 50;
-async function upsertWithFallback(options) {
-  const { rows, upsert, rowId, logger: logger3 } = options;
-  if (rows.length === 0)
-    return { success: true, uploadedCount: 0, failedIndices: new Set };
-  const { error: error51, status } = await upsert(rows);
-  if (!error51) {
-    return { success: true, uploadedCount: rows.length, failedIndices: new Set };
-  }
-  const category = classifyPostgrestError(error51, status);
-  if (category !== "data_error") {
-    return {
-      success: false,
-      uploadedCount: 0,
-      failedIndices: new Set,
-      errorCategory: category
-    };
-  }
-  let uploaded = 0;
-  const failedIndices = new Set;
-  for (let ci = 0;ci < rows.length; ci += FALLBACK_CHUNK_SIZE) {
-    const chunk = rows.slice(ci, ci + FALLBACK_CHUNK_SIZE);
-    const { error: chunkError, status: chunkStatus } = await upsert(chunk);
-    if (!chunkError) {
-      uploaded += chunk.length;
-      continue;
-    }
-    const chunkCategory = classifyPostgrestError(chunkError, chunkStatus);
-    if (chunkCategory !== "data_error") {
-      for (let j = ci;j < rows.length; j++)
-        failedIndices.add(j);
-      return {
-        success: false,
-        uploadedCount: uploaded,
-        failedIndices,
-        errorCategory: chunkCategory
-      };
-    }
-    for (let ri = 0;ri < chunk.length; ri++) {
-      const row = chunk[ri];
-      const { error: rowError, status: rowStatus } = await upsert([row]);
-      if (!rowError) {
-        uploaded++;
-        continue;
-      }
-      const rowCategory = classifyPostgrestError(rowError, rowStatus);
-      if (rowCategory !== "data_error") {
-        const globalIndex = ci + ri;
-        for (let j = globalIndex;j < rows.length; j++)
-          failedIndices.add(j);
-        return {
-          success: false,
-          uploadedCount: uploaded,
-          failedIndices,
-          errorCategory: rowCategory
-        };
-      }
-      logger3?.warn?.(`Skipping row ${rowId(row)} due to data error [${rowError.code ?? "unknown"}]`);
-      failedIndices.add(ci + ri);
-    }
-  }
-  return { success: true, uploadedCount: uploaded, failedIndices };
-}
-
-// ../../packages/plugin-common/src/sync/chat-uploader.ts
-function excludeMessagesForFailedSessions(messages, failedSessionIds) {
-  if (failedSessionIds.size === 0)
-    return messages;
-  return messages.filter((m) => !failedSessionIds.has(m.session_id));
-}
-function getMaxMessageIndexPerSession(messages) {
-  const maxIndices = new Map;
-  for (const message of messages) {
-    if (!message.session_id || message.message_index === undefined)
-      continue;
-    const currentMax = maxIndices.get(message.session_id) ?? -1;
-    if (message.message_index > currentMax) {
-      maxIndices.set(message.session_id, message.message_index);
-    }
-  }
-  return maxIndices;
-}
-function partitionMessagesBySessionCategory(messages, categories) {
-  const orphaned = [];
-  const valid = [];
-  const stale = [];
-  const pending = [];
-  for (const message of messages) {
-    if (!message.session_id)
-      continue;
-    if (categories.validIds.has(message.session_id)) {
-      valid.push(message);
-    } else if (categories.staleIds.has(message.session_id)) {
-      stale.push(message);
-    } else if (categories.pendingIds.has(message.session_id)) {
-      pending.push(message);
-    } else {
-      orphaned.push(message);
-    }
-  }
-  return { valid, stale, pending, orphaned };
-}
-function deduplicateSessions(sessions) {
-  const sessionMap = new Map;
-  for (const session of sessions) {
-    if (!session.id)
-      continue;
-    const existing = sessionMap.get(session.id);
-    if (!existing) {
-      sessionMap.set(session.id, session);
-      continue;
-    }
-    const existingTime = existing.created_at ? new Date(existing.created_at).getTime() : 0;
-    const currentTime = session.created_at ? new Date(session.created_at).getTime() : 0;
-    if (currentTime >= existingTime) {
-      sessionMap.set(session.id, session);
-    }
-  }
-  return Array.from(sessionMap.values());
-}
-function deduplicateMessages(messages) {
-  const messageMap = new Map;
-  for (const message of messages) {
-    if (!message.session_id)
-      continue;
-    const key = `${message.session_id}:${message.message_index}`;
-    const existing = messageMap.get(key);
-    if (!existing) {
-      messageMap.set(key, message);
-      continue;
-    }
-    const existingTime = existing.created_at ? new Date(existing.created_at).getTime() : 0;
-    const currentTime = message.created_at ? new Date(message.created_at).getTime() : 0;
-    if (currentTime >= existingTime) {
-      messageMap.set(key, message);
-    }
-  }
-  return Array.from(messageMap.values());
-}
-function createChatUploader(config2) {
-  const {
-    sessionsQueueFile,
-    messagesQueueFile,
-    platform,
-    source,
-    sessionNamespace,
-    minMessagesPerSession,
-    staleSessionAgeMs,
-    logger: logger3,
-    readQueue: readQueue2,
-    atomicUpdateQueue: atomicUpdateQueue2,
-    onCaptureException,
-    maxSessionsPerCycle,
-    maxMessagesPerCycle
-  } = config2;
-  const staleSessionAgeDays = Math.round(staleSessionAgeMs / (24 * 60 * 60 * 1000));
-  function categorizeSessions(sessions, maxMessageIndexBySession) {
-    const now = Date.now();
-    const staleThreshold = now - staleSessionAgeMs;
-    const valid = [];
-    const stale = [];
-    const pending = [];
-    for (const session of sessions) {
-      if (!session.id)
-        continue;
-      const maxMessageIndex = maxMessageIndexBySession.get(session.id) ?? -1;
-      const sessionAge = session.created_at ? new Date(session.created_at).getTime() : now;
-      if (maxMessageIndex >= minMessagesPerSession - 1) {
-        valid.push(session);
-      } else if (sessionAge < staleThreshold) {
-        stale.push(session);
-      } else {
-        pending.push(session);
-      }
-    }
-    return {
-      valid,
-      stale,
-      pending,
-      validIds: new Set(valid.map((s) => s.id).filter((id) => !!id)),
-      staleIds: new Set(stale.map((s) => s.id).filter((id) => !!id)),
-      pendingIds: new Set(pending.map((s) => s.id).filter((id) => !!id))
-    };
-  }
-  function logSessionCategorization(categories, messagePartition) {
-    if (categories.stale.length > 0) {
-      logger3?.info(`Removing ${categories.stale.length} stale sessions (< ${minMessagesPerSession} messages, > ${staleSessionAgeDays} days old) with ${messagePartition.stale.length} messages`);
-    }
-    if (categories.pending.length > 0) {
-      logger3?.info(`Keeping ${categories.pending.length} pending sessions (< ${minMessagesPerSession} messages, within ${staleSessionAgeDays} days) with ${messagePartition.pending.length} messages`);
-    }
-  }
-  async function enrichSessionsForUpload(sessions, userId, workspaceId) {
-    const filteredSessions = sessions.filter((s) => !!s.id);
-    if (filteredSessions.length < sessions.length) {
-      logger3?.warn(`Filtered out ${sessions.length - filteredSessions.length} sessions without IDs`);
-    }
-    const enriched = [];
-    for (const s of filteredSessions) {
-      const signals = config2.readSessionSignals ? await config2.readSessionSignals(s.id) : null;
-      let metadata = s.metadata ?? null;
-      if (metadata !== null) {
-        const validation = validateSessionMetadata(source, metadata);
-        if (!validation.valid) {
-          logger3?.warn(`Invalid session metadata for ${s.id}: ${validation.error}`);
-          metadata = null;
-        }
-      }
-      const session = {
-        ...s,
-        id: normalizeSessionId(s.id, sessionNamespace),
-        title: s.title ? sanitizeNullBytes(toWellFormed(s.title)) : s.title,
-        user_id: userId,
-        platform,
-        source,
-        analysis_status: "pending",
-        metadata
-      };
-      if (workspaceId) {
-        session.workspace_id = workspaceId;
-      }
-      if (signals) {
-        session.signals = signals;
-      }
-      enriched.push(session);
-    }
-    return enriched;
-  }
-  function enrichMessagesForUpload(messages, userId) {
-    const filteredMessages = messages.filter((m) => m.session_id);
-    if (filteredMessages.length < messages.length) {
-      logger3?.warn(`Filtered out ${messages.length - filteredMessages.length} messages without session IDs`);
-    }
-    return filteredMessages.map((m) => ({
-      ...m,
-      session_id: normalizeSessionId(m.session_id, sessionNamespace),
-      content: sanitizeNullBytes(toWellFormed(m.content)),
-      user_id: userId,
-      code_diffs: null,
-      metadata: m.metadata ? sanitizeNullBytes(m.metadata) : null
-    }));
-  }
-  async function uploadSessionsToSupabase(supabase, sessions) {
-    if (sessions.length === 0)
-      return { success: true, uploadedCount: 0, failedSessionIds: new Set };
-    const result = await upsertWithFallback({
-      rows: sessions,
-      upsert: (batch) => supabase.from("chat_sessions").upsert(batch, { onConflict: "id", defaultToNull: false }),
-      rowId: (row) => row.id ?? "unknown",
-      logger: logger3
-    });
-    if (result.success) {
-      logger3?.info(`✓ Uploaded ${result.uploadedCount} chat sessions`);
-    }
-    const failedSessionIds = new Set([...result.failedIndices].map((idx) => sessions[idx].id).filter((id) => !!id));
-    if (result.failedIndices.size > 0) {
-      logger3?.warn(`Session fallback: ${result.failedIndices.size} sessions discarded`);
-      onCaptureException?.(new Error(`${result.failedIndices.size} sessions failed during fallback`), SYNC_DATA_ERROR, "chat-uploader", {
-        ...buildSyncProperties({ syncErrorType: "data_error" }),
-        skipped: result.failedIndices.size,
-        uploaded: result.uploadedCount
-      });
-    }
-    return {
-      success: result.success,
-      uploadedCount: result.uploadedCount,
-      failedSessionIds,
-      errorCategory: result.errorCategory
-    };
-  }
-  async function uploadMessagesToSupabase(supabase, messages) {
-    if (messages.length === 0)
-      return { success: true, uploadedCount: 0 };
-    const messagesWithoutId = messages.map(({ id, ...rest }) => rest);
-    const result = await upsertWithFallback({
-      rows: messagesWithoutId,
-      upsert: (batch) => supabase.from("chat_messages").upsert(batch, { onConflict: "session_id,message_index", defaultToNull: false }),
-      rowId: (row) => `${row.session_id}:${row.message_index}`,
-      logger: logger3
-    });
-    if (result.success) {
-      logger3?.info(`✓ Uploaded ${result.uploadedCount} chat messages`);
-    }
-    if (result.failedIndices.size > 0) {
-      logger3?.warn(`Message fallback: ${result.failedIndices.size} messages discarded`);
-      onCaptureException?.(new Error(`${result.failedIndices.size} messages failed during fallback`), SYNC_DATA_ERROR, "chat-uploader", {
-        ...buildSyncProperties({ syncErrorType: "data_error" }),
-        skipped: result.failedIndices.size,
-        uploaded: result.uploadedCount
-      });
-    }
-    return {
-      success: result.success,
-      uploadedCount: result.uploadedCount,
-      errorCategory: result.errorCategory
-    };
-  }
-  async function removeMessagesFromQueue(messageIdsToRemove) {
-    await atomicUpdateQueue2(messagesQueueFile, (currentMessages) => currentMessages.filter((m) => m.id && !messageIdsToRemove.has(m.id)));
-  }
-  async function removeStaleSessionsFromQueue(staleSessionIds) {
-    await atomicUpdateQueue2(sessionsQueueFile, (currentSessions) => currentSessions.filter((s) => s.id && !staleSessionIds.has(s.id)));
-    await atomicUpdateQueue2(messagesQueueFile, (currentMessages) => currentMessages.filter((m) => m.session_id && !staleSessionIds.has(m.session_id)));
-  }
-  async function uploadChatData(supabase, session, dataControls) {
-    try {
-      const queuedSessions = await readQueue2(sessionsQueueFile);
-      const queuedMessages = await readQueue2(messagesQueueFile);
-      if (queuedSessions.length === 0 && queuedMessages.length === 0) {
-        logger3?.debug("No chat data to upload");
-        return { success: true, uploaded: { sessions: 0, messages: 0 } };
-      }
-      const maxMessageIndexBySession = getMaxMessageIndexPerSession(queuedMessages);
-      const categories = categorizeSessions(queuedSessions, maxMessageIndexBySession);
-      const messagePartition = partitionMessagesBySessionCategory(queuedMessages, categories);
-      logSessionCategorization(categories, messagePartition);
-      if (messagePartition.orphaned.length > 0) {
-        const orphanedSessionIds2 = [
-          ...new Set(messagePartition.orphaned.map((m) => m.session_id).filter((id) => !!id).map((id) => normalizeSessionId(id, sessionNamespace)))
-        ];
-        const { data: existingSessions, error: queryError } = await supabase.from("chat_sessions").select("id").in("id", orphanedSessionIds2);
-        if (queryError) {
-          const orphanedMessageIds = new Set(messagePartition.orphaned.map((m) => m.id).filter((id) => !!id));
-          const droppedSessionIds = [
-            ...new Set(messagePartition.orphaned.map((m) => m.session_id).filter(Boolean))
-          ];
-          logger3?.warn("orphaned_messages_dropped_query_error", {
-            dropped_count: orphanedMessageIds.size,
-            session_ids: droppedSessionIds
-          });
-          onCaptureException?.(new Error(`Dropped ${orphanedMessageIds.size} orphaned messages due to query error`), SYNC_ORPHANED_MESSAGES_DROPPED, "chat-uploader", { dropped_count: orphanedMessageIds.size, session_ids: droppedSessionIds });
-          await removeMessagesFromQueue(orphanedMessageIds);
-          messagePartition.orphaned = [];
-        } else {
-          const existingSessionIds = new Set(existingSessions?.map((s) => s.id) || []);
-          const validOrphaned = [];
-          const invalidOrphaned = [];
-          for (const message of messagePartition.orphaned) {
-            if (!message.session_id) {
-              invalidOrphaned.push(message);
-              continue;
-            }
-            const normalized = normalizeSessionId(message.session_id, sessionNamespace);
-            if (existingSessionIds.has(normalized)) {
-              validOrphaned.push(message);
-            } else {
-              invalidOrphaned.push(message);
-            }
-          }
-          if (invalidOrphaned.length > 0) {
-            const invalidMessageIds = new Set(invalidOrphaned.map((m) => m.id).filter((id) => !!id));
-            const droppedSessionIds = [
-              ...new Set(invalidOrphaned.map((m) => m.session_id).filter(Boolean))
-            ];
-            logger3?.warn("orphaned_messages_dropped_invalid", {
-              dropped_count: invalidMessageIds.size,
-              session_ids: droppedSessionIds
-            });
-            onCaptureException?.(new Error(`Dropped ${invalidMessageIds.size} orphaned messages - sessions not found`), SYNC_ORPHANED_MESSAGES_DROPPED, "chat-uploader", { dropped_count: invalidMessageIds.size, session_ids: droppedSessionIds });
-            await removeMessagesFromQueue(invalidMessageIds);
-          }
-          messagePartition.orphaned = validOrphaned;
-        }
-      }
-      if (categories.stale.length > 0) {
-        await removeStaleSessionsFromQueue(categories.staleIds);
-      }
-      if (categories.valid.length === 0 && messagePartition.orphaned.length === 0) {
-        return { success: true, uploaded: { sessions: 0, messages: 0 } };
-      }
-      const uniqueSessions = deduplicateSessions(categories.valid);
-      const allMessagesToUpload = [...messagePartition.valid, ...messagePartition.orphaned];
-      const uniqueMessages = deduplicateMessages(allMessagesToUpload);
-      const workspaceId = session.workspaceId ?? null;
-      if (!workspaceId) {
-        logger3?.warn("Skipping chat upload: workspace_id is missing from auth session");
-        onCaptureException?.(new Error("Chat upload blocked: no workspace_id in auth session"), SYNC_BLOCKED_NO_WORKSPACE, "chat-uploader", {
-          ...buildSyncProperties({ sessionsAttempted: uniqueSessions.length }),
-          reason: "precondition_failed"
-        });
-        return { success: false, uploaded: { sessions: 0, messages: 0 }, errorCategory: "auth_error" };
-      }
-      const sessionsToUpload = await enrichSessionsForUpload(uniqueSessions, session.userId, workspaceId);
-      let sessionsForThisCycle = sessionsToUpload;
-      if (maxSessionsPerCycle && sessionsToUpload.length > maxSessionsPerCycle) {
-        sessionsForThisCycle = sessionsToUpload.slice(0, maxSessionsPerCycle);
-        logger3?.info(`Drain throttle: uploading ${sessionsForThisCycle.length} of ${sessionsToUpload.length} sessions`);
-        onCaptureException?.(new Error(`Drain throttle active: ${sessionsToUpload.length} sessions in queue`), SYNC_DRAIN_THROTTLED, "chat-uploader", {
-          queue_size: sessionsToUpload.length,
-          cycle_cap: maxSessionsPerCycle,
-          queue_type: "sessions"
-        });
-      }
-      const uploadedSessionIdSet = new Set(sessionsForThisCycle.map((s) => s.id).filter((id) => !!id));
-      const orphanedSessionIds = new Set(messagePartition.orphaned.map((m) => normalizeSessionId(m.session_id, sessionNamespace)).filter((id) => !!id));
-      const allValidSessionIds = new Set([...uploadedSessionIdSet, ...orphanedSessionIds]);
-      const messagesToUpload = enrichMessagesForUpload(uniqueMessages, session.userId).filter((m) => allValidSessionIds.has(m.session_id));
-      let filteredMessages = messagesToUpload;
-      if (dataControls) {
-        const uploadUser = dataControls.shouldUploadUserMessages();
-        const uploadAssistant = dataControls.shouldUploadAssistantMessages();
-        const uploadDiffs = dataControls.shouldUploadCodeDiffs();
-        if (!uploadUser && !uploadAssistant) {
-          logger3?.info("Skipping chat upload: both user_messages and assistant_messages disabled");
-          if (categories.stale.length > 0) {
-            await removeStaleSessionsFromQueue(categories.staleIds);
-          }
-          return { success: true, uploaded: { sessions: 0, messages: 0 } };
-        }
-        filteredMessages = messagesToUpload.filter((m) => {
-          if (m.role === "user" && !uploadUser)
-            return false;
-          if (m.role === "assistant" && !uploadAssistant)
-            return false;
-          return true;
-        }).map((m) => uploadDiffs ? m : { ...m, code_diffs: null });
-        if (filteredMessages.length === 0) {
-          logger3?.info("No messages to upload after data controls filtering");
-          return { success: true, uploaded: { sessions: 0, messages: 0 } };
-        }
-      }
-      let messagesForThisCycle = filteredMessages;
-      if (maxMessagesPerCycle && filteredMessages.length > maxMessagesPerCycle) {
-        messagesForThisCycle = filteredMessages.slice(0, maxMessagesPerCycle);
-        logger3?.info(`Drain throttle: uploading ${messagesForThisCycle.length} of ${filteredMessages.length} messages`);
-        onCaptureException?.(new Error(`Drain throttle active: ${filteredMessages.length} messages in queue`), SYNC_DRAIN_THROTTLED, "chat-uploader", {
-          queue_size: filteredMessages.length,
-          cycle_cap: maxMessagesPerCycle,
-          queue_type: "messages"
-        });
-      }
-      const messageSessionIds = new Set(messagesForThisCycle.map((m) => m.session_id));
-      const missingSessionIds = [...messageSessionIds].filter((id) => !allValidSessionIds.has(id));
-      if (missingSessionIds.length > 0) {
-        return { success: false, uploaded: { sessions: 0, messages: 0 } };
-      }
-      const sessionsResult = await uploadSessionsToSupabase(supabase, sessionsForThisCycle);
-      if (!sessionsResult.success) {
-        return {
-          success: false,
-          uploaded: { sessions: 0, messages: 0 },
-          errorCategory: sessionsResult.errorCategory
-        };
-      }
-      const messagesForUpload = excludeMessagesForFailedSessions(messagesForThisCycle, sessionsResult.failedSessionIds);
-      const messagesResult = await uploadMessagesToSupabase(supabase, messagesForUpload);
-      if (!messagesResult.success) {
-        return {
-          success: false,
-          uploaded: { sessions: sessionsResult.uploadedCount, messages: 0 },
-          errorCategory: messagesResult.errorCategory
-        };
-      }
-      const normalizedToRaw = new Map(uniqueSessions.filter((s) => !!s.id).map((s) => [normalizeSessionId(s.id, sessionNamespace), s.id]));
-      const uploadedRawSessionIds = new Set(sessionsForThisCycle.map((s) => normalizedToRaw.get(s.id)).filter((id) => !!id));
-      const sessionsToRemove = new Set([...uploadedRawSessionIds, ...categories.staleIds]);
-      await atomicUpdateQueue2(sessionsQueueFile, (currentSessions) => currentSessions.filter((s) => s.id && !sessionsToRemove.has(s.id)));
-      const uploadedMessageIds = new Set(messagesForThisCycle.map((m) => m.id).filter((id) => !!id));
-      const fingerprintMsg = (m) => `${m.session_id}:${m.message_index}:${m.role}`;
-      const uploadedNoIdFingerprints = new Set(messagesForThisCycle.filter((m) => !m.id).map(fingerprintMsg));
-      await atomicUpdateQueue2(messagesQueueFile, (currentMessages) => currentMessages.filter((m) => {
-        if (m.session_id && categories.staleIds.has(m.session_id))
-          return false;
-        if (m.id && uploadedMessageIds.has(m.id))
-          return false;
-        if (!m.id && uploadedNoIdFingerprints.has(fingerprintMsg(m)))
-          return false;
-        return true;
-      }));
-      return {
-        success: true,
-        uploaded: {
-          sessions: sessionsResult.uploadedCount,
-          messages: messagesResult.uploadedCount
-        }
-      };
-    } catch (error51) {
-      logger3?.error("Failed to upload chat data", error51);
-      const category = classifyException(error51);
-      if (error51 instanceof Error) {
-        onCaptureException?.(error51, SYNC_CHAT_UPLOAD_FAILED, "chat-uploader", {
-          ...buildSyncProperties({ syncErrorType: "upload_failed" }),
-          error_category: category
-        });
-      }
-      return {
-        success: false,
-        uploaded: { sessions: 0, messages: 0 },
-        errorCategory: category
-      };
-    }
-  }
-  async function uploadChatDataWithRetry(supabase, session, dataControls, maxRetries = 3, backoffMs = 5000) {
-    let lastResult = null;
-    for (let attempt = 1;attempt <= maxRetries; attempt++) {
-      const result = await uploadChatData(supabase, session, dataControls);
-      if (result.success) {
-        return result;
-      }
-      lastResult = result;
-      if (result.errorCategory && !isRetryableCategory(result.errorCategory)) {
-        return result;
-      }
-      logger3?.warn(`Chat upload attempt ${attempt}/${maxRetries} failed`);
-      if (attempt < maxRetries) {
-        const delay = backoffMs * attempt;
-        logger3?.debug(`Retrying in ${delay}ms...`);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-    }
-    logger3?.error(`Chat upload failed after ${maxRetries} attempts`);
-    return lastResult ?? { success: false, uploaded: { sessions: 0, messages: 0 } };
-  }
-  return {
-    uploadChatData,
-    uploadChatDataWithRetry,
-    categorizeSessions,
-    enrichSessionsForUpload,
-    enrichMessagesForUpload
-  };
-}
-
 // src/extractors/signal-extractor.ts
 import { readFile as readFile10, writeFile as writeFile8 } from "node:fs/promises";
-import { join as join6 } from "node:path";
+import { join as join7 } from "node:path";
 
 // src/utils/bundled-skills.ts
-import { readdirSync } from "node:fs";
-import { homedir as homedir2 } from "node:os";
-import { join as join5 } from "node:path";
-var BUNDLED_SKILLS_DIR = join5(process.env.HERMES_DIR ?? join5(homedir2(), ".hermes"), "hermes-agent", "skills");
+import { readdirSync as readdirSync2 } from "node:fs";
+import { join as join6 } from "node:path";
+var BUNDLED_SKILLS_DIR2 = join6(HERMES_HOME, "hermes-agent", "skills");
 var bundledSkills;
 function scanBundledSkills() {
   const names = new Set;
   try {
-    const categories = readdirSync(BUNDLED_SKILLS_DIR, { withFileTypes: true });
+    const categories = readdirSync2(BUNDLED_SKILLS_DIR2, { withFileTypes: true });
     for (const cat of categories) {
       if (!cat.isDirectory())
         continue;
-      const skills = readdirSync(join5(BUNDLED_SKILLS_DIR, cat.name), { withFileTypes: true });
+      const skills = readdirSync2(join6(BUNDLED_SKILLS_DIR2, cat.name), { withFileTypes: true });
       for (const skill of skills) {
         if (skill.isDirectory())
           names.add(skill.name);
@@ -36475,18 +36734,15 @@ function categorizeTool(name) {
     return "builtin";
   return "unknown";
 }
-function resolveUsageKey(name, argsJson) {
+function resolveUsageKey(name, args) {
   if (name === "skill_view") {
-    const args = parseArguments(argsJson);
     return typeof args?.name === "string" && args.name || "skill_view";
   }
   if (name === "skill_manage") {
-    const args = parseArguments(argsJson);
     const action = typeof args?.action === "string" ? args.action : "unknown";
     return `skill_manage:${action}`;
   }
   if (name === "memory") {
-    const args = parseArguments(argsJson);
     const action = typeof args?.action === "string" ? args.action : "unknown";
     return `memory:${action}`;
   }
@@ -36494,6 +36750,14 @@ function resolveUsageKey(name, argsJson) {
 }
 function incrementRecord(map2, key) {
   map2[key] = (map2[key] ?? 0) + 1;
+}
+function incrementSkillUsage(usage, skillKey) {
+  const recorded = usage[skillKey];
+  if (typeof recorded === "object" && recorded !== null) {
+    usage[skillKey] = { ...recorded, count: recorded.count + 1 };
+    return;
+  }
+  usage[skillKey] = (recorded ?? 0) + 1;
 }
 function extractSignalsFromMessages(messages, previous = EMPTY_SIGNALS) {
   const signals = {
@@ -36503,7 +36767,9 @@ function extractSignalsFromMessages(messages, previous = EMPTY_SIGNALS) {
     builtin_usage: { ...previous.builtin_usage },
     unknown_usage: { ...previous.unknown_usage },
     image_count: previous.image_count,
-    tool_metadata: previous.tool_metadata ? { ...previous.tool_metadata } : undefined
+    tool_metadata: previous.tool_metadata ? { ...previous.tool_metadata } : undefined,
+    skills: previous.skills ? [...previous.skills] : undefined,
+    memories: previous.memories ? [...previous.memories] : undefined
   };
   for (const msg of messages) {
     if (!msg.tool_calls)
@@ -36512,14 +36778,15 @@ function extractSignalsFromMessages(messages, previous = EMPTY_SIGNALS) {
     for (const call of toolCalls) {
       const name = call.function.name;
       const category = categorizeTool(name);
-      const key = resolveUsageKey(name, call.function.arguments);
+      const args = parseArguments(call.function.arguments);
+      const key = resolveUsageKey(name, args);
       switch (category) {
         case "mcp":
           incrementRecord(signals.mcp_usage, key);
           break;
         case "skill":
-          incrementRecord(signals.skill_usage, key);
-          populateSkillMetadata(signals, name, call.function.arguments);
+          incrementSkillUsage(signals.skill_usage, key);
+          populateSkillMetadata(signals, name, args);
           break;
         case "builtin":
           incrementRecord(signals.builtin_usage, key);
@@ -36528,14 +36795,33 @@ function extractSignalsFromMessages(messages, previous = EMPTY_SIGNALS) {
           incrementRecord(signals.unknown_usage, key);
           break;
       }
+      collectActivity(signals, name, args);
     }
   }
   return signals;
 }
-function populateSkillMetadata(signals, toolName, argsJson) {
+function collectActivity(signals, toolName, args) {
+  if (toolName === "skill_manage") {
+    const action = typeof args?.action === "string" ? args.action : null;
+    const name = typeof args?.name === "string" && args.name ? args.name : null;
+    if (!action || !name)
+      return;
+    signals.skills ??= [];
+    signals.skills.push({ action, name });
+    return;
+  }
+  if (toolName === "memory") {
+    const action = typeof args?.action === "string" ? args.action : null;
+    if (!action)
+      return;
+    const target = args?.target === "user" || args?.target === "memory" ? args.target : "unknown";
+    signals.memories ??= [];
+    signals.memories.push({ action, target });
+  }
+}
+function populateSkillMetadata(signals, toolName, args) {
   if (toolName !== "skill_view")
     return;
-  const args = parseArguments(argsJson);
   const skillName = typeof args?.name === "string" ? args.name : null;
   if (!skillName)
     return;
@@ -36549,7 +36835,7 @@ function populateSkillMetadata(signals, toolName, argsJson) {
   };
 }
 function hasSignalData(signals) {
-  return Object.keys(signals.mcp_usage).length > 0 || Object.keys(signals.skill_usage).length > 0 || Object.keys(signals.agent_usage).length > 0 || Object.keys(signals.builtin_usage).length > 0 || Object.keys(signals.unknown_usage).length > 0 || signals.image_count > 0;
+  return Object.keys(signals.mcp_usage).length > 0 || Object.keys(signals.skill_usage).length > 0 || Object.keys(signals.agent_usage).length > 0 || Object.keys(signals.builtin_usage).length > 0 || Object.keys(signals.unknown_usage).length > 0 || signals.image_count > 0 || (signals.skills?.length ?? 0) > 0 || (signals.memories?.length ?? 0) > 0;
 }
 
 class SignalExtractor {
@@ -36592,7 +36878,7 @@ class SignalExtractor {
   }
   statePath(sessionId) {
     const sanitized = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
-    return join6(this.stateDir, `signals-${sanitized}.json`);
+    return join7(this.stateDir, `signals-${sanitized}.json`);
   }
   async readState(sessionId) {
     try {
@@ -36615,13 +36901,14 @@ var signalExtractor = new SignalExtractor({
 });
 
 // src/supabase/chat-uploader.ts
+var { minMessagesPerSession: minMessagesPerSession2 } = loadSettingsSync();
 var chatUploader = createChatUploader({
   sessionsQueueFile: SESSIONS_QUEUE_FILE,
   messagesQueueFile: MESSAGES_QUEUE_FILE,
   platform: PLATFORM,
   source: SOURCE,
   sessionNamespace: ZEST_SESSION_NAMESPACE,
-  minMessagesPerSession: MIN_MESSAGES_PER_SESSION,
+  minMessagesPerSession: minMessagesPerSession2,
   staleSessionAgeMs: STALE_SESSION_AGE_MS,
   logger: logger2,
   readQueue,
@@ -36674,6 +36961,15 @@ function extractProjectName(workingDirectory) {
       }
     } catch {}
     try {
+      const gitCommonDir = execSync("git rev-parse --git-common-dir", {
+        cwd: workingDirectory,
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+        timeout: 5000
+      }).trim();
+      if (path.isAbsolute(gitCommonDir) && path.basename(gitCommonDir) === ".git") {
+        return path.basename(path.dirname(gitCommonDir));
+      }
       const repoRoot = execSync("git rev-parse --show-toplevel", {
         cwd: workingDirectory,
         encoding: "utf-8",
@@ -36767,7 +37063,7 @@ function createEventsUploader(config2) {
     maxEventAgeDays,
     maxEventsPerCycle
   } = config2;
-  function transformEventForUpload(event, userId, projectInfo) {
+  function transformEventForUpload(event, userId, workspaceId, projectInfo) {
     let normalizedPayload = event.payload;
     if (event.payload && typeof event.payload === "object" && !Array.isArray(event.payload) && "session_id" in event.payload && typeof event.payload.session_id === "string") {
       normalizedPayload = {
@@ -36780,6 +37076,7 @@ function createEventsUploader(config2) {
       session_id: event.session_id ? normalizeSessionId(event.session_id, sessionNamespace) : event.session_id,
       event_type: "file.changed",
       user_id: userId,
+      workspace_id: event.workspace_id ?? workspaceId,
       platform,
       source,
       payload: sanitizeNullBytes(normalizedPayload),
@@ -36856,7 +37153,7 @@ function createEventsUploader(config2) {
       }
       const allTransformedEvents = eventsForThisCycle.map((e) => {
         const projectInfo = e.workspace_folder_uri ? projectInfoCache.get(parseFileUri(e.workspace_folder_uri)) ?? UNKNOWN_PROJECT2 : UNKNOWN_PROJECT2;
-        return transformEventForUpload(e, session.userId, projectInfo);
+        return transformEventForUpload(e, session.userId, session.workspaceId ?? null, projectInfo);
       });
       const droppedIds = new Set;
       const eventsToUpload = allTransformedEvents.filter((e) => {
@@ -37059,7 +37356,7 @@ var isShuttingDown = false;
 var orphanMissCount = 0;
 function hasLiveHermesProcess() {
   try {
-    const content = readFileSync2(ACTIVE_SESSIONS_FILE, "utf-8");
+    const content = readFileSync4(ACTIVE_SESSIONS_FILE, "utf-8");
     const pids = content.split(`
 `).map((l) => Number.parseInt(l.trim(), 10)).filter((n) => !Number.isNaN(n));
     if (pids.length === 0)
@@ -37074,7 +37371,8 @@ async function drainPendingFinalizations() {
   try {
     if (dbClient.isAvailable()) {
       const ignoredIds = await loadIgnoredSessions();
-      await processPendingFinalizations(dbClient, ignoredIds, logger2);
+      const supabase = await getPersistentClient();
+      await processPendingFinalizations(dbClient, ignoredIds, logger2, supabase);
     }
   } finally {
     dbClient.close();
@@ -37157,6 +37455,9 @@ async function main() {
     logger2.warn("privacy_manager_init_failed", error51);
   }
   async function scheduleSyncLoop() {
+    await drainPendingFinalizations().catch((error51) => {
+      logger2.warn("daemon_pending_finalize_failed", error51);
+    });
     await runSyncCycle().catch((error51) => {
       logger2.error("sync_timer_error", error51);
     });

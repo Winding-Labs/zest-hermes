@@ -15,6 +15,97 @@ var __export = (target, all) => {
 
 // ../../packages/plugin-common/src/sync/events-uploader.ts
 import { fileURLToPath } from "node:url";
+
+// ../../packages/utils/src/command-xml.ts
+var CLAUDE_BUILTIN_COMMANDS = new Set([
+  "add-dir",
+  "agents",
+  "allowed-tools",
+  "android",
+  "app",
+  "autofix-pr",
+  "bashes",
+  "branch",
+  "btw",
+  "bug",
+  "checkpoint",
+  "chrome",
+  "clear",
+  "color",
+  "compact",
+  "config",
+  "context",
+  "continue",
+  "copy",
+  "cost",
+  "desktop",
+  "diff",
+  "doctor",
+  "effort",
+  "exit",
+  "export",
+  "extra-usage",
+  "fast",
+  "feedback",
+  "fork",
+  "help",
+  "hooks",
+  "ide",
+  "init",
+  "insights",
+  "install-github-app",
+  "install-slack-app",
+  "ios",
+  "keybindings",
+  "login",
+  "logout",
+  "mcp",
+  "memory",
+  "mobile",
+  "model",
+  "new",
+  "output-style",
+  "passes",
+  "permissions",
+  "plan",
+  "plugin",
+  "powerup",
+  "pr-comments",
+  "privacy-settings",
+  "quit",
+  "rc",
+  "release-notes",
+  "reload-plugins",
+  "remote-control",
+  "remote-env",
+  "rename",
+  "reset",
+  "resume",
+  "review",
+  "rewind",
+  "sandbox",
+  "schedule",
+  "security-review",
+  "settings",
+  "setup-bedrock",
+  "skills",
+  "stats",
+  "status",
+  "statusline",
+  "stickers",
+  "tasks",
+  "teleport",
+  "terminal-setup",
+  "theme",
+  "todos",
+  "tp",
+  "ultraplan",
+  "upgrade",
+  "usage",
+  "vim",
+  "voice",
+  "web-setup"
+]);
 // ../../packages/utils/src/date-range.ts
 var PERIOD_TYPE_LABELS = {
   ["today" /* Today */]: "Today",
@@ -222,6 +313,15 @@ function extractProjectName(workingDirectory) {
       }
     } catch {}
     try {
+      const gitCommonDir = execSync("git rev-parse --git-common-dir", {
+        cwd: workingDirectory,
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+        timeout: 5000
+      }).trim();
+      if (path.isAbsolute(gitCommonDir) && path.basename(gitCommonDir) === ".git") {
+        return path.basename(path.dirname(gitCommonDir));
+      }
       const repoRoot = execSync("git rev-parse --show-toplevel", {
         cwd: workingDirectory,
         encoding: "utf-8",
@@ -621,7 +721,7 @@ function createEventsUploader(config) {
     maxEventAgeDays,
     maxEventsPerCycle
   } = config;
-  function transformEventForUpload(event, userId, projectInfo) {
+  function transformEventForUpload(event, userId, workspaceId, projectInfo) {
     let normalizedPayload = event.payload;
     if (event.payload && typeof event.payload === "object" && !Array.isArray(event.payload) && "session_id" in event.payload && typeof event.payload.session_id === "string") {
       normalizedPayload = {
@@ -634,6 +734,7 @@ function createEventsUploader(config) {
       session_id: event.session_id ? normalizeSessionId(event.session_id, sessionNamespace) : event.session_id,
       event_type: "file.changed",
       user_id: userId,
+      workspace_id: event.workspace_id ?? workspaceId,
       platform,
       source,
       payload: sanitizeNullBytes(normalizedPayload),
@@ -710,7 +811,7 @@ function createEventsUploader(config) {
       }
       const allTransformedEvents = eventsForThisCycle.map((e) => {
         const projectInfo = e.workspace_folder_uri ? projectInfoCache.get(parseFileUri(e.workspace_folder_uri)) ?? UNKNOWN_PROJECT2 : UNKNOWN_PROJECT2;
-        return transformEventForUpload(e, session.userId, projectInfo);
+        return transformEventForUpload(e, session.userId, session.workspaceId ?? null, projectInfo);
       });
       const droppedIds = new Set;
       const eventsToUpload = allTransformedEvents.filter((e) => {
@@ -859,8 +960,8 @@ var SOURCE = "hermes";
 var ZEST_SESSION_NAMESPACE = "a7e3f1d9-8b4c-4e2a-9f6d-3c5b7a1e0d82";
 var VERSION_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 var UPDATE_CHECK_CACHE_TTL_MS = 60 * 60 * 1000;
-var MIN_MESSAGES_PER_SESSION = 3;
 var STALE_SESSION_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+var MIN_MESSAGES_PER_SESSION = 3;
 var NOTIFICATION_DURATION_MS = 5 * 60 * 1000;
 var STANDUP_NOTIFICATION_THROTTLE_MS = 2 * 60 * 60 * 1000;
 var POSTHOG_API_KEY = "phc_cSYAEzsJX9gr0sgCp4tfnr7QJ71PwGD04eUQSglw4iQ";
@@ -921,12 +1022,12 @@ var logger = {
 
 // ../../packages/plugin-common/src/queue/queue-manager.ts
 import { appendFile, readFile as readFile2, unlink as unlink2, writeFile as writeFile2 } from "node:fs/promises";
-import { dirname as dirname2 } from "node:path";
+import { dirname as dirname3 } from "node:path";
 
 // ../../packages/plugin-common/src/utils/file-lock.ts
 import { unlinkSync } from "node:fs";
 import { readdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname as dirname2 } from "node:path";
 
 // ../../packages/plugin-common/src/utils/fs-utils.ts
 import { mkdir, stat } from "node:fs/promises";
@@ -964,7 +1065,7 @@ async function acquireFileLock(filePath, isRunning, options, activeLockFiles, de
     timestamp: Date.now()
   };
   try {
-    await ensureDirectory(dirname(lockFile));
+    await ensureDirectory(dirname2(lockFile));
     await writeFile(lockFile, JSON.stringify(lockInfo), { flag: "wx" });
     activeLockFiles?.add(lockFile);
     return true;
@@ -1210,6 +1311,23 @@ function createQueueManager(config) {
       throw error;
     }
   }
+  async function patchQueuedSession(sessionId, metadata, title) {
+    let found = false;
+    await atomicUpdateQueue(queueFiles.sessions, (sessions) => sessions.map((session) => {
+      if (session.id !== sessionId)
+        return session;
+      found = true;
+      return {
+        ...session,
+        title: title ?? session.title,
+        metadata: {
+          ...session.metadata ?? {},
+          ...metadata
+        }
+      };
+    }));
+    return found;
+  }
   async function readQueue(queueFile) {
     try {
       return await readJsonl(queueFile);
@@ -1221,7 +1339,7 @@ function createQueueManager(config) {
   async function writeQueue(queueFile, items) {
     try {
       await withFileLock(queueFile, async () => {
-        await ensureDirectory(dirname2(queueFile));
+        await ensureDirectory(dirname3(queueFile));
         const content = items.map((item) => JSON.stringify(item, sanitizingReplacer)).join(`
 `) + (items.length > 0 ? `
 ` : "");
@@ -1248,7 +1366,7 @@ function createQueueManager(config) {
       await withFileLock(queueFile, async () => {
         const currentItems = await readJsonl(queueFile);
         const newItems = transform(currentItems);
-        await ensureDirectory(dirname2(queueFile));
+        await ensureDirectory(dirname3(queueFile));
         const content = newItems.map((item) => JSON.stringify(item, sanitizingReplacer)).join(`
 `) + (newItems.length > 0 ? `
 ` : "");
@@ -1311,7 +1429,7 @@ function createQueueManager(config) {
           const targetSize = Math.floor(cap * 0.9);
           const itemsToEvict = currentItems.length - targetSize;
           const trimmed = currentItems.slice(itemsToEvict);
-          await ensureDirectory(dirname2(queueFile));
+          await ensureDirectory(dirname3(queueFile));
           const content = [...trimmed, item].map((i) => JSON.stringify(i, sanitizingReplacer)).join(`
 `) + `
 `;
@@ -1327,7 +1445,7 @@ function createQueueManager(config) {
           return;
         }
       }
-      await ensureDirectory(dirname2(queueFile));
+      await ensureDirectory(dirname3(queueFile));
       const line = JSON.stringify(item, sanitizingReplacer) + `
 `;
       await appendFile(queueFile, line, "utf8");
@@ -1409,6 +1527,7 @@ function createQueueManager(config) {
     enqueueEvent,
     enqueueChatSession,
     enqueueChatMessage,
+    patchQueuedSession,
     getDetailedQueueStats
   };
 }
@@ -1498,6 +1617,10 @@ var EVENTS = {
   NAV_LINK_CLICKED: "Nav Link Clicked",
   WORKSPACE_SWITCHED: "Workspace Switched",
   TEAM_SWITCHED: "Team Switched",
+  ASK_ZEST_CONVERSATION_STARTED: "Ask Zest Conversation Started",
+  ASK_ZEST_QUICK_ACTION_CLICKED: "Ask Zest Quick Action Clicked",
+  ASK_ZEST_PROMPT_SELECTED: "Ask Zest Prompt Selected",
+  ASK_ZEST_MENU_OPENED: "Ask Zest Menu Opened",
   STANDUP_GENERATED: "Standup Generated",
   STANDUP_VIEWED: "Standup Viewed",
   STANDUP_SHARED: "Standup Shared",
@@ -1514,6 +1637,9 @@ var EVENTS = {
   WORKSPACE_MEMBERS_PROVISIONED: "Workspace Members Provisioned",
   WORKSPACE_SETTINGS_VIEWED: "Workspace Settings Viewed",
   TEAM_SETTINGS_VIEWED: "Team Settings Viewed",
+  GITHUB_CONNECT_STARTED: "GitHub Connect Started",
+  GITHUB_CONNECTION_REQUESTED: "GitHub Connection Requested",
+  GITHUB_CONNECTED: "GitHub Connected",
   CLI_SIGNED_IN: "CLI Signed In",
   TRIAL_STARTED: "Trial Started",
   PLAN_SELECTED: "Plan Selected",
@@ -1584,7 +1710,7 @@ class GA4ServerProvider {
 }
 
 // ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/extensions/error-tracking/modifiers/module.node.mjs
-import { dirname as dirname3, posix, sep } from "path";
+import { dirname as dirname4, posix, sep } from "path";
 function createModulerModifier() {
   const getModuleFromFileName = createGetModuleFromFilename();
   return async (frames) => {
@@ -1593,7 +1719,7 @@ function createModulerModifier() {
     return frames;
   };
 }
-function createGetModuleFromFilename(basePath = process.argv[1] ? dirname3(process.argv[1]) : process.cwd(), isWindows = sep === "\\") {
+function createGetModuleFromFilename(basePath = process.argv[1] ? dirname4(process.argv[1]) : process.cwd(), isWindows = sep === "\\") {
   const normalizedBase = isWindows ? normalizeWindowsPath(basePath) : basePath;
   return (filename) => {
     if (!filename)
@@ -4407,7 +4533,7 @@ function snipLine(line, colno) {
 }
 
 // ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/extensions/error-tracking/modifiers/relative-path.node.mjs
-import { isAbsolute, relative, sep as sep2 } from "path";
+import { isAbsolute as isAbsolute2, relative, sep as sep2 } from "path";
 function createRelativePathModifier(basePath = process.cwd()) {
   const isWindows = sep2 === "\\";
   const toUnix = (p) => isWindows ? p.replace(/\\/g, "/") : p;
@@ -4415,7 +4541,7 @@ function createRelativePathModifier(basePath = process.cwd()) {
   return async (frames) => {
     for (const frame of frames)
       if (!(!frame.filename || frame.filename.startsWith("node:") || frame.filename.startsWith("data:"))) {
-        if (isAbsolute(frame.filename))
+        if (isAbsolute2(frame.filename))
           frame.filename = toUnix(relative(normalizedBase, toUnix(frame.filename)));
       }
     return frames;
@@ -6773,7 +6899,7 @@ function createAnalyticsClient(config) {
 
 // ../../packages/plugin-common/src/auth/session-io.ts
 import { mkdir as mkdir2, readFile as readFile3, unlink as unlink3, writeFile as writeFile3 } from "node:fs/promises";
-import { dirname as dirname4 } from "node:path";
+import { dirname as dirname5 } from "node:path";
 async function readSessionFile(filePath) {
   try {
     const content = await readFile3(filePath, "utf-8");
@@ -6786,7 +6912,7 @@ async function readSessionFile(filePath) {
   }
 }
 async function writeSessionFile(filePath, session) {
-  await mkdir2(dirname4(filePath), { recursive: true });
+  await mkdir2(dirname5(filePath), { recursive: true });
   await writeFile3(filePath, JSON.stringify(session, null, 2), {
     encoding: "utf-8",
     mode: 384
@@ -6942,7 +7068,7 @@ var {
 
 // src/utils/plugin-version.ts
 function getPluginVersion() {
-  return "0.1.0";
+  return "0.1.1";
 }
 
 // src/analytics/client.ts
@@ -6986,6 +7112,9 @@ async function captureException(error, errorType, errorSource, additionalPropert
     logger.debug("Failed to capture exception in PostHog", e);
   }
 }
+
+// src/config/settings.ts
+import { readFileSync } from "node:fs";
 
 // ../../node_modules/.bun/zod@4.4.3/node_modules/zod/v4/classic/external.js
 var exports_external = {};
@@ -22502,6 +22631,14 @@ var PrivacySettingsSchema = exports_external.object({
   enableZestRules: exports_external.boolean().default(true),
   customExclusionPatterns: exports_external.array(exports_external.string()).default([])
 });
+var DEFAULT_PRIVACY_SETTINGS = {
+  approach: "detection",
+  aggressiveMode: false,
+  enableGitignore: true,
+  enableZestRules: true,
+  customExclusionPatterns: []
+};
+
 class PrivacyManager {
   service = null;
   initialized = false;
@@ -22628,6 +22765,47 @@ class PrivacyManager {
   }
 }
 
+// src/config/settings.ts
+var UserSettingsSchema = exports_external.object({
+  enableRemotePersistence: exports_external.boolean(),
+  logLevel: exports_external.enum(["debug", "info", "warn", "error"]),
+  privacy: PrivacySettingsSchema.optional(),
+  disabledTools: exports_external.array(exports_external.string()).optional(),
+  authMode: exports_external.enum(["user", "agent"]).default("user"),
+  agentId: exports_external.string().uuid().optional(),
+  provisioningKey: exports_external.string().uuid().optional(),
+  workspaceId: exports_external.string().uuid().optional(),
+  minMessagesPerSession: exports_external.number().int().min(1).default(MIN_MESSAGES_PER_SESSION)
+}).refine((data) => data.authMode !== "agent" || Boolean(data.agentId) && Boolean(data.provisioningKey), { message: "agentId and provisioningKey are required when authMode is 'agent'" });
+var DEFAULT_SETTINGS = {
+  enableRemotePersistence: true,
+  logLevel: "info",
+  privacy: DEFAULT_PRIVACY_SETTINGS,
+  authMode: "user",
+  minMessagesPerSession: MIN_MESSAGES_PER_SESSION
+};
+function validateSettings(rawSettings) {
+  const validated = UserSettingsSchema.parse(rawSettings);
+  return { ...DEFAULT_SETTINGS, ...validated };
+}
+function logSettingsLoadError(error51) {
+  if (error51 instanceof exports_external.ZodError) {
+    logger.warn("Invalid settings format, using defaults:", error51.issues);
+  } else if (error51.code !== "ENOENT") {
+    logger.warn("Failed to load settings, using defaults:", error51);
+  }
+}
+function loadSettingsSync() {
+  try {
+    const content = readFileSync(SETTINGS_FILE, "utf-8");
+    const rawSettings = JSON.parse(content);
+    return validateSettings(rawSettings);
+  } catch (error51) {
+    logSettingsLoadError(error51);
+    return DEFAULT_SETTINGS;
+  }
+}
+
 // src/privacy/privacy-manager.ts
 var instance = null;
 function getPrivacyManager() {
@@ -22646,6 +22824,7 @@ var fileLock = createFileLock({
 var { withFileLock } = fileLock;
 
 // src/utils/queue-manager.ts
+var { minMessagesPerSession } = loadSettingsSync();
 var queueManager = createQueueManager({
   queueDir: QUEUE_DIR,
   queueFiles: {
@@ -22654,7 +22833,7 @@ var queueManager = createQueueManager({
     messages: MESSAGES_QUEUE_FILE
   },
   privacyManager: getPrivacyManager(),
-  minMessagesPerSession: MIN_MESSAGES_PER_SESSION,
+  minMessagesPerSession,
   logger,
   withFileLock,
   onCaptureException: captureException
@@ -22669,6 +22848,7 @@ var {
   enqueueEvent,
   enqueueChatSession,
   enqueueChatMessage,
+  patchQueuedSession,
   getDetailedQueueStats
 } = queueManager;
 

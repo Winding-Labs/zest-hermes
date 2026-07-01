@@ -485,8 +485,8 @@ var STATUS_CACHE_FILE = process.env.ZEST_STATUS_CACHE_FILE ?? join(HERMES_ZEST_H
 var SYNC_INTERVAL_MS = 30000;
 var VERSION_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 var UPDATE_CHECK_CACHE_TTL_MS = 60 * 60 * 1000;
-var MIN_MESSAGES_PER_SESSION = 3;
 var STALE_SESSION_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+var MIN_MESSAGES_PER_SESSION = 3;
 var NOTIFICATION_DURATION_MS = 5 * 60 * 1000;
 var STANDUP_NOTIFICATION_THROTTLE_MS = 2 * 60 * 60 * 1000;
 var POSTHOG_API_KEY = "phc_cSYAEzsJX9gr0sgCp4tfnr7QJ71PwGD04eUQSglw4iQ";
@@ -560,6 +560,7 @@ var {
 } = sessionManager;
 
 // src/config/settings.ts
+import { readFileSync } from "node:fs";
 import { chmod, readFile as readFile4, writeFile as writeFile3 } from "node:fs/promises";
 
 // ../../node_modules/.bun/zod@4.4.3/node_modules/zod/v4/classic/external.js
@@ -16220,30 +16221,48 @@ var UserSettingsSchema = exports_external.object({
   authMode: exports_external.enum(["user", "agent"]).default("user"),
   agentId: exports_external.string().uuid().optional(),
   provisioningKey: exports_external.string().uuid().optional(),
-  workspaceId: exports_external.string().uuid().optional()
+  workspaceId: exports_external.string().uuid().optional(),
+  minMessagesPerSession: exports_external.number().int().min(1).default(MIN_MESSAGES_PER_SESSION)
 }).refine((data) => data.authMode !== "agent" || Boolean(data.agentId) && Boolean(data.provisioningKey), { message: "agentId and provisioningKey are required when authMode is 'agent'" });
 var DEFAULT_SETTINGS = {
   enableRemotePersistence: true,
   logLevel: "info",
   privacy: DEFAULT_PRIVACY_SETTINGS,
-  authMode: "user"
+  authMode: "user",
+  minMessagesPerSession: MIN_MESSAGES_PER_SESSION
 };
+function validateSettings(rawSettings) {
+  const validated = UserSettingsSchema.parse(rawSettings);
+  return { ...DEFAULT_SETTINGS, ...validated };
+}
+function logSettingsLoadError(error51) {
+  if (error51 instanceof exports_external.ZodError) {
+    logger.warn("Invalid settings format, using defaults:", error51.issues);
+  } else if (error51.code !== "ENOENT") {
+    logger.warn("Failed to load settings, using defaults:", error51);
+  }
+}
 async function loadSettings() {
   let rawSettings;
   try {
     const content = await readFile4(SETTINGS_FILE, "utf-8");
     rawSettings = JSON.parse(content);
-    const validated = UserSettingsSchema.parse(rawSettings);
-    return { ...DEFAULT_SETTINGS, ...validated };
+    return validateSettings(rawSettings);
   } catch (error51) {
     if (error51 instanceof exports_external.ZodError && rawSettings?.authMode === "agent") {
       throw new Error(`Invalid agent settings: ${JSON.stringify(error51.issues)}`);
     }
-    if (error51 instanceof exports_external.ZodError) {
-      logger.warn("Invalid settings format, using defaults:", error51.issues);
-    } else if (error51.code !== "ENOENT") {
-      logger.warn("Failed to load settings, using defaults:", error51);
-    }
+    logSettingsLoadError(error51);
+    return DEFAULT_SETTINGS;
+  }
+}
+function loadSettingsSync() {
+  try {
+    const content = readFileSync(SETTINGS_FILE, "utf-8");
+    const rawSettings = JSON.parse(content);
+    return validateSettings(rawSettings);
+  } catch (error51) {
+    logSettingsLoadError(error51);
     return DEFAULT_SETTINGS;
   }
 }
@@ -16336,6 +16355,10 @@ var EVENTS = {
   NAV_LINK_CLICKED: "Nav Link Clicked",
   WORKSPACE_SWITCHED: "Workspace Switched",
   TEAM_SWITCHED: "Team Switched",
+  ASK_ZEST_CONVERSATION_STARTED: "Ask Zest Conversation Started",
+  ASK_ZEST_QUICK_ACTION_CLICKED: "Ask Zest Quick Action Clicked",
+  ASK_ZEST_PROMPT_SELECTED: "Ask Zest Prompt Selected",
+  ASK_ZEST_MENU_OPENED: "Ask Zest Menu Opened",
   STANDUP_GENERATED: "Standup Generated",
   STANDUP_VIEWED: "Standup Viewed",
   STANDUP_SHARED: "Standup Shared",
@@ -16352,6 +16375,9 @@ var EVENTS = {
   WORKSPACE_MEMBERS_PROVISIONED: "Workspace Members Provisioned",
   WORKSPACE_SETTINGS_VIEWED: "Workspace Settings Viewed",
   TEAM_SETTINGS_VIEWED: "Team Settings Viewed",
+  GITHUB_CONNECT_STARTED: "GitHub Connect Started",
+  GITHUB_CONNECTION_REQUESTED: "GitHub Connection Requested",
+  GITHUB_CONNECTED: "GitHub Connected",
   CLI_SIGNED_IN: "CLI Signed In",
   TRIAL_STARTED: "Trial Started",
   PLAN_SELECTED: "Plan Selected",
@@ -21611,7 +21637,7 @@ function createAnalyticsClient(config2) {
 
 // src/utils/plugin-version.ts
 function getPluginVersion() {
-  return "0.1.0";
+  return "0.1.1";
 }
 
 // src/analytics/client.ts
@@ -21820,6 +21846,23 @@ function createQueueManager(config2) {
       throw error51;
     }
   }
+  async function patchQueuedSession(sessionId, metadata, title) {
+    let found = false;
+    await atomicUpdateQueue(queueFiles.sessions, (sessions) => sessions.map((session) => {
+      if (session.id !== sessionId)
+        return session;
+      found = true;
+      return {
+        ...session,
+        title: title ?? session.title,
+        metadata: {
+          ...session.metadata ?? {},
+          ...metadata
+        }
+      };
+    }));
+    return found;
+  }
   async function readQueue(queueFile) {
     try {
       return await readJsonl(queueFile);
@@ -22019,6 +22062,7 @@ function createQueueManager(config2) {
     enqueueEvent,
     enqueueChatSession,
     enqueueChatMessage,
+    patchQueuedSession,
     getDetailedQueueStats
   };
 }
@@ -22041,6 +22085,7 @@ var fileLock = createFileLock({
 var { withFileLock } = fileLock;
 
 // src/utils/queue-manager.ts
+var { minMessagesPerSession } = loadSettingsSync();
 var queueManager = createQueueManager({
   queueDir: QUEUE_DIR,
   queueFiles: {
@@ -22049,7 +22094,7 @@ var queueManager = createQueueManager({
     messages: MESSAGES_QUEUE_FILE
   },
   privacyManager: getPrivacyManager(),
-  minMessagesPerSession: MIN_MESSAGES_PER_SESSION,
+  minMessagesPerSession,
   logger,
   withFileLock,
   onCaptureException: captureException
@@ -22064,11 +22109,12 @@ var {
   enqueueEvent,
   enqueueChatSession,
   enqueueChatMessage,
+  patchQueuedSession,
   getDetailedQueueStats
 } = queueManager;
 
 // ../../packages/plugin-common/src/cache/status-cache-manager.ts
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync as readFileSync2, writeFileSync } from "node:fs";
 var DEFAULT_VERSION_CHECK = {
   updateAvailable: false,
   currentVersion: "unknown",
@@ -22109,7 +22155,7 @@ function createStatusCacheManager(config2) {
   const withFileLock2 = resolveFileLock(config2.withFileLock);
   function readStatusCache() {
     try {
-      const data = readFileSync(statusCacheFile, "utf-8");
+      const data = readFileSync2(statusCacheFile, "utf-8");
       const parsed = JSON.parse(data);
       if (parsed.updateAvailable !== undefined && !parsed.versionCheck) {
         logger3?.info("Migrating old update-check.json format to new status-cache.json format");

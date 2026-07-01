@@ -8,6 +8,97 @@ function epochToIso(epoch) {
 
 // src/extractors/diff-extractor.ts
 import { randomUUID } from "node:crypto";
+
+// ../../packages/utils/src/command-xml.ts
+var CLAUDE_BUILTIN_COMMANDS = new Set([
+  "add-dir",
+  "agents",
+  "allowed-tools",
+  "android",
+  "app",
+  "autofix-pr",
+  "bashes",
+  "branch",
+  "btw",
+  "bug",
+  "checkpoint",
+  "chrome",
+  "clear",
+  "color",
+  "compact",
+  "config",
+  "context",
+  "continue",
+  "copy",
+  "cost",
+  "desktop",
+  "diff",
+  "doctor",
+  "effort",
+  "exit",
+  "export",
+  "extra-usage",
+  "fast",
+  "feedback",
+  "fork",
+  "help",
+  "hooks",
+  "ide",
+  "init",
+  "insights",
+  "install-github-app",
+  "install-slack-app",
+  "ios",
+  "keybindings",
+  "login",
+  "logout",
+  "mcp",
+  "memory",
+  "mobile",
+  "model",
+  "new",
+  "output-style",
+  "passes",
+  "permissions",
+  "plan",
+  "plugin",
+  "powerup",
+  "pr-comments",
+  "privacy-settings",
+  "quit",
+  "rc",
+  "release-notes",
+  "reload-plugins",
+  "remote-control",
+  "remote-env",
+  "rename",
+  "reset",
+  "resume",
+  "review",
+  "rewind",
+  "sandbox",
+  "schedule",
+  "security-review",
+  "settings",
+  "setup-bedrock",
+  "skills",
+  "stats",
+  "status",
+  "statusline",
+  "stickers",
+  "tasks",
+  "teleport",
+  "terminal-setup",
+  "theme",
+  "todos",
+  "tp",
+  "ultraplan",
+  "upgrade",
+  "usage",
+  "vim",
+  "voice",
+  "web-setup"
+]);
 // ../../packages/utils/src/date-range.ts
 var PERIOD_TYPE_LABELS = {
   ["today" /* Today */]: "Today",
@@ -248,6 +339,84 @@ function extractDiffEvents(messages) {
   return events;
 }
 
+// src/extractors/inventory-metadata-builder.ts
+import { readdirSync, readFileSync } from "node:fs";
+import { join as join2 } from "node:path";
+
+// src/config/constants.ts
+import { homedir } from "node:os";
+import { join } from "node:path";
+var HERMES_HOME = process.env.HERMES_DIR ?? join(homedir(), ".hermes");
+var HERMES_ZEST_HOME = join(homedir(), ".hermes-zest");
+var HERMES_CONFIG_PATH = join(HERMES_HOME, "config.yaml");
+var STATE_DB_PATH = join(HERMES_HOME, "state.db");
+var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
+var PENDING_FINALIZE_FILE = join(HERMES_ZEST_HOME, "pending-finalize");
+var QUEUE_DIR = join(HERMES_ZEST_HOME, "queue");
+var EVENTS_QUEUE_FILE = join(QUEUE_DIR, "events.jsonl");
+var SESSIONS_QUEUE_FILE = join(QUEUE_DIR, "chat-sessions.jsonl");
+var MESSAGES_QUEUE_FILE = join(QUEUE_DIR, "chat-messages.jsonl");
+var STATE_DIR = join(HERMES_ZEST_HOME, "state");
+var LOGS_DIR = join(HERMES_ZEST_HOME, "logs");
+var SESSION_FILE = process.env.ZEST_SESSION_FILE ?? join(HERMES_ZEST_HOME, "session.json");
+var SETTINGS_FILE = join(HERMES_ZEST_HOME, "settings.json");
+var DAEMON_PID_FILE = join(HERMES_ZEST_HOME, "daemon.pid");
+var DAEMON_LOG_FILE = join(HERMES_ZEST_HOME, "daemon.log");
+var ACTIVE_SESSIONS_FILE = join(HERMES_ZEST_HOME, "active-sessions");
+var SYNC_METRICS_FILE = join(HERMES_ZEST_HOME, "sync-metrics.jsonl");
+var SYNC_METRICS_RETENTION_MS = 60 * 60 * 1000;
+var STATUS_CACHE_FILE = process.env.ZEST_STATUS_CACHE_FILE ?? join(HERMES_ZEST_HOME, "status-cache.json");
+var VERSION_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+var UPDATE_CHECK_CACHE_TTL_MS = 60 * 60 * 1000;
+var STALE_SESSION_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+var NOTIFICATION_DURATION_MS = 5 * 60 * 1000;
+var STANDUP_NOTIFICATION_THROTTLE_MS = 2 * 60 * 60 * 1000;
+
+// src/extractors/inventory-metadata-builder.ts
+var CUSTOM_SKILLS_DIR = join2(HERMES_HOME, "skills");
+var BUNDLED_SKILLS_DIR = join2(HERMES_HOME, "hermes-agent", "skills");
+var MEMORY_FILE = join2(HERMES_HOME, "memories", "MEMORY.md");
+var USER_FILE = join2(HERMES_HOME, "memories", "USER.md");
+var ENTRY_SEPARATOR = `
+§
+`;
+function countSkillsIn(dir) {
+  let count = 0;
+  try {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        count += countSkillsIn(join2(dir, entry.name));
+      } else if (entry.name === "SKILL.md") {
+        count++;
+      }
+    }
+  } catch {}
+  return count;
+}
+function readFileOrNull(path) {
+  try {
+    return readFileSync(path, "utf-8");
+  } catch {
+    return null;
+  }
+}
+function countEntries(content) {
+  return content.split(ENTRY_SEPARATOR).filter((s) => s.trim().length > 0).length;
+}
+function buildInventoryMetadata() {
+  const skillsCount = countSkillsIn(CUSTOM_SKILLS_DIR) + countSkillsIn(BUNDLED_SKILLS_DIR);
+  const memoryContent = readFileOrNull(MEMORY_FILE);
+  const userContent = readFileOrNull(USER_FILE);
+  return {
+    available_skills_count: skillsCount > 0 ? skillsCount : null,
+    memory_chars: memoryContent?.length ?? null,
+    memory_entry_count: memoryContent ? countEntries(memoryContent) : null,
+    user_entry_count: userContent ? countEntries(userContent) : null,
+    user_chars: userContent?.length ?? null
+  };
+}
+
 // src/extractors/session-metadata-builder.ts
 var NORMAL_END_REASONS = new Set([
   "stop",
@@ -271,7 +440,8 @@ function buildSessionMetadata(row) {
     reasoning_tokens: row.reasoning_tokens,
     cost_usd: row.actual_cost_usd ?? row.estimated_cost_usd ?? null,
     message_count: row.message_count,
-    tool_call_count: row.tool_call_count
+    tool_call_count: row.tool_call_count,
+    duration_ms: row.ended_at ? Math.round((row.ended_at - row.started_at) * 1000) : null
   };
 }
 
@@ -295,13 +465,14 @@ class SessionMessageParser {
     }
     try {
       const state = await this.stateManager.read();
-      const newSessions = this.extractNewSessions(state);
+      const inventoryMetadata = buildInventoryMetadata();
+      const newSessions = this.extractNewSessions(state, inventoryMetadata);
       const { messages, updatedIndices, rows } = this.extractMessages(state);
       const diffEvents = extractDiffEvents(rows);
       const batchLastMessageId = rows.length > 0 ? Math.max(...rows.map((m) => m.id)) : 0;
       const newSessionIds = new Set(newSessions.map((s) => s.id));
       const activeSessionIds = [...new Set(rows.map((r) => r.session_id))].filter((id) => !newSessionIds.has(id));
-      const refreshedSessions = this.refreshSessions(activeSessionIds);
+      const refreshedSessions = this.refreshSessions(activeSessionIds, inventoryMetadata);
       if (newSessions.length > 0 || messages.length > 0) {
         await this.stateManager.write({
           lastSessionStartedAt: newSessions.length > 0 ? newSessions[newSessions.length - 1].created_at_epoch : state.lastSessionStartedAt,
@@ -322,7 +493,7 @@ class SessionMessageParser {
       return { sessions: [], messages: [], diffEvents: [], lastMessageId: 0 };
     }
   }
-  toExtractedSession(row) {
+  toExtractedSession(row, inventory) {
     return {
       id: row.id,
       title: row.title ?? undefined,
@@ -330,16 +501,16 @@ class SessionMessageParser {
       created_at_epoch: row.started_at,
       project_id: undefined,
       project_name: undefined,
-      metadata: buildSessionMetadata(row)
+      metadata: { ...buildSessionMetadata(row), ...inventory }
     };
   }
-  extractNewSessions(state) {
-    return this.dbClient.getSessionsAfter(state.lastSessionStartedAt).map((row) => this.toExtractedSession(row));
+  extractNewSessions(state, inventory) {
+    return this.dbClient.getSessionsAfter(state.lastSessionStartedAt).map((row) => this.toExtractedSession(row, inventory));
   }
-  refreshSessions(sessionIds) {
+  refreshSessions(sessionIds, inventory) {
     if (sessionIds.length === 0)
       return [];
-    return this.dbClient.getSessionsByIds(sessionIds).map((row) => this.toExtractedSession(row));
+    return this.dbClient.getSessionsByIds(sessionIds).map((row) => this.toExtractedSession(row, inventory));
   }
   extractMessages(state) {
     const rows = this.dbClient.getMessagesAfter(state.lastMessageId);

@@ -28,6 +28,7 @@ from .schemas import (
 from .tools import (
     STATE_DIR,
     cli_daemon_handler,
+    cli_provision_handler,
     handle_zest_check_notifications,
     handle_zest_disable,
     handle_zest_enable,
@@ -72,6 +73,12 @@ _NOTIFICATION_HINT = (
     "[Zest plugin] There is a pending notification for the user. "
     "Call the zest_check_notifications tool to retrieve and display it."
 )
+
+
+def _setup_provision_args(parser):
+    parser.add_argument("--agent-id", required=True, help="Zest agent UUID")
+    parser.add_argument("--provisioning-key", required=True, help="Zest-issued provisioning key")
+    parser.add_argument("--workspace-id", help="Zest workspace UUID (optional)")
 
 
 def _on_pre_llm_call(**kwargs):
@@ -129,4 +136,11 @@ def register(ctx):
             "action", choices=["start", "stop", "status"]
         ),
         handler_fn=cli_daemon_handler,
+    )
+
+    ctx.register_cli_command(
+        name="zest-provision",
+        help="Apply a Zest-issued provisioning key to set up agent mode",
+        setup_fn=_setup_provision_args,
+        handler_fn=cli_provision_handler,
     )

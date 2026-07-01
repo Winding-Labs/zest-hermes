@@ -15707,6 +15707,7 @@ var STATUS_CACHE_FILE = process.env.ZEST_STATUS_CACHE_FILE ?? join(HERMES_ZEST_H
 var VERSION_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 var UPDATE_CHECK_CACHE_TTL_MS = 60 * 60 * 1000;
 var STALE_SESSION_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+var MIN_MESSAGES_PER_SESSION = 3;
 var NOTIFICATION_DURATION_MS = 5 * 60 * 1000;
 var STANDUP_NOTIFICATION_THROTTLE_MS = 2 * 60 * 60 * 1000;
 
@@ -15771,30 +15772,38 @@ var UserSettingsSchema = exports_external.object({
   authMode: exports_external.enum(["user", "agent"]).default("user"),
   agentId: exports_external.string().uuid().optional(),
   provisioningKey: exports_external.string().uuid().optional(),
-  workspaceId: exports_external.string().uuid().optional()
+  workspaceId: exports_external.string().uuid().optional(),
+  minMessagesPerSession: exports_external.number().int().min(1).default(MIN_MESSAGES_PER_SESSION)
 }).refine((data) => data.authMode !== "agent" || Boolean(data.agentId) && Boolean(data.provisioningKey), { message: "agentId and provisioningKey are required when authMode is 'agent'" });
 var DEFAULT_SETTINGS = {
   enableRemotePersistence: true,
   logLevel: "info",
   privacy: DEFAULT_PRIVACY_SETTINGS,
-  authMode: "user"
+  authMode: "user",
+  minMessagesPerSession: MIN_MESSAGES_PER_SESSION
 };
+function validateSettings(rawSettings) {
+  const validated = UserSettingsSchema.parse(rawSettings);
+  return { ...DEFAULT_SETTINGS, ...validated };
+}
+function logSettingsLoadError(error51) {
+  if (error51 instanceof exports_external.ZodError) {
+    logger.warn("Invalid settings format, using defaults:", error51.issues);
+  } else if (error51.code !== "ENOENT") {
+    logger.warn("Failed to load settings, using defaults:", error51);
+  }
+}
 async function loadSettings() {
   let rawSettings;
   try {
     const content = await readFile2(SETTINGS_FILE, "utf-8");
     rawSettings = JSON.parse(content);
-    const validated = UserSettingsSchema.parse(rawSettings);
-    return { ...DEFAULT_SETTINGS, ...validated };
+    return validateSettings(rawSettings);
   } catch (error51) {
     if (error51 instanceof exports_external.ZodError && rawSettings?.authMode === "agent") {
       throw new Error(`Invalid agent settings: ${JSON.stringify(error51.issues)}`);
     }
-    if (error51 instanceof exports_external.ZodError) {
-      logger.warn("Invalid settings format, using defaults:", error51.issues);
-    } else if (error51.code !== "ENOENT") {
-      logger.warn("Failed to load settings, using defaults:", error51);
-    }
+    logSettingsLoadError(error51);
     return DEFAULT_SETTINGS;
   }
 }
