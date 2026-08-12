@@ -14360,6 +14360,7 @@ var HermesSessionMetadataSchema = exports_external.object({
   cache_write_tokens: exports_external.number(),
   reasoning_tokens: exports_external.number(),
   cost_usd: exports_external.number().nullable(),
+  billing_mode: exports_external.enum(BILLING_MODES).optional(),
   message_count: exports_external.number(),
   tool_call_count: exports_external.number(),
   duration_ms: exports_external.number().nullable().optional(),
@@ -14383,6 +14384,7 @@ var RateLimitWindowSchema = exports_external.object({
 });
 var CodexSessionMetadataSchema = exports_external.object({
   model_with_reasoning: exports_external.string().optional(),
+  models_with_reasoning: exports_external.array(exports_external.string()).optional(),
   token_source: exports_external.enum(TOKEN_SOURCES).optional(),
   plan: exports_external.string().optional(),
   billing_mode: exports_external.enum(BILLING_MODES).optional(),
@@ -14453,175 +14455,6 @@ function validateSessionMetadata(source, metadata) {
   return { valid: false, error: result.error.message };
 }
 
-// ../../packages/utils/src/command-xml.ts
-var CLAUDE_BUILTIN_COMMANDS = new Set([
-  "add-dir",
-  "agents",
-  "allowed-tools",
-  "android",
-  "app",
-  "autofix-pr",
-  "bashes",
-  "branch",
-  "btw",
-  "bug",
-  "checkpoint",
-  "chrome",
-  "clear",
-  "color",
-  "compact",
-  "config",
-  "context",
-  "continue",
-  "copy",
-  "cost",
-  "desktop",
-  "diff",
-  "doctor",
-  "effort",
-  "exit",
-  "export",
-  "extra-usage",
-  "fast",
-  "feedback",
-  "fork",
-  "help",
-  "hooks",
-  "ide",
-  "init",
-  "insights",
-  "install-github-app",
-  "install-slack-app",
-  "ios",
-  "keybindings",
-  "login",
-  "logout",
-  "mcp",
-  "memory",
-  "mobile",
-  "model",
-  "new",
-  "output-style",
-  "passes",
-  "permissions",
-  "plan",
-  "plugin",
-  "powerup",
-  "pr-comments",
-  "privacy-settings",
-  "quit",
-  "rc",
-  "release-notes",
-  "reload-plugins",
-  "remote-control",
-  "remote-env",
-  "rename",
-  "reset",
-  "resume",
-  "review",
-  "rewind",
-  "sandbox",
-  "schedule",
-  "security-review",
-  "settings",
-  "setup-bedrock",
-  "skills",
-  "stats",
-  "status",
-  "statusline",
-  "stickers",
-  "tasks",
-  "teleport",
-  "terminal-setup",
-  "theme",
-  "todos",
-  "tp",
-  "ultraplan",
-  "upgrade",
-  "usage",
-  "vim",
-  "voice",
-  "web-setup"
-]);
-// ../../packages/utils/src/date-range.ts
-var PERIOD_TYPE_LABELS = {
-  ["today" /* Today */]: "Today",
-  ["this_week" /* ThisWeek */]: "This Week",
-  ["this_month" /* ThisMonth */]: "This Month"
-};
-var PERIOD_SUMMARY_LABELS = {
-  ["today" /* Today */]: "Daily Summary",
-  ["this_week" /* ThisWeek */]: "Weekly Summary",
-  ["this_month" /* ThisMonth */]: "Monthly Summary",
-  custom: "Custom Period"
-};
-// ../../packages/utils/src/frontmatter.ts
-var FRONTMATTER_KEYS = new Set(["name", "description"]);
-// ../../packages/utils/src/mcp-registry.ts
-var CACHE_TTL_MS = 30 * 60 * 1000;
-var CACHE_MAX_SIZE = 100;
-class TtlCache {
-  map = new Map;
-  get(key) {
-    const entry = this.map.get(key);
-    if (!entry)
-      return { hit: false };
-    if (Date.now() > entry.expiry) {
-      this.map.delete(key);
-      return { hit: false };
-    }
-    return { hit: true, value: entry.value };
-  }
-  set(key, value) {
-    if (this.map.size >= CACHE_MAX_SIZE && !this.map.has(key)) {
-      const firstKey = this.map.keys().next().value;
-      if (firstKey !== undefined)
-        this.map.delete(firstKey);
-    }
-    this.map.set(key, { value, expiry: Date.now() + CACHE_TTL_MS });
-  }
-  clear() {
-    this.map.clear();
-  }
-}
-var cache = new TtlCache;
-var toolCache = new TtlCache;
-var serverCache = new TtlCache;
-var GENERIC_SEGMENTS = new Set(["mcp", "com", "org", "io", "dev", "server", "api"]);
-var VERB_PREFIXES = new Set([
-  "get",
-  "list",
-  "create",
-  "delete",
-  "update",
-  "search",
-  "query",
-  "fetch",
-  "run",
-  "execute",
-  "resolve",
-  "find",
-  "read",
-  "write",
-  "set",
-  "send",
-  "check",
-  "add",
-  "remove"
-]);
-// ../../packages/utils/src/sanitize-null-bytes.ts
-function sanitizeNullBytes(value) {
-  if (typeof value === "string") {
-    return value.replace(/\u0000/g, "");
-  }
-  if (Array.isArray(value)) {
-    return value.map(sanitizeNullBytes);
-  }
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, sanitizeNullBytes(v)]));
-  }
-  return value;
-}
 // ../../packages/plugin-common/src/analytics/events.ts
 var AUTH_DEVICE_CODE_INITIATION_FAILED = "auth_device_code_initiation_failed";
 var AUTH_DEVICE_CODE_POLLING_FAILED = "auth_device_code_polling_failed";
@@ -14630,14 +14463,13 @@ var AUTH_SESSION_LOAD_FAILED = "auth_session_load_failed";
 var AUTH_SESSION_CLEAR_FAILED = "auth_session_clear_failed";
 var AUTH_SESSION_SAVE_FAILED = "auth_session_save_failed";
 var SYNC_NOT_AUTHENTICATED = "sync_not_authenticated";
-var SYNC_EVENTS_UPLOAD_FAILED = "sync_events_upload_failed";
-var SYNC_EVENTS_RETRY_EXHAUSTED = "sync_events_upload_retry_exhausted";
 var SYNC_CHAT_UPLOAD_FAILED = "sync_chat_upload_failed";
 var SYNC_NETWORK_ERROR = "sync_network_error";
 var SYNC_SERVER_OVERLOAD = "sync_server_overload";
 var SYNC_DATA_ERROR = "sync_data_error";
 var SYNC_AUTH_ERROR = "sync_auth_error";
 var SYNC_BLOCKED_NO_WORKSPACE = "sync_blocked_no_workspace";
+var SYNC_STUCK = "sync_stuck";
 var AUTH_SESSION_METADATA_LOST = "auth_session_metadata_lost";
 var QUEUE_READ_CORRUPTED = "queue_read_corrupted";
 var QUEUE_WRITE_FAILED = "queue_write_failed";
@@ -14645,7 +14477,6 @@ var FILE_LOCK_TIMEOUT = "file_lock_timeout";
 var FILE_LOCK_CREATE_FAILED = "file_lock_create_failed";
 var NOTIFICATION_STATE_WRITE_FAILED = "notification_state_write_failed";
 var QUEUE_CAP_EVICTION = "queue_cap_eviction";
-var SYNC_STALE_EVENTS_DROPPED = "sync_stale_events_dropped";
 var SYNC_DRAIN_THROTTLED = "sync_drain_throttled";
 var SYNC_ORPHANED_MESSAGES_DROPPED = "sync_orphaned_messages_dropped";
 var EXTRACTION_PROJECT_DIR_NOT_FOUND = "extraction_project_dir_not_found";
@@ -14673,18 +14504,16 @@ var ERROR_TYPES = [
   AUTH_SESSION_SAVE_FAILED,
   AUTH_SESSION_METADATA_LOST,
   SYNC_NOT_AUTHENTICATED,
-  SYNC_EVENTS_UPLOAD_FAILED,
-  SYNC_EVENTS_RETRY_EXHAUSTED,
   SYNC_CHAT_UPLOAD_FAILED,
   SYNC_NETWORK_ERROR,
   SYNC_SERVER_OVERLOAD,
   SYNC_DATA_ERROR,
   SYNC_AUTH_ERROR,
   SYNC_BLOCKED_NO_WORKSPACE,
+  SYNC_STUCK,
   QUEUE_READ_CORRUPTED,
   QUEUE_WRITE_FAILED,
   QUEUE_CAP_EVICTION,
-  SYNC_STALE_EVENTS_DROPPED,
   SYNC_DRAIN_THROTTLED,
   SYNC_ORPHANED_MESSAGES_DROPPED,
   FILE_LOCK_TIMEOUT,
@@ -14859,7 +14688,163 @@ function normalizeSessionId(sessionId, namespace) {
   }
   return v5_default(sessionId, namespace);
 }
-// ../../packages/plugin-common/src/supabase/utils/string-utils.ts
+// ../../packages/utils/src/command-xml.ts
+var CLAUDE_BUILTIN_COMMANDS = new Set([
+  "add-dir",
+  "agents",
+  "allowed-tools",
+  "android",
+  "app",
+  "autofix-pr",
+  "bashes",
+  "branch",
+  "btw",
+  "bug",
+  "checkpoint",
+  "chrome",
+  "clear",
+  "color",
+  "compact",
+  "config",
+  "context",
+  "continue",
+  "copy",
+  "cost",
+  "desktop",
+  "diff",
+  "doctor",
+  "effort",
+  "exit",
+  "export",
+  "extra-usage",
+  "fast",
+  "feedback",
+  "fork",
+  "help",
+  "hooks",
+  "ide",
+  "init",
+  "insights",
+  "install-github-app",
+  "install-slack-app",
+  "ios",
+  "keybindings",
+  "login",
+  "logout",
+  "mcp",
+  "memory",
+  "mobile",
+  "model",
+  "new",
+  "output-style",
+  "passes",
+  "permissions",
+  "plan",
+  "plugin",
+  "powerup",
+  "pr-comments",
+  "privacy-settings",
+  "quit",
+  "rc",
+  "release-notes",
+  "reload-plugins",
+  "remote-control",
+  "remote-env",
+  "rename",
+  "reset",
+  "resume",
+  "review",
+  "rewind",
+  "sandbox",
+  "schedule",
+  "security-review",
+  "settings",
+  "setup-bedrock",
+  "skills",
+  "stats",
+  "status",
+  "statusline",
+  "stickers",
+  "tasks",
+  "teleport",
+  "terminal-setup",
+  "theme",
+  "todos",
+  "tp",
+  "ultraplan",
+  "upgrade",
+  "usage",
+  "vim",
+  "voice",
+  "web-setup"
+]);
+// ../../packages/utils/src/date-range.ts
+var PERIOD_TYPE_LABELS = {
+  ["today" /* Today */]: "Today",
+  ["this_week" /* ThisWeek */]: "This Week",
+  ["this_month" /* ThisMonth */]: "This Month"
+};
+var PERIOD_SUMMARY_LABELS = {
+  ["today" /* Today */]: "Daily Summary",
+  ["this_week" /* ThisWeek */]: "Weekly Summary",
+  ["this_month" /* ThisMonth */]: "Monthly Summary",
+  custom: "Custom Period"
+};
+// ../../packages/utils/src/frontmatter.ts
+var FRONTMATTER_KEYS = new Set(["name", "description"]);
+// ../../packages/utils/src/mcp-registry.ts
+var CACHE_TTL_MS = 30 * 60 * 1000;
+var CACHE_MAX_SIZE = 100;
+class TtlCache {
+  map = new Map;
+  get(key) {
+    const entry = this.map.get(key);
+    if (!entry)
+      return { hit: false };
+    if (Date.now() > entry.expiry) {
+      this.map.delete(key);
+      return { hit: false };
+    }
+    return { hit: true, value: entry.value };
+  }
+  set(key, value) {
+    if (this.map.size >= CACHE_MAX_SIZE && !this.map.has(key)) {
+      const firstKey = this.map.keys().next().value;
+      if (firstKey !== undefined)
+        this.map.delete(firstKey);
+    }
+    this.map.set(key, { value, expiry: Date.now() + CACHE_TTL_MS });
+  }
+  clear() {
+    this.map.clear();
+  }
+}
+var cache = new TtlCache;
+var toolCache = new TtlCache;
+var serverCache = new TtlCache;
+var GENERIC_SEGMENTS = new Set(["mcp", "com", "org", "io", "dev", "server", "api"]);
+var VERB_PREFIXES = new Set([
+  "get",
+  "list",
+  "create",
+  "delete",
+  "update",
+  "search",
+  "query",
+  "fetch",
+  "run",
+  "execute",
+  "resolve",
+  "find",
+  "read",
+  "write",
+  "set",
+  "send",
+  "check",
+  "add",
+  "remove"
+]);
+// ../../packages/utils/src/to-well-formed.ts
 function toWellFormed(str) {
   return str.toWellFormed?.() ?? str;
 }
@@ -14964,7 +14949,8 @@ async function upsertWithFallback(options) {
       success: false,
       uploadedCount: 0,
       failedIndices: new Set,
-      errorCategory: category
+      errorCategory: category,
+      errorDetail: { httpStatus: status, isHtml: isHtmlResponse(error51.message) }
     };
   }
   let uploaded = 0;
@@ -14984,7 +14970,8 @@ async function upsertWithFallback(options) {
         success: false,
         uploadedCount: uploaded,
         failedIndices,
-        errorCategory: chunkCategory
+        errorCategory: chunkCategory,
+        errorDetail: { httpStatus: chunkStatus, isHtml: isHtmlResponse(chunkError.message) }
       };
     }
     for (let ri = 0;ri < chunk.length; ri++) {
@@ -15003,7 +14990,8 @@ async function upsertWithFallback(options) {
           success: false,
           uploadedCount: uploaded,
           failedIndices,
-          errorCategory: rowCategory
+          errorCategory: rowCategory,
+          errorDetail: { httpStatus: rowStatus, isHtml: isHtmlResponse(rowError.message) }
         };
       }
       logger?.warn?.(`Skipping row ${rowId(row)} due to data error [${rowError.code ?? "unknown"}]`);
@@ -15157,16 +15145,19 @@ function createChatUploader(config2) {
           metadata = null;
         }
       }
+      const { title, ...sessionFields } = s;
       const session = {
-        ...s,
+        ...sessionFields,
         id: normalizeSessionId(s.id, sessionNamespace),
-        title: s.title ? sanitizeNullBytes(toWellFormed(s.title)) : s.title,
         user_id: userId,
         platform,
         source,
         analysis_status: "pending",
         metadata
       };
+      if (title?.trim()) {
+        session.title = title;
+      }
       if (workspaceId) {
         session.workspace_id = workspaceId;
       }
@@ -15185,10 +15176,10 @@ function createChatUploader(config2) {
     return filteredMessages.map((m) => ({
       ...m,
       session_id: normalizeSessionId(m.session_id, sessionNamespace),
-      content: sanitizeNullBytes(toWellFormed(m.content)),
+      content: m.content,
       user_id: userId,
       code_diffs: null,
-      metadata: m.metadata ? sanitizeNullBytes(m.metadata) : null
+      metadata: m.metadata ?? null
     }));
   }
   async function uploadSessionsToSupabase(supabase, sessions) {
@@ -15216,7 +15207,8 @@ function createChatUploader(config2) {
       success: result.success,
       uploadedCount: result.uploadedCount,
       failedSessionIds,
-      errorCategory: result.errorCategory
+      errorCategory: result.errorCategory,
+      errorDetail: result.errorDetail
     };
   }
   async function uploadMessagesToSupabase(supabase, messages) {
@@ -15243,7 +15235,8 @@ function createChatUploader(config2) {
     return {
       success: result.success,
       uploadedCount: result.uploadedCount,
-      errorCategory: result.errorCategory
+      errorCategory: result.errorCategory,
+      errorDetail: result.errorDetail
     };
   }
   async function removeMessagesFromQueue(messageIdsToRemove) {
@@ -15394,7 +15387,8 @@ function createChatUploader(config2) {
         return {
           success: false,
           uploaded: { sessions: 0, messages: 0 },
-          errorCategory: sessionsResult.errorCategory
+          errorCategory: sessionsResult.errorCategory,
+          errorDetail: sessionsResult.errorDetail
         };
       }
       const messagesForUpload = excludeMessagesForFailedSessions(messagesForThisCycle, sessionsResult.failedSessionIds);
@@ -15403,7 +15397,8 @@ function createChatUploader(config2) {
         return {
           success: false,
           uploaded: { sessions: sessionsResult.uploadedCount, messages: 0 },
-          errorCategory: messagesResult.errorCategory
+          errorCategory: messagesResult.errorCategory,
+          errorDetail: messagesResult.errorDetail
         };
       }
       const normalizedToRaw = new Map(uniqueSessions.filter((s) => !!s.id).map((s) => [normalizeSessionId(s.id, sessionNamespace), s.id]));
@@ -15485,7 +15480,6 @@ var STATE_DB_PATH = join(HERMES_HOME, "state.db");
 var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
 var PENDING_FINALIZE_FILE = join(HERMES_ZEST_HOME, "pending-finalize");
 var QUEUE_DIR = join(HERMES_ZEST_HOME, "queue");
-var EVENTS_QUEUE_FILE = join(QUEUE_DIR, "events.jsonl");
 var SESSIONS_QUEUE_FILE = join(QUEUE_DIR, "chat-sessions.jsonl");
 var MESSAGES_QUEUE_FILE = join(QUEUE_DIR, "chat-messages.jsonl");
 var STATE_DIR = join(HERMES_ZEST_HOME, "state");
@@ -15755,7 +15749,24 @@ var SENSITIVE_DATA_PATTERNS = [
     highlySensitive: true,
     priority: 95
   }),
-  createPattern("private_ip", "Private IP addresses", /\b(?:10\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|172\.(?:1[6-9]|2[0-9]|3[01])\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|192\.168\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))\b/g, "network", { redactionStrategy: "partial", priority: 50, aggressiveOnly: true })
+  createPattern("private_ip", "Private IP addresses", /\b(?:10\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|172\.(?:1[6-9]|2[0-9]|3[01])\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|192\.168\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))\b/g, "network", { redactionStrategy: "partial", priority: 50, aggressiveOnly: true }),
+  createPattern("session_pem_private_key", "Session analysis: PEM private key blocks", /-----BEGIN[A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END[A-Z0-9 ]*PRIVATE KEY-----/g, "cryptographic", { redactionStrategy: "full", highlySensitive: true, priority: 100, aggressiveOnly: true }),
+  createPattern("session_url_credentials", "Session analysis: credential-bearing URLs (scheme://user:pass@host)", /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@[^\s]+/gi, "generic", { redactionStrategy: "full", highlySensitive: true, priority: 85, aggressiveOnly: true }),
+  createPattern("session_jwt", "Session analysis: JSON Web Tokens", /\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 70, aggressiveOnly: true }),
+  createPattern("session_github_token", "Session analysis: GitHub tokens (personal, OAuth, app, refresh, server)", /\bgh[pousr]_[A-Za-z0-9_]{20,255}\b/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 85, aggressiveOnly: true }),
+  createPattern("session_slack_token", "Session analysis: Slack API tokens", /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g, "communication", { redactionStrategy: "full", highlySensitive: true, priority: 80, aggressiveOnly: true }),
+  createPattern("session_google_api_key", "Session analysis: Google API keys", /\bAIza[0-9A-Za-z_-]{35}\b/g, "cloud_services", { redactionStrategy: "full", highlySensitive: true, priority: 80, aggressiveOnly: true }),
+  createPattern("session_sk_key", "Session analysis: OpenAI/Anthropic-style sk- secret keys", /\bsk-[A-Za-z0-9_-]{20,}\b/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 90, aggressiveOnly: true }),
+  createPattern("session_github_pat", "Session analysis: GitHub fine-grained personal access tokens", /\bgithub_pat_[A-Za-z0-9_]+\b/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 85, aggressiveOnly: true }),
+  createPattern("session_gitlab_token", "Session analysis: GitLab personal/project access tokens", /\bglpat-[A-Za-z0-9_-]+/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 85, aggressiveOnly: true }),
+  createPattern("session_npm_token", "Session analysis: npm automation/access tokens", /\bnpm_[A-Za-z0-9]+\b/g, "api_keys", { redactionStrategy: "full", priority: 80, aggressiveOnly: true }),
+  createPattern("session_stripe_key", "Session analysis: Stripe secret/restricted keys (live and test)", /\b[sr]k_(?:live|test)_[A-Za-z0-9]+\b/g, "payment", { redactionStrategy: "full", highlySensitive: true, priority: 95, aggressiveOnly: true }),
+  createPattern("session_aws_access_key", "Session analysis: AWS access key IDs", /\bAKIA[0-9A-Z]{16}\b/g, "cloud_services", { redactionStrategy: "full", highlySensitive: true, priority: 90, aggressiveOnly: true }),
+  createPattern("session_aws_temp_key", "Session analysis: AWS temporary (STS) access key IDs", /\bASIA[A-Z0-9]{12,}\b/g, "cloud_services", { redactionStrategy: "full", highlySensitive: true, priority: 90, aggressiveOnly: true }),
+  createPattern("session_bearer_token", "Session analysis: Authorization Bearer headers", /\bBearer\s+[A-Za-z0-9._~+/-]{10,}=*/gi, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 80, aggressiveOnly: true }),
+  createPattern("session_secret_assignment", "Session analysis: explicit secret assignments (api_key=..., password: ...)", /\b(?:api[_-]?key|secret[_-]?key|access[_-]?key|client[_-]?secret|private[_-]?key|secret|password|passwd|pwd|token)\b\s*[:=]\s*["']?[^\s"']{6,}["']?/gi, "generic", { redactionStrategy: "full", highlySensitive: true, priority: 45, aggressiveOnly: true }),
+  createPattern("session_ipv4", "Session analysis: IPv4 addresses (all four-octet addresses)", /\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "network", { redactionStrategy: "full", priority: 50, aggressiveOnly: true }),
+  createPattern("session_email", "Session analysis: e-mail addresses", /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, "pii", { redactionStrategy: "full", priority: 60, aggressiveOnly: true })
 ];
 var HIGHLY_SENSITIVE_PATTERN_NAMES = [
   "private_key",
@@ -17318,7 +17329,13 @@ function createFileLock(config2) {
     lockDir
   } = config2;
   const isRunning = config2.isProcessRunning ?? defaultIsProcessRunning;
-  const options = { logger: logger2, onCaptureException, isProcessRunning: isRunning, lockRetryMs, lockMaxRetries };
+  const options = {
+    logger: logger2,
+    onCaptureException,
+    isProcessRunning: isRunning,
+    lockRetryMs,
+    lockMaxRetries
+  };
   const activeLockFiles = new Set;
   async function withFileLockInstance(filePath, fn) {
     let retries = 0;
@@ -17457,35 +17474,6 @@ function createQueueManager(config2) {
     }
     return value;
   }
-  async function enqueueEvent(event) {
-    try {
-      if (event.document_uri && privacyManager?.shouldExcludeFile(event.document_uri)) {
-        logger2?.debug("Skipping event for excluded file", {
-          documentUri: event.document_uri
-        });
-        return;
-      }
-      let redactedPayload = event.payload;
-      if (privacyManager && event.payload && typeof event.payload === "object" && !Array.isArray(event.payload) && "diff" in event.payload && typeof event.payload.diff === "string") {
-        redactedPayload = {
-          ...event.payload,
-          diff: privacyManager.redactDiff(event.payload.diff, event.document_uri || undefined)
-        };
-      }
-      const redactedEvent = {
-        ...event,
-        payload: redactedPayload
-      };
-      await appendItem(queueFiles.events, redactedEvent, (existing, newItem) => existing.some((evt) => evt.id === newItem.id));
-      logger2?.debug("Enqueued event", {
-        eventId: redactedEvent.id,
-        documentUri: redactedEvent.document_uri
-      });
-    } catch (error51) {
-      logger2?.error("Failed to enqueue event:", error51);
-      throw error51;
-    }
-  }
   async function enqueueChatSession(session) {
     try {
       const redactedSession = {
@@ -17596,15 +17584,14 @@ function createQueueManager(config2) {
   async function getQueueStats() {
     try {
       await ensureDirectory(queueDir);
-      const [events, sessions, messages] = await Promise.all([
-        countLines(queueFiles.events),
+      const [sessions, messages] = await Promise.all([
         countLines(queueFiles.sessions),
         countLines(queueFiles.messages)
       ]);
-      return { events, sessions, messages };
+      return { sessions, messages };
     } catch (error51) {
       logger2?.error("Failed to get queue stats:", error51);
-      return { events: 0, sessions: 0, messages: 0 };
+      return { sessions: 0, messages: 0 };
     }
   }
   async function initializeQueue() {
@@ -17658,8 +17645,7 @@ function createQueueManager(config2) {
   async function getDetailedQueueStats() {
     try {
       await ensureDirectory(queueDir);
-      const [events, sessions, messages] = await Promise.all([
-        countLines(queueFiles.events),
+      const [sessions, messages] = await Promise.all([
         readJsonl(queueFiles.sessions),
         readJsonl(queueFiles.messages)
       ]);
@@ -17698,7 +17684,6 @@ function createQueueManager(config2) {
         }
       }
       return {
-        events,
         sessions: {
           total: sessions.length,
           readyToSync,
@@ -17713,7 +17698,6 @@ function createQueueManager(config2) {
     } catch (error51) {
       logger2?.error("Failed to get detailed queue stats:", error51);
       return {
-        events: 0,
         sessions: { total: 0, readyToSync: 0, waitingForMessages: 0 },
         messages: { total: 0, inReadySessions: 0, inWaitingSessions: 0 }
       };
@@ -17728,7 +17712,6 @@ function createQueueManager(config2) {
     getQueueStats,
     initializeQueue,
     appendItem,
-    enqueueEvent,
     enqueueChatSession,
     enqueueChatMessage,
     patchQueuedSession,
@@ -17744,7 +17727,13 @@ class Analytics {
     this.providers = providers;
   }
   setContext(properties) {
-    Object.assign(this.defaultContext, properties);
+    for (const [key, value] of Object.entries(properties)) {
+      if (value === null || value === undefined) {
+        delete this.defaultContext[key];
+      } else {
+        this.defaultContext[key] = value;
+      }
+    }
   }
   set(collection, objectId, properties) {
     for (const provider of this.providers) {
@@ -17758,7 +17747,12 @@ class Analytics {
     }
   }
   event(collection, objectId, eventName, properties, context) {
-    const mergedContext = { ...this.defaultContext, ...context };
+    const ambient = { ...this.defaultContext };
+    for (const [key, value] of Object.entries(properties)) {
+      if (value !== undefined)
+        delete ambient[key];
+    }
+    const mergedContext = { ...ambient, ...context };
     for (const provider of this.providers) {
       try {
         provider.event(collection, objectId, eventName, properties, mergedContext);
@@ -17816,8 +17810,14 @@ var EVENTS = {
   EXTENSION_INSTALL_CLICKED: "Extension Install Clicked",
   EXTENSION_GUIDE_VIEWED: "Extension Guide Viewed",
   EXTENSION_INSTALLED: "Extension Installed",
+  EXTENSION_SYNC_STATUS_CHANGED: "sync_status_changed",
+  EXTENSION_FORCED_SIGNOUT_RECOVERY: "forced_signout_recovery_clicked",
+  EXTENSION_SIGNED_OUT: "extension_signed_out",
   FIRST_DATA_SENT: "First Data Sent",
   ONBOARDING_STEP_COMPLETED: "Onboarding Step Completed",
+  ONBOARDING_STARTED: "Onboarding Started",
+  ONBOARDING_STEP_VIEWED: "Onboarding Step Viewed",
+  ONBOARDING_COMPLETED: "Onboarding Completed",
   NAV_LINK_CLICKED: "Nav Link Clicked",
   WORKSPACE_SWITCHED: "Workspace Switched",
   TEAM_SWITCHED: "Team Switched",
@@ -17825,6 +17825,7 @@ var EVENTS = {
   ASK_ZEST_QUICK_ACTION_CLICKED: "Ask Zest Quick Action Clicked",
   ASK_ZEST_PROMPT_SELECTED: "Ask Zest Prompt Selected",
   ASK_ZEST_MENU_OPENED: "Ask Zest Menu Opened",
+  ASK_ZEST_CHAT_FAILED: "Ask Zest Chat Failed",
   STANDUP_GENERATED: "Standup Generated",
   STANDUP_VIEWED: "Standup Viewed",
   STANDUP_SHARED: "Standup Shared",
@@ -17844,8 +17845,14 @@ var EVENTS = {
   GITHUB_CONNECT_STARTED: "GitHub Connect Started",
   GITHUB_CONNECTION_REQUESTED: "GitHub Connection Requested",
   GITHUB_CONNECTED: "GitHub Connected",
+  AGENT_GITHUB_CONNECT_STARTED: "Agent GitHub Connect Started",
+  AGENT_GITHUB_CONNECTED: "Agent GitHub Connected",
+  AGENT_GITHUB_CONNECT_FAILED: "Agent GitHub Connect Failed",
+  AGENT_GITHUB_DISCONNECTED: "Agent GitHub Disconnected",
+  SLACK_CONNECT_STARTED: "Slack Connect Started",
+  SLACK_CONNECTED: "Slack Connected",
+  SLACK_MESSAGE_SENT: "Slack Message Sent",
   CLI_SIGNED_IN: "CLI Signed In",
-  TRIAL_STARTED: "Trial Started",
   PLAN_SELECTED: "Plan Selected",
   PAYMENT_SETUP_COMPLETED: "Payment Setup Completed",
   PAYMENT_SETUP_FAILED: "Payment Setup Failed",
@@ -17859,14 +17866,54 @@ var EVENTS = {
   PAYMENT_FAILED: "Payment Failed",
   BILLING_PORTAL_OPENED: "Billing Portal Opened",
   SUBSCRIPTION_GATE_SHOWN: "Subscription Gate Shown",
+  STARTUP_DISCOUNT_APPLIED: "Startup Discount Applied",
+  SIGNUP_PLAN_SELECTED: "Signup Plan Selected",
+  SIGNUP_CARD_ENTERED: "Signup Card Entered",
+  SIGNUP_PAYMENT_SKIPPED: "Signup Payment Skipped",
+  SIGNUP_STARTER_SELECTED: "Signup Starter Selected",
+  CREDIT_LIMIT_REACHED: "Credit Limit Reached",
+  SUBSCRIPTION_PROVISIONED: "Subscription Provisioned",
+  MEMBERS_SUSPENDED: "Members Suspended",
+  REPORT_CREATED: "Report Created",
+  REPORT_UPDATED: "Report Updated",
+  REPORT_DELETED: "Report Deleted",
+  REPORT_RUN_COMPLETED: "Report Run Completed",
+  REPORT_DELIVERY_FAILED: "Report Delivery Failed",
   ADMIN_IMPERSONATION_STARTED: "Admin Impersonation Started",
-  ADMIN_IMPERSONATION_ENDED: "Admin Impersonation Ended"
+  ADMIN_IMPERSONATION_ENDED: "Admin Impersonation Ended",
+  ADMIN_IMPERSONATION_ASK_ZEST_RUN: "Admin Impersonation Ask Zest Run"
 };
 var GA4_EVENT_MAP = {
   [EVENTS.USER_CREATED]: "sign_up"
 };
 
 // ../../packages/analytics/src/utils.ts
+var GA4_PII_KEYS = new Set([
+  "email",
+  "email_address",
+  "name",
+  "full_name",
+  "first_name",
+  "last_name",
+  "profile_name",
+  "user_name",
+  "username",
+  "phone",
+  "phone_number",
+  "ip",
+  "$ip"
+]);
+function stripGA4Pii(properties) {
+  const safe = {};
+  for (const [key, value] of Object.entries(properties)) {
+    if (key.startsWith("$"))
+      continue;
+    if (GA4_PII_KEYS.has(key.toLowerCase()))
+      continue;
+    safe[key] = value;
+  }
+  return safe;
+}
 function toSnakeCase(str) {
   return str.replace(/([A-Z])/g, " $1").trim().toLowerCase().replace(/\s+/g, "_");
 }
@@ -17894,8 +17941,7 @@ class GA4ServerProvider {
           {
             name: ga4Name,
             params: {
-              ...properties,
-              ...context,
+              ...stripGA4Pii({ ...properties, ...context }),
               engagement_time_msec: "100"
             }
           }
@@ -23272,7 +23318,7 @@ var {
 
 // src/utils/plugin-version.ts
 function getPluginVersion() {
-  return "0.1.1";
+  return "0.1.2";
 }
 
 // src/analytics/client.ts
@@ -23339,7 +23385,6 @@ var { minMessagesPerSession } = loadSettingsSync();
 var queueManager = createQueueManager({
   queueDir: QUEUE_DIR,
   queueFiles: {
-    events: EVENTS_QUEUE_FILE,
     sessions: SESSIONS_QUEUE_FILE,
     messages: MESSAGES_QUEUE_FILE
   },
@@ -23356,7 +23401,6 @@ var {
   clearQueue,
   getQueueStats,
   initializeQueue,
-  enqueueEvent,
   enqueueChatSession,
   enqueueChatMessage,
   patchQueuedSession,

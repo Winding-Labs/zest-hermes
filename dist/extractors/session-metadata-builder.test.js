@@ -11,6 +11,9 @@ var NORMAL_END_REASONS = new Set([
   "new_session"
 ]);
 function buildSessionMetadata(row) {
+  const cost = row.actual_cost_usd ?? row.estimated_cost_usd ?? null;
+  const isSubscription = row.cost_status === "included" || row.billing_mode === "subscription_included";
+  const billingMode = isSubscription ? "subscription" : cost !== null ? "api" : undefined;
   return {
     trigger: row.source,
     model: row.model,
@@ -22,7 +25,8 @@ function buildSessionMetadata(row) {
     cache_read_tokens: row.cache_read_tokens,
     cache_write_tokens: row.cache_write_tokens,
     reasoning_tokens: row.reasoning_tokens,
-    cost_usd: row.actual_cost_usd ?? row.estimated_cost_usd ?? null,
+    cost_usd: isSubscription ? null : cost,
+    billing_mode: billingMode,
     message_count: row.message_count,
     tool_call_count: row.tool_call_count,
     duration_ms: row.ended_at ? Math.round((row.ended_at - row.started_at) * 1000) : null
@@ -48,6 +52,9 @@ function makeSession(overrides = {}) {
     reasoning_tokens: 0,
     estimated_cost_usd: 0.05,
     actual_cost_usd: null,
+    billing_mode: null,
+    cost_status: null,
+    cost_source: null,
     title: "Test session",
     ...overrides
   };
@@ -86,6 +93,24 @@ describe("buildSessionMetadata", () => {
   });
   test("cost_usd is null when both are null", () => {
     expect(meta({ actual_cost_usd: null, estimated_cost_usd: null }).cost_usd).toBeNull();
+  });
+  describe("billing_mode", () => {
+    test("subscription-included sessions map to 'subscription' with null cost", () => {
+      const m = meta({ cost_status: "included", estimated_cost_usd: 0 });
+      expect(m.billing_mode).toBe("subscription");
+      expect(m.cost_usd).toBeNull();
+    });
+    test("subscription_included billing_mode is also treated as subscription", () => {
+      const m = meta({ billing_mode: "subscription_included", estimated_cost_usd: 0 });
+      expect(m.billing_mode).toBe("subscription");
+      expect(m.cost_usd).toBeNull();
+    });
+    test("sessions with a real cost map to 'api'", () => {
+      expect(meta({ estimated_cost_usd: 0.05 }).billing_mode).toBe("api");
+    });
+    test("billing_mode is omitted when there is no cost", () => {
+      expect(meta({ actual_cost_usd: null, estimated_cost_usd: null }).billing_mode).toBeUndefined();
+    });
   });
   test("trigger maps from Hermes source field", () => {
     expect(meta({ source: "telegram" }).trigger).toBe("telegram");

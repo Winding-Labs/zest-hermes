@@ -8,6 +8,9 @@ var NORMAL_END_REASONS = new Set([
   "new_session"
 ]);
 function buildSessionMetadata(row) {
+  const cost = row.actual_cost_usd ?? row.estimated_cost_usd ?? null;
+  const isSubscription = row.cost_status === "included" || row.billing_mode === "subscription_included";
+  const billingMode = isSubscription ? "subscription" : cost !== null ? "api" : undefined;
   return {
     trigger: row.source,
     model: row.model,
@@ -19,7 +22,8 @@ function buildSessionMetadata(row) {
     cache_read_tokens: row.cache_read_tokens,
     cache_write_tokens: row.cache_write_tokens,
     reasoning_tokens: row.reasoning_tokens,
-    cost_usd: row.actual_cost_usd ?? row.estimated_cost_usd ?? null,
+    cost_usd: isSubscription ? null : cost,
+    billing_mode: billingMode,
     message_count: row.message_count,
     tool_call_count: row.tool_call_count,
     duration_ms: row.ended_at ? Math.round((row.ended_at - row.started_at) * 1000) : null

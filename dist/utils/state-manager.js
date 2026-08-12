@@ -10,14 +10,13 @@ var AUTH_SESSION_LOAD_FAILED = "auth_session_load_failed";
 var AUTH_SESSION_CLEAR_FAILED = "auth_session_clear_failed";
 var AUTH_SESSION_SAVE_FAILED = "auth_session_save_failed";
 var SYNC_NOT_AUTHENTICATED = "sync_not_authenticated";
-var SYNC_EVENTS_UPLOAD_FAILED = "sync_events_upload_failed";
-var SYNC_EVENTS_RETRY_EXHAUSTED = "sync_events_upload_retry_exhausted";
 var SYNC_CHAT_UPLOAD_FAILED = "sync_chat_upload_failed";
 var SYNC_NETWORK_ERROR = "sync_network_error";
 var SYNC_SERVER_OVERLOAD = "sync_server_overload";
 var SYNC_DATA_ERROR = "sync_data_error";
 var SYNC_AUTH_ERROR = "sync_auth_error";
 var SYNC_BLOCKED_NO_WORKSPACE = "sync_blocked_no_workspace";
+var SYNC_STUCK = "sync_stuck";
 var AUTH_SESSION_METADATA_LOST = "auth_session_metadata_lost";
 var QUEUE_READ_CORRUPTED = "queue_read_corrupted";
 var QUEUE_WRITE_FAILED = "queue_write_failed";
@@ -25,7 +24,6 @@ var FILE_LOCK_TIMEOUT = "file_lock_timeout";
 var FILE_LOCK_CREATE_FAILED = "file_lock_create_failed";
 var NOTIFICATION_STATE_WRITE_FAILED = "notification_state_write_failed";
 var QUEUE_CAP_EVICTION = "queue_cap_eviction";
-var SYNC_STALE_EVENTS_DROPPED = "sync_stale_events_dropped";
 var SYNC_DRAIN_THROTTLED = "sync_drain_throttled";
 var SYNC_ORPHANED_MESSAGES_DROPPED = "sync_orphaned_messages_dropped";
 var EXTRACTION_PROJECT_DIR_NOT_FOUND = "extraction_project_dir_not_found";
@@ -53,18 +51,16 @@ var ERROR_TYPES = [
   AUTH_SESSION_SAVE_FAILED,
   AUTH_SESSION_METADATA_LOST,
   SYNC_NOT_AUTHENTICATED,
-  SYNC_EVENTS_UPLOAD_FAILED,
-  SYNC_EVENTS_RETRY_EXHAUSTED,
   SYNC_CHAT_UPLOAD_FAILED,
   SYNC_NETWORK_ERROR,
   SYNC_SERVER_OVERLOAD,
   SYNC_DATA_ERROR,
   SYNC_AUTH_ERROR,
   SYNC_BLOCKED_NO_WORKSPACE,
+  SYNC_STUCK,
   QUEUE_READ_CORRUPTED,
   QUEUE_WRITE_FAILED,
   QUEUE_CAP_EVICTION,
-  SYNC_STALE_EVENTS_DROPPED,
   SYNC_DRAIN_THROTTLED,
   SYNC_ORPHANED_MESSAGES_DROPPED,
   FILE_LOCK_TIMEOUT,
@@ -115,7 +111,6 @@ var STATE_DB_PATH = join(HERMES_HOME, "state.db");
 var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
 var PENDING_FINALIZE_FILE = join(HERMES_ZEST_HOME, "pending-finalize");
 var QUEUE_DIR = join(HERMES_ZEST_HOME, "queue");
-var EVENTS_QUEUE_FILE = join(QUEUE_DIR, "events.jsonl");
 var SESSIONS_QUEUE_FILE = join(QUEUE_DIR, "chat-sessions.jsonl");
 var MESSAGES_QUEUE_FILE = join(QUEUE_DIR, "chat-messages.jsonl");
 var STATE_DIR = join(HERMES_ZEST_HOME, "state");

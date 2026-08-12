@@ -8,7 +8,6 @@ var STATE_DB_PATH = join(HERMES_HOME, "state.db");
 var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
 var PENDING_FINALIZE_FILE = join(HERMES_ZEST_HOME, "pending-finalize");
 var QUEUE_DIR = join(HERMES_ZEST_HOME, "queue");
-var EVENTS_QUEUE_FILE = join(QUEUE_DIR, "events.jsonl");
 var SESSIONS_QUEUE_FILE = join(QUEUE_DIR, "chat-sessions.jsonl");
 var MESSAGES_QUEUE_FILE = join(QUEUE_DIR, "chat-messages.jsonl");
 var STATE_DIR = join(HERMES_ZEST_HOME, "state");
@@ -78,7 +77,6 @@ export {
   HERMES_HOME,
   HERMES_CONFIG_PATH,
   FIRST_DATA_THRESHOLD_MESSAGES,
-  EVENTS_QUEUE_FILE,
   DEFAULT_STANDUP_MODEL,
   DAEMON_PID_FILE,
   DAEMON_LOG_FILE,

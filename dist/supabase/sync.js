@@ -21,14 +21,13 @@ var AUTH_SESSION_LOAD_FAILED = "auth_session_load_failed";
 var AUTH_SESSION_CLEAR_FAILED = "auth_session_clear_failed";
 var AUTH_SESSION_SAVE_FAILED = "auth_session_save_failed";
 var SYNC_NOT_AUTHENTICATED = "sync_not_authenticated";
-var SYNC_EVENTS_UPLOAD_FAILED = "sync_events_upload_failed";
-var SYNC_EVENTS_RETRY_EXHAUSTED = "sync_events_upload_retry_exhausted";
 var SYNC_CHAT_UPLOAD_FAILED = "sync_chat_upload_failed";
 var SYNC_NETWORK_ERROR = "sync_network_error";
 var SYNC_SERVER_OVERLOAD = "sync_server_overload";
 var SYNC_DATA_ERROR = "sync_data_error";
 var SYNC_AUTH_ERROR = "sync_auth_error";
 var SYNC_BLOCKED_NO_WORKSPACE = "sync_blocked_no_workspace";
+var SYNC_STUCK = "sync_stuck";
 var AUTH_SESSION_METADATA_LOST = "auth_session_metadata_lost";
 var QUEUE_READ_CORRUPTED = "queue_read_corrupted";
 var QUEUE_WRITE_FAILED = "queue_write_failed";
@@ -36,7 +35,6 @@ var FILE_LOCK_TIMEOUT = "file_lock_timeout";
 var FILE_LOCK_CREATE_FAILED = "file_lock_create_failed";
 var NOTIFICATION_STATE_WRITE_FAILED = "notification_state_write_failed";
 var QUEUE_CAP_EVICTION = "queue_cap_eviction";
-var SYNC_STALE_EVENTS_DROPPED = "sync_stale_events_dropped";
 var SYNC_DRAIN_THROTTLED = "sync_drain_throttled";
 var SYNC_ORPHANED_MESSAGES_DROPPED = "sync_orphaned_messages_dropped";
 var EXTRACTION_PROJECT_DIR_NOT_FOUND = "extraction_project_dir_not_found";
@@ -64,18 +62,16 @@ var ERROR_TYPES = [
   AUTH_SESSION_SAVE_FAILED,
   AUTH_SESSION_METADATA_LOST,
   SYNC_NOT_AUTHENTICATED,
-  SYNC_EVENTS_UPLOAD_FAILED,
-  SYNC_EVENTS_RETRY_EXHAUSTED,
   SYNC_CHAT_UPLOAD_FAILED,
   SYNC_NETWORK_ERROR,
   SYNC_SERVER_OVERLOAD,
   SYNC_DATA_ERROR,
   SYNC_AUTH_ERROR,
   SYNC_BLOCKED_NO_WORKSPACE,
+  SYNC_STUCK,
   QUEUE_READ_CORRUPTED,
   QUEUE_WRITE_FAILED,
   QUEUE_CAP_EVICTION,
-  SYNC_STALE_EVENTS_DROPPED,
   SYNC_DRAIN_THROTTLED,
   SYNC_ORPHANED_MESSAGES_DROPPED,
   FILE_LOCK_TIMEOUT,
@@ -271,14 +267,13 @@ function mapSyncErrorCategoryToAnalyticsEvent(category) {
     case "data_error":
       return SYNC_DATA_ERROR;
     default:
-      return SYNC_EVENTS_UPLOAD_FAILED;
+      return SYNC_CHAT_UPLOAD_FAILED;
   }
 }
 function createSyncOrchestrator(config) {
   const {
     logger,
     getQueueStats,
-    uploadEventsWithRetry,
     uploadChatDataWithRetry,
     onCaptureException,
     onPostSync,
@@ -287,40 +282,31 @@ function createSyncOrchestrator(config) {
   async function syncAllData(supabase, session, dataControls) {
     try {
       const stats = await getQueueStats();
-      const hasData = stats.events > 0 || stats.sessions > 0 || stats.messages > 0;
+      const hasData = stats.sessions > 0 || stats.messages > 0;
       if (!hasData) {
         logger?.debug("No data to sync");
         return {
           success: true,
-          uploaded: { events: 0, sessions: 0, messages: 0 }
+          uploaded: { sessions: 0, messages: 0 }
         };
       }
-      logger?.info(`Starting sync: ${stats.events} events, ${stats.sessions} sessions, ${stats.messages} messages`);
-      const [eventsResult, chatResult] = await Promise.all([
-        uploadEventsWithRetry(supabase, session, dataControls),
-        uploadChatDataWithRetry(supabase, session, dataControls)
-      ]);
+      logger?.info(`Starting sync: ${stats.sessions} sessions, ${stats.messages} messages`);
+      const chatResult = await uploadChatDataWithRetry(supabase, session, dataControls);
       const uploaded = {
-        events: eventsResult.uploaded,
         sessions: chatResult.uploaded.sessions,
         messages: chatResult.uploaded.messages
       };
-      if (!eventsResult.success || !chatResult.success) {
-        const errors = [];
-        if (!eventsResult.success)
-          errors.push("events");
-        if (!chatResult.success)
-          errors.push("chat data");
-        const failedCategory = !eventsResult.success ? eventsResult.errorCategory : chatResult.errorCategory;
-        const errorType = mapSyncErrorCategoryToSyncErrorType(failedCategory);
+      if (!chatResult.success) {
+        const errorType = mapSyncErrorCategoryToSyncErrorType(chatResult.errorCategory);
         if (circuitBreaker && (errorType === "server_overload" || errorType === "network_error")) {
           circuitBreaker.recordFailure();
         }
         return {
           success: false,
           uploaded,
-          error: `Failed to upload ${errors.join(" and ")}`,
-          errorType
+          error: "Failed to upload chat data",
+          errorType,
+          errorDetail: chatResult.errorDetail
         };
       }
       circuitBreaker?.recordSuccess();
@@ -350,7 +336,7 @@ function createSyncOrchestrator(config) {
       }
       return {
         success: false,
-        uploaded: { events: 0, sessions: 0, messages: 0 },
+        uploaded: { sessions: 0, messages: 0 },
         error: errorMessage,
         errorType
       };
@@ -14829,15 +14815,19 @@ var behavioralProfileSchema = {
   [Symbol.for("vercel.ai.validator")]: true
 };
 // ../../packages/types/data-controls.ts
-var RETENTION_PERIODS = ["12h", "1d", "7d", "30d", "90d", "1y", "forever"];
+var RETENTION_PERIODS = ["12h", "1d", "7d", "30d", "90d"];
+var DATA_CATEGORIES = [
+  "user_messages",
+  "assistant_messages",
+  "code_diffs",
+  "github_events"
+];
 var RETENTION_PERIOD_ORDER = {
   "12h": 0,
   "1d": 1,
   "7d": 2,
   "30d": 3,
-  "90d": 4,
-  "1y": 5,
-  forever: 6
+  "90d": 4
 };
 var WORKSPACE_COLLECTION_DEFAULTS = {
   user_messages: true,
@@ -14851,6 +14841,27 @@ var WORKSPACE_RETENTION_DEFAULTS = {
   code_diffs: "7d",
   github_events: "90d"
 };
+var MAX_RETENTION_PERIOD = "90d";
+function coerceRetentionPeriod(value) {
+  return typeof value === "string" && RETENTION_PERIODS.includes(value) ? value : MAX_RETENTION_PERIOD;
+}
+function coerceRetentionOverrides(raw) {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+    return null;
+  const stored = raw;
+  const result = {};
+  for (const category of DATA_CATEGORIES) {
+    const value = stored[category];
+    if (value === undefined || value === null)
+      continue;
+    result[category] = coerceRetentionPeriod(value);
+  }
+  return result;
+}
+function coerceRetentionSettings(raw, defaults) {
+  const overrides = coerceRetentionOverrides(raw);
+  return overrides === null ? null : { ...defaults, ...overrides };
+}
 function shorterRetentionPeriod(a, b) {
   return RETENTION_PERIOD_ORDER[a] <= RETENTION_PERIOD_ORDER[b] ? a : b;
 }
@@ -14868,9 +14879,9 @@ function getEffectiveRetention(workspace, user) {
   if (!user)
     return workspace;
   return {
-    user_messages: shorterRetentionPeriod(workspace.user_messages, user.user_messages),
-    assistant_messages: shorterRetentionPeriod(workspace.assistant_messages, user.assistant_messages),
-    code_diffs: shorterRetentionPeriod(workspace.code_diffs, user.code_diffs),
+    user_messages: user.user_messages ? shorterRetentionPeriod(workspace.user_messages, user.user_messages) : workspace.user_messages,
+    assistant_messages: user.assistant_messages ? shorterRetentionPeriod(workspace.assistant_messages, user.assistant_messages) : workspace.assistant_messages,
+    code_diffs: user.code_diffs ? shorterRetentionPeriod(workspace.code_diffs, user.code_diffs) : workspace.code_diffs,
     github_events: workspace.github_events
   };
 }
@@ -14947,7 +14958,15 @@ var PROMPT_TAGS = {
 var AVAILABLE_PROMPT_TAGS = Object.values(PROMPT_TAGS);
 var tagIds = AVAILABLE_PROMPT_TAGS.map((tag) => tag.id);
 // ../../packages/types/schemas.ts
-var SkillOutputFormatSchema = exports_external.enum(["skill_report_markdown", "markdown", "json"]);
+var SKILL_OUTPUT_FORMATS = [
+  "skill_report_markdown",
+  "markdown",
+  "quick_answer_markdown",
+  "report_email_markdown",
+  "concise_markdown",
+  "json"
+];
+var SkillOutputFormatSchema = exports_external.enum(SKILL_OUTPUT_FORMATS);
 var CustomPromptMetadataSchema = exports_external.object({
   tags: exports_external.array(exports_external.string()).optional(),
   cascade_category: exports_external.string().optional(),
@@ -15027,18 +15046,20 @@ var retentionSettingsSchema = exports_external.object({
 });
 
 // ../../packages/plugin-common/src/supabase/data-controls-provider.ts
-var CACHE_TTL_MS = 5 * 60 * 1000;
+var DATA_CONTROLS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 class DataControlsProvider {
   effectiveCollection = null;
   effectiveRetention = null;
   lastFetchedAt = null;
   ready = false;
+  userId = null;
+  workspaceId = null;
   logger;
   constructor(options) {
     this.logger = options?.logger;
   }
-  async refresh(supabase, workspaceId, userId) {
+  async refresh(supabase, workspaceId, userId, fetchedAt = Date.now()) {
     try {
       const [workspaceResult, userResult] = await Promise.all([
         supabase.from("workspace_data_controls").select("collection, retention").eq("workspace_id", workspaceId).maybeSingle(),
@@ -15053,17 +15074,17 @@ class DataControlsProvider {
         return false;
       }
       const wsCollectionParse = collectionSettingsSchema.safeParse(workspaceResult.data?.collection);
-      const wsRetentionParse = retentionSettingsSchema.safeParse(workspaceResult.data?.retention);
       const wsCollection = wsCollectionParse.success ? wsCollectionParse.data : WORKSPACE_COLLECTION_DEFAULTS;
-      const wsRetention = wsRetentionParse.success ? wsRetentionParse.data : WORKSPACE_RETENTION_DEFAULTS;
+      const wsRetention = coerceRetentionSettings(workspaceResult.data?.retention, WORKSPACE_RETENTION_DEFAULTS) ?? WORKSPACE_RETENTION_DEFAULTS;
       const userCollectionParse = collectionSettingsSchema.safeParse(userResult.data?.collection);
-      const userRetentionParse = retentionSettingsSchema.safeParse(userResult.data?.retention);
       const userCollection = userCollectionParse.success ? userCollectionParse.data : null;
-      const userRetention = userRetentionParse.success ? userRetentionParse.data : null;
+      const userRetention = coerceRetentionOverrides(userResult.data?.retention);
       this.effectiveCollection = getEffectiveCollection(wsCollection, userCollection);
       this.effectiveRetention = getEffectiveRetention(wsRetention, userRetention);
-      this.lastFetchedAt = Date.now();
+      this.lastFetchedAt = fetchedAt;
       this.ready = true;
+      this.userId = userId;
+      this.workspaceId = workspaceId;
       this.logger?.debug("DataControlsProvider: refreshed", {
         effectiveCollection: this.effectiveCollection,
         effectiveRetention: this.effectiveRetention
@@ -15077,17 +15098,22 @@ class DataControlsProvider {
   isReady() {
     return this.ready;
   }
-  isStale() {
-    if (!this.lastFetchedAt) {
+  isStale(now = Date.now()) {
+    if (this.lastFetchedAt === null) {
       return true;
     }
-    return Date.now() - this.lastFetchedAt > CACHE_TTL_MS;
+    return now - this.lastFetchedAt > DATA_CONTROLS_CACHE_TTL_MS;
+  }
+  isForContext(workspaceId, userId) {
+    return this.workspaceId === workspaceId && this.userId === userId;
   }
   invalidate() {
     this.effectiveCollection = null;
     this.effectiveRetention = null;
     this.lastFetchedAt = null;
     this.ready = false;
+    this.userId = null;
+    this.workspaceId = null;
   }
   shouldUploadUserMessages() {
     if (!this.effectiveCollection) {
@@ -15115,6 +15141,51 @@ class DataControlsProvider {
   }
 }
 
+// ../../packages/plugin-common/src/sync/staleness-detector.ts
+var DEFAULT_SYNC_STALENESS_THRESHOLD_MS = 10 * 60000;
+function shouldAlertStuck(input) {
+  const { lastSuccessAt, now, thresholdMs, lastAlertedAt } = input;
+  const isStuck = lastSuccessAt !== null && now - lastSuccessAt > thresholdMs;
+  const dueForBeat = lastAlertedAt === null || now - lastAlertedAt >= thresholdMs;
+  return isStuck && dueForBeat;
+}
+async function maybeAlertSyncStuck(deps, cycle) {
+  const {
+    readSyncStatus,
+    markStuckAlerted,
+    getQueueStats,
+    onCaptureException,
+    thresholdMs,
+    logger
+  } = deps;
+  try {
+    const { lastSuccessAt, stuckAlertedAt } = readSyncStatus();
+    if (!shouldAlertStuck({
+      lastSuccessAt,
+      now: cycle.now,
+      thresholdMs,
+      lastAlertedAt: stuckAlertedAt
+    })) {
+      return;
+    }
+    const minutesStuck = (cycle.now - lastSuccessAt) / 60000;
+    const queue = await getQueueStats();
+    await onCaptureException(new Error(`Sync stuck: no successful sync in ${minutesStuck.toFixed(1)} minutes`), SYNC_STUCK, "sync", {
+      minutes_stuck: minutesStuck,
+      ...cycle.errorType && { error_type: cycle.errorType },
+      ...cycle.errorDetail && {
+        http_status: cycle.errorDetail.httpStatus,
+        is_html: cycle.errorDetail.isHtml
+      },
+      queue_sessions: queue.sessions,
+      queue_messages: queue.messages
+    });
+    await markStuckAlerted(cycle.now);
+  } catch (error51) {
+    logger?.error("Failed to evaluate sync staleness alarm", error51);
+  }
+}
+
 // ../../packages/plugin-common/src/sync/sync-runner.ts
 function createSyncRunner(config2) {
   const {
@@ -15122,7 +15193,12 @@ function createSyncRunner(config2) {
     syncAllData,
     recordSyncMetric,
     clearSyncError,
-    writeSyncStatus
+    writeSyncStatus,
+    readSyncStatus,
+    markStuckAlerted,
+    getQueueStats,
+    onCaptureException,
+    stalenessThresholdMs = DEFAULT_SYNC_STALENESS_THRESHOLD_MS
   } = config2;
   async function syncWithMessage(supabase, session) {
     let dataControls;
@@ -15145,14 +15221,12 @@ function createSyncRunner(config2) {
       await clearSyncError().catch((error51) => {
         logger?.error("Failed to clear sync error in status cache", error51);
       });
-      const { events, sessions, messages } = result.uploaded;
-      const total = events + sessions + messages;
+      const { sessions, messages } = result.uploaded;
+      const total = sessions + messages;
       if (total === 0) {
         return { success: true, message: "No data to sync" };
       }
       const parts = [];
-      if (events > 0)
-        parts.push(`${events} events`);
       if (sessions > 0)
         parts.push(`${sessions} sessions`);
       if (messages > 0)
@@ -15185,710 +15259,22 @@ function createSyncRunner(config2) {
     }).catch((error51) => {
       logger?.error("Failed to write sync error to status cache", error51);
     });
+    if (readSyncStatus && markStuckAlerted && getQueueStats && onCaptureException) {
+      await maybeAlertSyncStuck({
+        readSyncStatus,
+        markStuckAlerted,
+        getQueueStats,
+        onCaptureException,
+        thresholdMs: stalenessThresholdMs,
+        logger
+      }, { now: Date.now(), errorType, errorDetail: result.errorDetail });
+    }
     return {
       success: false,
       message: `Sync failed: ${result.error || "Unknown error"}`
     };
   }
   return { syncWithMessage };
-}
-
-// src/utils/logger.ts
-import { createWriteStream, mkdirSync } from "node:fs";
-import { join as join2 } from "node:path";
-
-// src/config/constants.ts
-import { homedir } from "node:os";
-import { join } from "node:path";
-var HERMES_HOME = process.env.HERMES_DIR ?? join(homedir(), ".hermes");
-var HERMES_ZEST_HOME = join(homedir(), ".hermes-zest");
-var HERMES_CONFIG_PATH = join(HERMES_HOME, "config.yaml");
-var STATE_DB_PATH = join(HERMES_HOME, "state.db");
-var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
-var PENDING_FINALIZE_FILE = join(HERMES_ZEST_HOME, "pending-finalize");
-var QUEUE_DIR = join(HERMES_ZEST_HOME, "queue");
-var EVENTS_QUEUE_FILE = join(QUEUE_DIR, "events.jsonl");
-var SESSIONS_QUEUE_FILE = join(QUEUE_DIR, "chat-sessions.jsonl");
-var MESSAGES_QUEUE_FILE = join(QUEUE_DIR, "chat-messages.jsonl");
-var STATE_DIR = join(HERMES_ZEST_HOME, "state");
-var LOGS_DIR = join(HERMES_ZEST_HOME, "logs");
-var SESSION_FILE = process.env.ZEST_SESSION_FILE ?? join(HERMES_ZEST_HOME, "session.json");
-var SETTINGS_FILE = join(HERMES_ZEST_HOME, "settings.json");
-var DAEMON_PID_FILE = join(HERMES_ZEST_HOME, "daemon.pid");
-var DAEMON_LOG_FILE = join(HERMES_ZEST_HOME, "daemon.log");
-var ACTIVE_SESSIONS_FILE = join(HERMES_ZEST_HOME, "active-sessions");
-var SYNC_METRICS_FILE = join(HERMES_ZEST_HOME, "sync-metrics.jsonl");
-var SYNC_METRICS_RETENTION_MS = 60 * 60 * 1000;
-var STATUS_CACHE_FILE = process.env.ZEST_STATUS_CACHE_FILE ?? join(HERMES_ZEST_HOME, "status-cache.json");
-var PLATFORM = "cli";
-var SOURCE = "hermes";
-var ZEST_SESSION_NAMESPACE = "a7e3f1d9-8b4c-4e2a-9f6d-3c5b7a1e0d82";
-var VERSION_CHECK_INTERVAL_MS = 60 * 60 * 1000;
-var UPDATE_CHECK_CACHE_TTL_MS = 60 * 60 * 1000;
-var STALE_SESSION_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-var MIN_MESSAGES_PER_SESSION = 3;
-var NOTIFICATION_DURATION_MS = 5 * 60 * 1000;
-var STANDUP_NOTIFICATION_THROTTLE_MS = 2 * 60 * 60 * 1000;
-var POSTHOG_API_KEY = "phc_cSYAEzsJX9gr0sgCp4tfnr7QJ71PwGD04eUQSglw4iQ";
-
-// src/utils/logger.ts
-var stream = null;
-var streamFailed = false;
-var currentDate = "";
-function getStream() {
-  const today = new Date().toISOString().split("T")[0];
-  if (stream && today !== currentDate) {
-    stream.end();
-    stream = null;
-    streamFailed = false;
-  }
-  currentDate = today;
-  if (stream)
-    return stream;
-  if (streamFailed)
-    return null;
-  try {
-    mkdirSync(LOGS_DIR, { recursive: true });
-    const logFile = join2(LOGS_DIR, `plugin-${today}.log`);
-    stream = createWriteStream(logFile, { flags: "a" });
-    stream.on("error", () => {
-      streamFailed = true;
-      stream = null;
-    });
-    return stream;
-  } catch {
-    streamFailed = true;
-    return null;
-  }
-}
-function log(level, msg, ...args) {
-  const timestamp = new Date().toISOString();
-  const suffix = args.length ? ` ${args.map((a) => a instanceof Error ? a.message : JSON.stringify(a)).join(" ")}` : "";
-  const line = `[${timestamp}] [${level}] ${msg}${suffix}
-`;
-  try {
-    getStream()?.write(line);
-  } catch {}
-}
-var logger = {
-  debug: (msg, ...args) => log("DEBUG", msg, ...args),
-  info: (msg, ...args) => log("INFO", msg, ...args),
-  warn: (msg, ...args) => {
-    console.warn(`[Zest:Warn] ${msg}`, ...args);
-    log("WARN", msg, ...args);
-  },
-  error: (msg, ...args) => {
-    console.error(`[Zest:Error] ${msg}`);
-    log("ERROR", msg, ...args);
-  }
-};
-
-// ../../packages/plugin-common/src/queue/queue-manager.ts
-import { appendFile, readFile as readFile2, unlink as unlink2, writeFile as writeFile2 } from "node:fs/promises";
-import { dirname as dirname2 } from "node:path";
-// ../../node_modules/.bun/uuid@13.0.2/node_modules/uuid/dist-node/sha1.js
-import { createHash } from "node:crypto";
-function sha1(bytes) {
-  if (Array.isArray(bytes)) {
-    bytes = Buffer.from(bytes);
-  } else if (typeof bytes === "string") {
-    bytes = Buffer.from(bytes, "utf8");
-  }
-  return createHash("sha1").update(bytes).digest();
-}
-var sha1_default = sha1;
-
-// ../../node_modules/.bun/uuid@13.0.2/node_modules/uuid/dist-node/regex.js
-var regex_default = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/i;
-
-// ../../node_modules/.bun/uuid@13.0.2/node_modules/uuid/dist-node/validate.js
-function validate(uuid3) {
-  return typeof uuid3 === "string" && regex_default.test(uuid3);
-}
-var validate_default = validate;
-
-// ../../node_modules/.bun/uuid@13.0.2/node_modules/uuid/dist-node/parse.js
-function parse5(uuid3) {
-  if (!validate_default(uuid3)) {
-    throw TypeError("Invalid UUID");
-  }
-  let v;
-  return Uint8Array.of((v = parseInt(uuid3.slice(0, 8), 16)) >>> 24, v >>> 16 & 255, v >>> 8 & 255, v & 255, (v = parseInt(uuid3.slice(9, 13), 16)) >>> 8, v & 255, (v = parseInt(uuid3.slice(14, 18), 16)) >>> 8, v & 255, (v = parseInt(uuid3.slice(19, 23), 16)) >>> 8, v & 255, (v = parseInt(uuid3.slice(24, 36), 16)) / 1099511627776 & 255, v / 4294967296 & 255, v >>> 24 & 255, v >>> 16 & 255, v >>> 8 & 255, v & 255);
-}
-var parse_default = parse5;
-
-// ../../node_modules/.bun/uuid@13.0.2/node_modules/uuid/dist-node/stringify.js
-var byteToHex = [];
-for (let i = 0;i < 256; ++i) {
-  byteToHex.push((i + 256).toString(16).slice(1));
-}
-function unsafeStringify(arr, offset = 0) {
-  return (byteToHex[arr[offset + 0]] + byteToHex[arr[offset + 1]] + byteToHex[arr[offset + 2]] + byteToHex[arr[offset + 3]] + "-" + byteToHex[arr[offset + 4]] + byteToHex[arr[offset + 5]] + "-" + byteToHex[arr[offset + 6]] + byteToHex[arr[offset + 7]] + "-" + byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9]] + "-" + byteToHex[arr[offset + 10]] + byteToHex[arr[offset + 11]] + byteToHex[arr[offset + 12]] + byteToHex[arr[offset + 13]] + byteToHex[arr[offset + 14]] + byteToHex[arr[offset + 15]]).toLowerCase();
-}
-
-// ../../node_modules/.bun/uuid@13.0.2/node_modules/uuid/dist-node/v35.js
-function stringToBytes(str) {
-  str = unescape(encodeURIComponent(str));
-  const bytes = new Uint8Array(str.length);
-  for (let i = 0;i < str.length; ++i) {
-    bytes[i] = str.charCodeAt(i);
-  }
-  return bytes;
-}
-var DNS = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
-var URL2 = "6ba7b811-9dad-11d1-80b4-00c04fd430c8";
-function v35(version2, hash2, value, namespace, buf, offset) {
-  const valueBytes = typeof value === "string" ? stringToBytes(value) : value;
-  const namespaceBytes = typeof namespace === "string" ? parse_default(namespace) : namespace;
-  if (typeof namespace === "string") {
-    namespace = parse_default(namespace);
-  }
-  if (namespace?.length !== 16) {
-    throw TypeError("Namespace must be array-like (16 iterable integer values, 0-255)");
-  }
-  let bytes = new Uint8Array(16 + valueBytes.length);
-  bytes.set(namespaceBytes);
-  bytes.set(valueBytes, namespaceBytes.length);
-  bytes = hash2(bytes);
-  bytes[6] = bytes[6] & 15 | version2;
-  bytes[8] = bytes[8] & 63 | 128;
-  if (buf) {
-    offset = offset || 0;
-    if (offset < 0 || offset + 16 > buf.length) {
-      throw new RangeError(`UUID byte range ${offset}:${offset + 15} is out of buffer bounds`);
-    }
-    for (let i = 0;i < 16; ++i) {
-      buf[offset + i] = bytes[i];
-    }
-    return buf;
-  }
-  return unsafeStringify(bytes);
-}
-
-// ../../node_modules/.bun/uuid@13.0.2/node_modules/uuid/dist-node/v5.js
-function v5(value, namespace, buf, offset) {
-  return v35(80, sha1_default, value, namespace, buf, offset);
-}
-v5.DNS = DNS;
-v5.URL = URL2;
-var v5_default = v5;
-// ../../packages/plugin-common/src/supabase/utils/session-id-normalizer.ts
-function normalizeSessionId(sessionId, namespace) {
-  if (validate_default(sessionId)) {
-    return sessionId;
-  }
-  return v5_default(sessionId, namespace);
-}
-// ../../packages/plugin-common/src/supabase/utils/string-utils.ts
-function toWellFormed(str) {
-  return str.toWellFormed?.() ?? str;
-}
-// ../../packages/plugin-common/src/utils/file-lock.ts
-import { unlinkSync } from "node:fs";
-import { readdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
-
-// ../../packages/plugin-common/src/utils/fs-utils.ts
-import { mkdir, stat } from "node:fs/promises";
-async function ensureDirectory(dirPath) {
-  try {
-    await stat(dirPath);
-  } catch {
-    await mkdir(dirPath, { recursive: true, mode: 448 });
-  }
-}
-
-// ../../packages/plugin-common/src/utils/file-lock.ts
-var DEFAULT_LOCK_RETRY_MS = 50;
-var DEFAULT_LOCK_MAX_RETRIES = 300;
-function defaultIsProcessRunning(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-function isLockStale(lockInfo, isRunning) {
-  return !isRunning(lockInfo.pid);
-}
-var MAX_ACQUIRE_DEPTH = 3;
-async function acquireFileLock(filePath, isRunning, options, activeLockFiles, depth = 0) {
-  if (depth >= MAX_ACQUIRE_DEPTH) {
-    options.logger?.warn(`Lock acquisition for ${filePath} exceeded max recursive depth (${MAX_ACQUIRE_DEPTH})`);
-    return false;
-  }
-  const lockFile = `${filePath}.lock`;
-  const lockInfo = {
-    pid: process.pid,
-    timestamp: Date.now()
-  };
-  try {
-    await ensureDirectory(dirname(lockFile));
-    await writeFile(lockFile, JSON.stringify(lockInfo), { flag: "wx" });
-    activeLockFiles?.add(lockFile);
-    return true;
-  } catch (error51) {
-    if (error51.code !== "EEXIST") {
-      const errCode = error51.code;
-      if (errCode === "ENOENT" || errCode === "EACCES") {
-        options.logger?.error(`Failed to create lock file ${lockFile}:`, error51);
-        options.onCaptureException?.(error51, FILE_LOCK_CREATE_FAILED, "file-lock", {
-          ...buildFileSystemProperties({
-            filePath: lockFile,
-            operation: "lock",
-            errnoCode: errCode
-          })
-        });
-      }
-      throw error51;
-    }
-    try {
-      const content = await readFile(lockFile, "utf8");
-      const existingLock = JSON.parse(content);
-      if (isLockStale(existingLock, isRunning)) {
-        options.logger?.debug(`Removing stale lock for ${filePath} (PID ${existingLock.pid} is dead)`);
-        await unlink(lockFile).catch(() => {});
-        return acquireFileLock(filePath, isRunning, options, activeLockFiles, depth + 1);
-      }
-    } catch {
-      options.logger?.debug(`Lock file for ${filePath} is corrupted or unreadable, removing`);
-      await unlink(lockFile).catch(() => {});
-      return acquireFileLock(filePath, isRunning, options, activeLockFiles, depth + 1);
-    }
-    return false;
-  }
-}
-async function releaseFileLock(filePath, activeLockFiles) {
-  const lockFile = `${filePath}.lock`;
-  activeLockFiles?.delete(lockFile);
-  await unlink(lockFile).catch(() => {});
-}
-function createFileLock(config2) {
-  const {
-    logger: logger2,
-    onCaptureException,
-    lockRetryMs = DEFAULT_LOCK_RETRY_MS,
-    lockMaxRetries = DEFAULT_LOCK_MAX_RETRIES,
-    lockDir
-  } = config2;
-  const isRunning = config2.isProcessRunning ?? defaultIsProcessRunning;
-  const options = { logger: logger2, onCaptureException, isProcessRunning: isRunning, lockRetryMs, lockMaxRetries };
-  const activeLockFiles = new Set;
-  async function withFileLockInstance(filePath, fn) {
-    let retries = 0;
-    while (!await acquireFileLock(filePath, isRunning, options, activeLockFiles)) {
-      if (++retries >= lockMaxRetries) {
-        const error51 = new Error(`Failed to acquire lock for ${filePath} after ${retries} retries`);
-        onCaptureException?.(error51, FILE_LOCK_TIMEOUT, "file-lock", {
-          ...buildFileSystemProperties({ filePath, operation: "lock" }),
-          retries,
-          max_retries: lockMaxRetries,
-          retry_delay_ms: lockRetryMs
-        });
-        throw error51;
-      }
-      await new Promise((resolve) => setTimeout(resolve, lockRetryMs));
-    }
-    try {
-      return await fn();
-    } finally {
-      await releaseFileLock(filePath, activeLockFiles);
-    }
-  }
-  function cleanupLockFiles() {
-    for (const lockFile of activeLockFiles) {
-      try {
-        unlinkSync(lockFile);
-      } catch {}
-    }
-    activeLockFiles.clear();
-  }
-  async function cleanupStaleLocks() {
-    if (!lockDir) {
-      logger2?.debug("No lockDir configured, skipping stale lock cleanup");
-      return;
-    }
-    try {
-      const files = await readdir(lockDir).catch(() => []);
-      const lockFiles = files.filter((f) => f.endsWith(".lock"));
-      for (const lockFileName of lockFiles) {
-        const lockFile = `${lockDir}/${lockFileName}`;
-        try {
-          const content = await readFile(lockFile, "utf8");
-          const lockInfo = JSON.parse(content);
-          if (!isRunning(lockInfo.pid)) {
-            await unlink(lockFile);
-            logger2?.info(`Cleaned up stale lock file: ${lockFileName} (PID ${lockInfo.pid} is dead)`);
-          }
-        } catch {
-          await unlink(lockFile).catch(() => {});
-          logger2?.info(`Removed corrupted lock file: ${lockFileName}`);
-        }
-      }
-    } catch (error51) {
-      logger2?.debug("Failed to clean up stale locks:", error51);
-    }
-  }
-  return {
-    withFileLock: withFileLockInstance,
-    cleanupStaleLocks,
-    cleanupLockFiles
-  };
-}
-var noopFileLock = (_path, fn) => fn();
-function resolveFileLock(callback) {
-  return callback ?? noopFileLock;
-}
-
-// ../../packages/plugin-common/src/queue/queue-manager.ts
-function createQueueManager(config2) {
-  const {
-    queueDir,
-    queueFiles,
-    minMessagesPerSession = 3,
-    logger: logger2,
-    privacyManager,
-    onCaptureException
-  } = config2;
-  const maxQueueSizeMap = config2.maxQueueSize;
-  const withFileLock = resolveFileLock(config2.withFileLock);
-  async function readJsonl(filePath) {
-    try {
-      const content = await readFile2(filePath, "utf8");
-      const lines = content.trim().split(`
-`).filter(Boolean);
-      const results = [];
-      let corruptedLines = 0;
-      for (let i = 0;i < lines.length; i++) {
-        try {
-          results.push(JSON.parse(lines[i]));
-        } catch (error51) {
-          logger2?.warn(`Failed to parse line ${i + 1} in ${filePath}:`, error51);
-          corruptedLines++;
-        }
-      }
-      if (corruptedLines > 0) {
-        onCaptureException?.(new Error(`Queue file has ${corruptedLines} corrupted lines`), QUEUE_READ_CORRUPTED, "queue-manager", {
-          ...buildFileSystemProperties({ filePath, operation: "read" }),
-          corrupted_lines: corruptedLines,
-          total_lines: lines.length
-        });
-      }
-      return results;
-    } catch (error51) {
-      if (error51.code === "ENOENT") {
-        return [];
-      }
-      throw error51;
-    }
-  }
-  async function countLines(filePath) {
-    try {
-      const content = await readFile2(filePath, "utf8");
-      const lines = content.trim().split(`
-`).filter(Boolean);
-      return lines.length;
-    } catch (error51) {
-      if (error51.code === "ENOENT") {
-        return 0;
-      }
-      throw error51;
-    }
-  }
-  async function deleteFile(filePath) {
-    try {
-      await unlink2(filePath);
-    } catch (error51) {
-      if (error51.code === "ENOENT") {
-        return;
-      }
-      throw error51;
-    }
-  }
-  function sanitizingReplacer(_key, value) {
-    if (typeof value === "string") {
-      return toWellFormed(value);
-    }
-    return value;
-  }
-  async function enqueueEvent(event) {
-    try {
-      if (event.document_uri && privacyManager?.shouldExcludeFile(event.document_uri)) {
-        logger2?.debug("Skipping event for excluded file", {
-          documentUri: event.document_uri
-        });
-        return;
-      }
-      let redactedPayload = event.payload;
-      if (privacyManager && event.payload && typeof event.payload === "object" && !Array.isArray(event.payload) && "diff" in event.payload && typeof event.payload.diff === "string") {
-        redactedPayload = {
-          ...event.payload,
-          diff: privacyManager.redactDiff(event.payload.diff, event.document_uri || undefined)
-        };
-      }
-      const redactedEvent = {
-        ...event,
-        payload: redactedPayload
-      };
-      await appendItem(queueFiles.events, redactedEvent, (existing, newItem) => existing.some((evt) => evt.id === newItem.id));
-      logger2?.debug("Enqueued event", {
-        eventId: redactedEvent.id,
-        documentUri: redactedEvent.document_uri
-      });
-    } catch (error51) {
-      logger2?.error("Failed to enqueue event:", error51);
-      throw error51;
-    }
-  }
-  async function enqueueChatSession(session) {
-    try {
-      const redactedSession = {
-        ...session,
-        title: session.title && privacyManager ? privacyManager.redactMessage(session.title) : session.title
-      };
-      await appendItem(queueFiles.sessions, redactedSession, (existing, newItem) => existing.some((sess) => sess.id === newItem.id));
-      logger2?.debug("Enqueued session", { sessionId: redactedSession.id });
-    } catch (error51) {
-      logger2?.error("Failed to enqueue session:", error51);
-      throw error51;
-    }
-  }
-  async function enqueueChatMessage(message) {
-    try {
-      const redactedMessage = {
-        ...message,
-        content: privacyManager ? privacyManager.redactMessage(message.content) : message.content
-      };
-      await appendItem(queueFiles.messages, redactedMessage, (existing, newItem) => existing.some((msg) => msg.id === newItem.id));
-      logger2?.debug("Enqueued message", {
-        sessionId: redactedMessage.session_id,
-        messageIndex: redactedMessage.message_index
-      });
-    } catch (error51) {
-      logger2?.error("Failed to enqueue message:", error51);
-      throw error51;
-    }
-  }
-  async function patchQueuedSession(sessionId, metadata, title) {
-    let found = false;
-    await atomicUpdateQueue(queueFiles.sessions, (sessions) => sessions.map((session) => {
-      if (session.id !== sessionId)
-        return session;
-      found = true;
-      return {
-        ...session,
-        title: title ?? session.title,
-        metadata: {
-          ...session.metadata ?? {},
-          ...metadata
-        }
-      };
-    }));
-    return found;
-  }
-  async function readQueue(queueFile) {
-    try {
-      return await readJsonl(queueFile);
-    } catch (error51) {
-      logger2?.error(`Failed to read queue file ${queueFile}:`, error51);
-      throw error51;
-    }
-  }
-  async function writeQueue(queueFile, items) {
-    try {
-      await withFileLock(queueFile, async () => {
-        await ensureDirectory(dirname2(queueFile));
-        const content = items.map((item) => JSON.stringify(item, sanitizingReplacer)).join(`
-`) + (items.length > 0 ? `
-` : "");
-        await writeFile2(queueFile, content, "utf8");
-        logger2?.debug(`Wrote ${items.length} items to queue file: ${queueFile}`);
-      });
-    } catch (error51) {
-      logger2?.error(`Failed to write queue file ${queueFile}:`, error51);
-      if (error51 instanceof Error) {
-        onCaptureException?.(error51, QUEUE_WRITE_FAILED, "queue-manager", {
-          ...buildFileSystemProperties({
-            filePath: queueFile,
-            operation: "write",
-            errnoCode: error51.code
-          }),
-          items_count: items.length
-        });
-      }
-      throw error51;
-    }
-  }
-  async function atomicUpdateQueue(queueFile, transform2) {
-    try {
-      await withFileLock(queueFile, async () => {
-        const currentItems = await readJsonl(queueFile);
-        const newItems = transform2(currentItems);
-        await ensureDirectory(dirname2(queueFile));
-        const content = newItems.map((item) => JSON.stringify(item, sanitizingReplacer)).join(`
-`) + (newItems.length > 0 ? `
-` : "");
-        await writeFile2(queueFile, content, "utf8");
-        logger2?.debug(`Atomically updated queue file: ${queueFile} (${currentItems.length} → ${newItems.length} items)`);
-      });
-    } catch (error51) {
-      logger2?.error(`Failed to atomically update queue file ${queueFile}:`, error51);
-      throw error51;
-    }
-  }
-  async function clearQueue(queueFile) {
-    try {
-      await withFileLock(queueFile, async () => {
-        await deleteFile(queueFile);
-        logger2?.debug(`Cleared queue file: ${queueFile}`);
-      });
-    } catch (error51) {
-      logger2?.error(`Failed to clear queue file ${queueFile}:`, error51);
-      throw error51;
-    }
-  }
-  async function getQueueStats() {
-    try {
-      await ensureDirectory(queueDir);
-      const [events, sessions, messages] = await Promise.all([
-        countLines(queueFiles.events),
-        countLines(queueFiles.sessions),
-        countLines(queueFiles.messages)
-      ]);
-      return { events, sessions, messages };
-    } catch (error51) {
-      logger2?.error("Failed to get queue stats:", error51);
-      return { events: 0, sessions: 0, messages: 0 };
-    }
-  }
-  async function initializeQueue() {
-    try {
-      await ensureDirectory(queueDir);
-      logger2?.debug("Queue directory initialized");
-    } catch (error51) {
-      logger2?.error("Failed to initialize queue directory:", error51);
-      throw error51;
-    }
-  }
-  async function appendItem(queueFile, item, isDuplicate) {
-    await withFileLock(queueFile, async () => {
-      let existingItems;
-      if (isDuplicate) {
-        existingItems = await readJsonl(queueFile);
-        if (isDuplicate(existingItems, item)) {
-          logger2?.debug(`Skipping duplicate item in ${queueFile}`);
-          return;
-        }
-      }
-      const cap = maxQueueSizeMap?.get(queueFile);
-      if (cap && cap > 0) {
-        const currentItems = existingItems ?? await readJsonl(queueFile);
-        if (currentItems.length >= cap) {
-          const targetSize = Math.floor(cap * 0.9);
-          const itemsToEvict = currentItems.length - targetSize;
-          const trimmed = currentItems.slice(itemsToEvict);
-          await ensureDirectory(dirname2(queueFile));
-          const content = [...trimmed, item].map((i) => JSON.stringify(i, sanitizingReplacer)).join(`
-`) + `
-`;
-          await writeFile2(queueFile, content, "utf8");
-          logger2?.warn(`Queue cap reached for ${queueFile}: evicted ${itemsToEvict} oldest items (${currentItems.length} → ${trimmed.length + 1})`);
-          onCaptureException?.(new Error(`Queue cap reached: evicted ${itemsToEvict} oldest items`), QUEUE_CAP_EVICTION, "queue-manager", {
-            evicted_count: itemsToEvict,
-            queue_size_before: currentItems.length,
-            queue_size_after: trimmed.length + 1,
-            cap,
-            filePath: queueFile
-          });
-          return;
-        }
-      }
-      await ensureDirectory(dirname2(queueFile));
-      const line = JSON.stringify(item, sanitizingReplacer) + `
-`;
-      await appendFile(queueFile, line, "utf8");
-    });
-  }
-  async function getDetailedQueueStats() {
-    try {
-      await ensureDirectory(queueDir);
-      const [events, sessions, messages] = await Promise.all([
-        countLines(queueFiles.events),
-        readJsonl(queueFiles.sessions),
-        readJsonl(queueFiles.messages)
-      ]);
-      const maxMessageIndexBySession = new Map;
-      for (const message of messages) {
-        if (!message.session_id || message.message_index === undefined)
-          continue;
-        const currentMax = maxMessageIndexBySession.get(message.session_id) ?? -1;
-        if (message.message_index > currentMax) {
-          maxMessageIndexBySession.set(message.session_id, message.message_index);
-        }
-      }
-      let readyToSync = 0;
-      let waitingForMessages = 0;
-      const readySessionIds = new Set;
-      for (const session of sessions) {
-        if (!session.id)
-          continue;
-        const maxIndex = maxMessageIndexBySession.get(session.id) ?? -1;
-        if (maxIndex >= minMessagesPerSession - 1) {
-          readyToSync++;
-          readySessionIds.add(session.id);
-        } else {
-          waitingForMessages++;
-        }
-      }
-      let messagesInReadySessions = 0;
-      let messagesInWaitingSessions = 0;
-      for (const message of messages) {
-        if (!message.session_id)
-          continue;
-        if (readySessionIds.has(message.session_id)) {
-          messagesInReadySessions++;
-        } else {
-          messagesInWaitingSessions++;
-        }
-      }
-      return {
-        events,
-        sessions: {
-          total: sessions.length,
-          readyToSync,
-          waitingForMessages
-        },
-        messages: {
-          total: messages.length,
-          inReadySessions: messagesInReadySessions,
-          inWaitingSessions: messagesInWaitingSessions
-        }
-      };
-    } catch (error51) {
-      logger2?.error("Failed to get detailed queue stats:", error51);
-      return {
-        events: 0,
-        sessions: { total: 0, readyToSync: 0, waitingForMessages: 0 },
-        messages: { total: 0, inReadySessions: 0, inWaitingSessions: 0 }
-      };
-    }
-  }
-  return {
-    readQueue,
-    writeQueue,
-    atomicUpdateQueue,
-    clearQueue,
-    countLines,
-    getQueueStats,
-    initializeQueue,
-    appendItem,
-    enqueueEvent,
-    enqueueChatSession,
-    enqueueChatMessage,
-    patchQueuedSession,
-    getDetailedQueueStats
-  };
 }
 
 // ../../packages/analytics/src/client.ts
@@ -15899,7 +15285,13 @@ class Analytics {
     this.providers = providers;
   }
   setContext(properties) {
-    Object.assign(this.defaultContext, properties);
+    for (const [key, value] of Object.entries(properties)) {
+      if (value === null || value === undefined) {
+        delete this.defaultContext[key];
+      } else {
+        this.defaultContext[key] = value;
+      }
+    }
   }
   set(collection, objectId, properties) {
     for (const provider of this.providers) {
@@ -15913,7 +15305,12 @@ class Analytics {
     }
   }
   event(collection, objectId, eventName, properties, context) {
-    const mergedContext = { ...this.defaultContext, ...context };
+    const ambient = { ...this.defaultContext };
+    for (const [key, value] of Object.entries(properties)) {
+      if (value !== undefined)
+        delete ambient[key];
+    }
+    const mergedContext = { ...ambient, ...context };
     for (const provider of this.providers) {
       try {
         provider.event(collection, objectId, eventName, properties, mergedContext);
@@ -15971,8 +15368,14 @@ var EVENTS = {
   EXTENSION_INSTALL_CLICKED: "Extension Install Clicked",
   EXTENSION_GUIDE_VIEWED: "Extension Guide Viewed",
   EXTENSION_INSTALLED: "Extension Installed",
+  EXTENSION_SYNC_STATUS_CHANGED: "sync_status_changed",
+  EXTENSION_FORCED_SIGNOUT_RECOVERY: "forced_signout_recovery_clicked",
+  EXTENSION_SIGNED_OUT: "extension_signed_out",
   FIRST_DATA_SENT: "First Data Sent",
   ONBOARDING_STEP_COMPLETED: "Onboarding Step Completed",
+  ONBOARDING_STARTED: "Onboarding Started",
+  ONBOARDING_STEP_VIEWED: "Onboarding Step Viewed",
+  ONBOARDING_COMPLETED: "Onboarding Completed",
   NAV_LINK_CLICKED: "Nav Link Clicked",
   WORKSPACE_SWITCHED: "Workspace Switched",
   TEAM_SWITCHED: "Team Switched",
@@ -15980,6 +15383,7 @@ var EVENTS = {
   ASK_ZEST_QUICK_ACTION_CLICKED: "Ask Zest Quick Action Clicked",
   ASK_ZEST_PROMPT_SELECTED: "Ask Zest Prompt Selected",
   ASK_ZEST_MENU_OPENED: "Ask Zest Menu Opened",
+  ASK_ZEST_CHAT_FAILED: "Ask Zest Chat Failed",
   STANDUP_GENERATED: "Standup Generated",
   STANDUP_VIEWED: "Standup Viewed",
   STANDUP_SHARED: "Standup Shared",
@@ -15999,8 +15403,14 @@ var EVENTS = {
   GITHUB_CONNECT_STARTED: "GitHub Connect Started",
   GITHUB_CONNECTION_REQUESTED: "GitHub Connection Requested",
   GITHUB_CONNECTED: "GitHub Connected",
+  AGENT_GITHUB_CONNECT_STARTED: "Agent GitHub Connect Started",
+  AGENT_GITHUB_CONNECTED: "Agent GitHub Connected",
+  AGENT_GITHUB_CONNECT_FAILED: "Agent GitHub Connect Failed",
+  AGENT_GITHUB_DISCONNECTED: "Agent GitHub Disconnected",
+  SLACK_CONNECT_STARTED: "Slack Connect Started",
+  SLACK_CONNECTED: "Slack Connected",
+  SLACK_MESSAGE_SENT: "Slack Message Sent",
   CLI_SIGNED_IN: "CLI Signed In",
-  TRIAL_STARTED: "Trial Started",
   PLAN_SELECTED: "Plan Selected",
   PAYMENT_SETUP_COMPLETED: "Payment Setup Completed",
   PAYMENT_SETUP_FAILED: "Payment Setup Failed",
@@ -16014,14 +15424,54 @@ var EVENTS = {
   PAYMENT_FAILED: "Payment Failed",
   BILLING_PORTAL_OPENED: "Billing Portal Opened",
   SUBSCRIPTION_GATE_SHOWN: "Subscription Gate Shown",
+  STARTUP_DISCOUNT_APPLIED: "Startup Discount Applied",
+  SIGNUP_PLAN_SELECTED: "Signup Plan Selected",
+  SIGNUP_CARD_ENTERED: "Signup Card Entered",
+  SIGNUP_PAYMENT_SKIPPED: "Signup Payment Skipped",
+  SIGNUP_STARTER_SELECTED: "Signup Starter Selected",
+  CREDIT_LIMIT_REACHED: "Credit Limit Reached",
+  SUBSCRIPTION_PROVISIONED: "Subscription Provisioned",
+  MEMBERS_SUSPENDED: "Members Suspended",
+  REPORT_CREATED: "Report Created",
+  REPORT_UPDATED: "Report Updated",
+  REPORT_DELETED: "Report Deleted",
+  REPORT_RUN_COMPLETED: "Report Run Completed",
+  REPORT_DELIVERY_FAILED: "Report Delivery Failed",
   ADMIN_IMPERSONATION_STARTED: "Admin Impersonation Started",
-  ADMIN_IMPERSONATION_ENDED: "Admin Impersonation Ended"
+  ADMIN_IMPERSONATION_ENDED: "Admin Impersonation Ended",
+  ADMIN_IMPERSONATION_ASK_ZEST_RUN: "Admin Impersonation Ask Zest Run"
 };
 var GA4_EVENT_MAP = {
   [EVENTS.USER_CREATED]: "sign_up"
 };
 
 // ../../packages/analytics/src/utils.ts
+var GA4_PII_KEYS = new Set([
+  "email",
+  "email_address",
+  "name",
+  "full_name",
+  "first_name",
+  "last_name",
+  "profile_name",
+  "user_name",
+  "username",
+  "phone",
+  "phone_number",
+  "ip",
+  "$ip"
+]);
+function stripGA4Pii(properties) {
+  const safe = {};
+  for (const [key, value] of Object.entries(properties)) {
+    if (key.startsWith("$"))
+      continue;
+    if (GA4_PII_KEYS.has(key.toLowerCase()))
+      continue;
+    safe[key] = value;
+  }
+  return safe;
+}
 function toSnakeCase(str) {
   return str.replace(/([A-Z])/g, " $1").trim().toLowerCase().replace(/\s+/g, "_");
 }
@@ -16049,8 +15499,7 @@ class GA4ServerProvider {
           {
             name: ga4Name,
             params: {
-              ...properties,
-              ...context,
+              ...stripGA4Pii({ ...properties, ...context }),
               engagement_time_msec: "100"
             }
           }
@@ -16069,7 +15518,7 @@ class GA4ServerProvider {
 }
 
 // ../../node_modules/.bun/posthog-node@5.34.2+63120419cc93e79b/node_modules/posthog-node/dist/extensions/error-tracking/modifiers/module.node.mjs
-import { dirname as dirname3, posix, sep } from "path";
+import { dirname, posix, sep } from "path";
 function createModulerModifier() {
   const getModuleFromFileName = createGetModuleFromFilename();
   return async (frames) => {
@@ -16078,7 +15527,7 @@ function createModulerModifier() {
     return frames;
   };
 }
-function createGetModuleFromFilename(basePath = process.argv[1] ? dirname3(process.argv[1]) : process.cwd(), isWindows = sep === "\\") {
+function createGetModuleFromFilename(basePath = process.argv[1] ? dirname(process.argv[1]) : process.cwd(), isWindows = sep === "\\") {
   const normalizedBase = isWindows ? normalizeWindowsPath(basePath) : basePath;
   return (filename) => {
     if (!filename)
@@ -16410,23 +15859,23 @@ function isInstanceOf(candidate, base) {
 }
 
 // ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/utils/number-utils.mjs
-function clampToRange(value, min, max, logger2, fallbackValue) {
+function clampToRange(value, min, max, logger, fallbackValue) {
   if (min > max) {
-    logger2.warn("min cannot be greater than max.");
+    logger.warn("min cannot be greater than max.");
     min = max;
   }
   if (isNumber(value))
     if (value > max) {
-      logger2.warn(" cannot be  greater than max: " + max + ". Using max value instead.");
+      logger.warn(" cannot be  greater than max: " + max + ". Using max value instead.");
       return max;
     } else {
       if (!(value < min))
         return value;
-      logger2.warn(" cannot be less than min: " + min + ". Using min value instead.");
+      logger.warn(" cannot be less than min: " + min + ". Using min value instead.");
       return min;
     }
-  logger2.warn(" must be a number. using max or fallback. max: " + max + ", fallback: " + fallbackValue);
-  return clampToRange(fallbackValue || max, min, max, logger2);
+  logger.warn(" must be a number. using max or fallback. max: " + max + ", fallback: " + fallbackValue);
+  return clampToRange(fallbackValue || max, min, max, logger);
 }
 
 // ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/utils/bucketed-rate-limiter.mjs
@@ -16694,7 +16143,7 @@ var _createLogger = (prefix, maybeCall, consoleLike) => {
       consoleMethod(prefix, ...args);
     });
   }
-  const logger2 = {
+  const logger = {
     debug: (...args) => {
       _log("debug", ...args);
     },
@@ -16712,7 +16161,7 @@ var _createLogger = (prefix, maybeCall, consoleLike) => {
     },
     createLogger: (additionalPrefix) => _createLogger(`${prefix} ${additionalPrefix}`, maybeCall, consoleLike)
   };
-  return logger2;
+  return logger;
 };
 var passThrough = (fn) => fn();
 function createLogger(prefix, maybeCall = passThrough) {
@@ -18718,12 +18167,12 @@ async function addSourceContext(frames) {
 }
 function getContextLinesFromFile(path, ranges, output) {
   return new Promise((resolve) => {
-    const stream2 = createReadStream(path);
+    const stream = createReadStream(path);
     const lineReaded = createInterface({
-      input: stream2
+      input: stream
     });
     function destroyStreamAndResolve() {
-      stream2.destroy();
+      stream.destroy();
       resolve();
     }
     let lineNumber = 0;
@@ -18739,7 +18188,7 @@ function getContextLinesFromFile(path, ranges, output) {
       lineReaded.removeAllListeners();
       destroyStreamAndResolve();
     }
-    stream2.on("error", onStreamError);
+    stream.on("error", onStreamError);
     lineReaded.on("error", onStreamError);
     lineReaded.on("close", destroyStreamAndResolve);
     lineReaded.on("line", (line) => {
@@ -21216,7 +20665,7 @@ function createServerAnalytics(configOrApiKey, legacyOptions) {
 
 // ../../packages/plugin-common/src/analytics/index.ts
 function createAnalyticsClient(config2) {
-  const { posthogApiKey, errorSourcePrefix, logger: logger3 } = config2;
+  const { posthogApiKey, errorSourcePrefix, logger: logger2 } = config2;
   if (!posthogApiKey) {
     return null;
   }
@@ -21232,7 +20681,7 @@ function createAnalyticsClient(config2) {
         };
         client.captureException(error51, userId, context);
       } catch (e) {
-        logger3?.debug("Failed to capture exception in PostHog", e);
+        logger2?.debug("Failed to capture exception in PostHog", e);
       }
     },
     capture(distinctId, eventName, properties) {
@@ -21243,25 +20692,189 @@ function createAnalyticsClient(config2) {
           properties
         });
       } catch (e) {
-        logger3?.debug("Failed to capture event in PostHog", e);
+        logger2?.debug("Failed to capture event in PostHog", e);
       }
     },
     async shutdown() {
       try {
         await client.dispose();
       } catch (e) {
-        logger3?.debug("Error shutting down analytics", e);
+        logger2?.debug("Error shutting down analytics", e);
       }
     }
   };
 }
 
+// ../../packages/plugin-common/src/utils/file-lock.ts
+import { unlinkSync } from "node:fs";
+import { readdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { dirname as dirname2 } from "node:path";
+
+// ../../packages/plugin-common/src/utils/fs-utils.ts
+import { mkdir, stat } from "node:fs/promises";
+async function ensureDirectory(dirPath) {
+  try {
+    await stat(dirPath);
+  } catch {
+    await mkdir(dirPath, { recursive: true, mode: 448 });
+  }
+}
+
+// ../../packages/plugin-common/src/utils/file-lock.ts
+var DEFAULT_LOCK_RETRY_MS = 50;
+var DEFAULT_LOCK_MAX_RETRIES = 300;
+function defaultIsProcessRunning(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function isLockStale(lockInfo, isRunning) {
+  return !isRunning(lockInfo.pid);
+}
+var MAX_ACQUIRE_DEPTH = 3;
+async function acquireFileLock(filePath, isRunning, options, activeLockFiles, depth = 0) {
+  if (depth >= MAX_ACQUIRE_DEPTH) {
+    options.logger?.warn(`Lock acquisition for ${filePath} exceeded max recursive depth (${MAX_ACQUIRE_DEPTH})`);
+    return false;
+  }
+  const lockFile = `${filePath}.lock`;
+  const lockInfo = {
+    pid: process.pid,
+    timestamp: Date.now()
+  };
+  try {
+    await ensureDirectory(dirname2(lockFile));
+    await writeFile(lockFile, JSON.stringify(lockInfo), { flag: "wx" });
+    activeLockFiles?.add(lockFile);
+    return true;
+  } catch (error51) {
+    if (error51.code !== "EEXIST") {
+      const errCode = error51.code;
+      if (errCode === "ENOENT" || errCode === "EACCES") {
+        options.logger?.error(`Failed to create lock file ${lockFile}:`, error51);
+        options.onCaptureException?.(error51, FILE_LOCK_CREATE_FAILED, "file-lock", {
+          ...buildFileSystemProperties({
+            filePath: lockFile,
+            operation: "lock",
+            errnoCode: errCode
+          })
+        });
+      }
+      throw error51;
+    }
+    try {
+      const content = await readFile(lockFile, "utf8");
+      const existingLock = JSON.parse(content);
+      if (isLockStale(existingLock, isRunning)) {
+        options.logger?.debug(`Removing stale lock for ${filePath} (PID ${existingLock.pid} is dead)`);
+        await unlink(lockFile).catch(() => {});
+        return acquireFileLock(filePath, isRunning, options, activeLockFiles, depth + 1);
+      }
+    } catch {
+      options.logger?.debug(`Lock file for ${filePath} is corrupted or unreadable, removing`);
+      await unlink(lockFile).catch(() => {});
+      return acquireFileLock(filePath, isRunning, options, activeLockFiles, depth + 1);
+    }
+    return false;
+  }
+}
+async function releaseFileLock(filePath, activeLockFiles) {
+  const lockFile = `${filePath}.lock`;
+  activeLockFiles?.delete(lockFile);
+  await unlink(lockFile).catch(() => {});
+}
+function createFileLock(config2) {
+  const {
+    logger: logger2,
+    onCaptureException,
+    lockRetryMs = DEFAULT_LOCK_RETRY_MS,
+    lockMaxRetries = DEFAULT_LOCK_MAX_RETRIES,
+    lockDir
+  } = config2;
+  const isRunning = config2.isProcessRunning ?? defaultIsProcessRunning;
+  const options = {
+    logger: logger2,
+    onCaptureException,
+    isProcessRunning: isRunning,
+    lockRetryMs,
+    lockMaxRetries
+  };
+  const activeLockFiles = new Set;
+  async function withFileLockInstance(filePath, fn) {
+    let retries = 0;
+    while (!await acquireFileLock(filePath, isRunning, options, activeLockFiles)) {
+      if (++retries >= lockMaxRetries) {
+        const error51 = new Error(`Failed to acquire lock for ${filePath} after ${retries} retries`);
+        onCaptureException?.(error51, FILE_LOCK_TIMEOUT, "file-lock", {
+          ...buildFileSystemProperties({ filePath, operation: "lock" }),
+          retries,
+          max_retries: lockMaxRetries,
+          retry_delay_ms: lockRetryMs
+        });
+        throw error51;
+      }
+      await new Promise((resolve) => setTimeout(resolve, lockRetryMs));
+    }
+    try {
+      return await fn();
+    } finally {
+      await releaseFileLock(filePath, activeLockFiles);
+    }
+  }
+  function cleanupLockFiles() {
+    for (const lockFile of activeLockFiles) {
+      try {
+        unlinkSync(lockFile);
+      } catch {}
+    }
+    activeLockFiles.clear();
+  }
+  async function cleanupStaleLocks() {
+    if (!lockDir) {
+      logger2?.debug("No lockDir configured, skipping stale lock cleanup");
+      return;
+    }
+    try {
+      const files = await readdir(lockDir).catch(() => []);
+      const lockFiles = files.filter((f) => f.endsWith(".lock"));
+      for (const lockFileName of lockFiles) {
+        const lockFile = `${lockDir}/${lockFileName}`;
+        try {
+          const content = await readFile(lockFile, "utf8");
+          const lockInfo = JSON.parse(content);
+          if (!isRunning(lockInfo.pid)) {
+            await unlink(lockFile);
+            logger2?.info(`Cleaned up stale lock file: ${lockFileName} (PID ${lockInfo.pid} is dead)`);
+          }
+        } catch {
+          await unlink(lockFile).catch(() => {});
+          logger2?.info(`Removed corrupted lock file: ${lockFileName}`);
+        }
+      }
+    } catch (error51) {
+      logger2?.debug("Failed to clean up stale locks:", error51);
+    }
+  }
+  return {
+    withFileLock: withFileLockInstance,
+    cleanupStaleLocks,
+    cleanupLockFiles
+  };
+}
+var noopFileLock = (_path, fn) => fn();
+function resolveFileLock(callback) {
+  return callback ?? noopFileLock;
+}
+
 // ../../packages/plugin-common/src/auth/session-io.ts
-import { mkdir as mkdir2, readFile as readFile3, unlink as unlink3, writeFile as writeFile3 } from "node:fs/promises";
-import { dirname as dirname4 } from "node:path";
+import { mkdir as mkdir2, readFile as readFile2, unlink as unlink2, writeFile as writeFile2 } from "node:fs/promises";
+import { dirname as dirname3 } from "node:path";
 async function readSessionFile(filePath) {
   try {
-    const content = await readFile3(filePath, "utf-8");
+    const content = await readFile2(filePath, "utf-8");
     return JSON.parse(content);
   } catch (error51) {
     if (error51.code === "ENOENT") {
@@ -21271,15 +20884,15 @@ async function readSessionFile(filePath) {
   }
 }
 async function writeSessionFile(filePath, session) {
-  await mkdir2(dirname4(filePath), { recursive: true });
-  await writeFile3(filePath, JSON.stringify(session, null, 2), {
+  await mkdir2(dirname3(filePath), { recursive: true });
+  await writeFile2(filePath, JSON.stringify(session, null, 2), {
     encoding: "utf-8",
     mode: 384
   });
 }
 async function deleteSessionFile(filePath) {
   try {
-    await unlink3(filePath);
+    await unlink2(filePath);
   } catch (error51) {
     if (error51.code === "ENOENT") {
       return;
@@ -21296,7 +20909,7 @@ function isRefreshTokenExpired(session) {
 
 // ../../packages/plugin-common/src/auth/session-manager.ts
 function createSessionManager(config2) {
-  const { sessionFilePath, logger: logger3, onError } = config2;
+  const { sessionFilePath, logger: logger2, onError } = config2;
   const withFileLock = resolveFileLock(config2.withFileLock);
   async function loadSession() {
     try {
@@ -21304,13 +20917,13 @@ function createSessionManager(config2) {
       if (!session)
         return null;
       if (!isSessionStructureValid(session)) {
-        logger3?.warn("Invalid session structure, clearing session");
+        logger2?.warn("Invalid session structure, clearing session");
         await clearSession();
         return null;
       }
       return session;
     } catch (error51) {
-      logger3?.error("Failed to load session file", error51);
+      logger2?.error("Failed to load session file", error51);
       if (error51 instanceof Error)
         onError?.(error51, "load");
       return null;
@@ -21321,9 +20934,9 @@ function createSessionManager(config2) {
       await withFileLock(sessionFilePath, async () => {
         await writeSessionFile(sessionFilePath, session);
       });
-      logger3?.info("Session saved successfully");
+      logger2?.info("Session saved successfully");
     } catch (error51) {
-      logger3?.error("Failed to save session", error51);
+      logger2?.error("Failed to save session", error51);
       if (error51 instanceof Error)
         onError?.(error51, "save");
       throw error51;
@@ -21332,9 +20945,9 @@ function createSessionManager(config2) {
   async function clearSession() {
     try {
       await deleteSessionFile(sessionFilePath);
-      logger3?.info("Session cleared successfully");
+      logger2?.info("Session cleared successfully");
     } catch (error51) {
-      logger3?.error("Failed to clear session", error51);
+      logger2?.error("Failed to clear session", error51);
       if (error51 instanceof Error)
         onError?.(error51, "clear");
       throw error51;
@@ -21343,11 +20956,11 @@ function createSessionManager(config2) {
   async function getValidSession() {
     const session = await loadSession();
     if (!session) {
-      logger3?.debug("getValidSession: No session found");
+      logger2?.debug("getValidSession: No session found");
       return null;
     }
     if (isRefreshTokenExpired(session)) {
-      logger3?.warn("getValidSession: Refresh token expired, user must re-authenticate");
+      logger2?.warn("getValidSession: Refresh token expired, user must re-authenticate");
       await clearSession();
       return null;
     }
@@ -21363,7 +20976,7 @@ function createSessionManager(config2) {
       try {
         await updateWorkspaceInSession(current.id, current.name);
       } catch (error51) {
-        logger3?.debug("Failed to update workspace name in session (non-critical)", error51);
+        logger2?.debug("Failed to update workspace name in session (non-critical)", error51);
       }
     }
     return current.name;
@@ -21373,7 +20986,7 @@ function createSessionManager(config2) {
       await withFileLock(sessionFilePath, async () => {
         const session = await readSessionFile(sessionFilePath);
         if (!session) {
-          logger3?.debug("Cannot update workspace: session file does not exist");
+          logger2?.debug("Cannot update workspace: session file does not exist");
           return;
         }
         if (!isSessionStructureValid(session)) {
@@ -21383,9 +20996,9 @@ function createSessionManager(config2) {
         session.workspaceName = workspaceName;
         await writeSessionFile(sessionFilePath, session);
       });
-      logger3?.info("Workspace metadata updated in session");
+      logger2?.info("Workspace metadata updated in session");
     } catch (error51) {
-      logger3?.error("Failed to update workspace in session", error51);
+      logger2?.error("Failed to update workspace in session", error51);
       if (error51 instanceof Error)
         onError?.(error51, "save");
       throw error51;
@@ -21396,7 +21009,7 @@ function createSessionManager(config2) {
     if (current && current.refreshToken === staleRefreshToken) {
       await clearSession();
     } else {
-      logger3?.info("Session refresh token changed on disk, skipping clear");
+      logger2?.info("Session refresh token changed on disk, skipping clear");
     }
   }
   return {
@@ -21411,10 +21024,97 @@ function createSessionManager(config2) {
   };
 }
 
+// src/config/constants.ts
+import { homedir } from "node:os";
+import { join } from "node:path";
+var HERMES_HOME = process.env.HERMES_DIR ?? join(homedir(), ".hermes");
+var HERMES_ZEST_HOME = join(homedir(), ".hermes-zest");
+var HERMES_CONFIG_PATH = join(HERMES_HOME, "config.yaml");
+var STATE_DB_PATH = join(HERMES_HOME, "state.db");
+var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
+var PENDING_FINALIZE_FILE = join(HERMES_ZEST_HOME, "pending-finalize");
+var QUEUE_DIR = join(HERMES_ZEST_HOME, "queue");
+var SESSIONS_QUEUE_FILE = join(QUEUE_DIR, "chat-sessions.jsonl");
+var MESSAGES_QUEUE_FILE = join(QUEUE_DIR, "chat-messages.jsonl");
+var STATE_DIR = join(HERMES_ZEST_HOME, "state");
+var LOGS_DIR = join(HERMES_ZEST_HOME, "logs");
+var SESSION_FILE = process.env.ZEST_SESSION_FILE ?? join(HERMES_ZEST_HOME, "session.json");
+var SETTINGS_FILE = join(HERMES_ZEST_HOME, "settings.json");
+var DAEMON_PID_FILE = join(HERMES_ZEST_HOME, "daemon.pid");
+var DAEMON_LOG_FILE = join(HERMES_ZEST_HOME, "daemon.log");
+var ACTIVE_SESSIONS_FILE = join(HERMES_ZEST_HOME, "active-sessions");
+var SYNC_METRICS_FILE = join(HERMES_ZEST_HOME, "sync-metrics.jsonl");
+var SYNC_METRICS_RETENTION_MS = 60 * 60 * 1000;
+var STATUS_CACHE_FILE = process.env.ZEST_STATUS_CACHE_FILE ?? join(HERMES_ZEST_HOME, "status-cache.json");
+var PLATFORM = "cli";
+var SOURCE = "hermes";
+var ZEST_SESSION_NAMESPACE = "a7e3f1d9-8b4c-4e2a-9f6d-3c5b7a1e0d82";
+var VERSION_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+var UPDATE_CHECK_CACHE_TTL_MS = 60 * 60 * 1000;
+var STALE_SESSION_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+var MIN_MESSAGES_PER_SESSION = 3;
+var NOTIFICATION_DURATION_MS = 5 * 60 * 1000;
+var STANDUP_NOTIFICATION_THROTTLE_MS = 2 * 60 * 60 * 1000;
+var POSTHOG_API_KEY = "phc_cSYAEzsJX9gr0sgCp4tfnr7QJ71PwGD04eUQSglw4iQ";
+
+// src/utils/logger.ts
+import { createWriteStream, mkdirSync } from "node:fs";
+import { join as join2 } from "node:path";
+var stream = null;
+var streamFailed = false;
+var currentDate = "";
+function getStream() {
+  const today = new Date().toISOString().split("T")[0];
+  if (stream && today !== currentDate) {
+    stream.end();
+    stream = null;
+    streamFailed = false;
+  }
+  currentDate = today;
+  if (stream)
+    return stream;
+  if (streamFailed)
+    return null;
+  try {
+    mkdirSync(LOGS_DIR, { recursive: true });
+    const logFile = join2(LOGS_DIR, `plugin-${today}.log`);
+    stream = createWriteStream(logFile, { flags: "a" });
+    stream.on("error", () => {
+      streamFailed = true;
+      stream = null;
+    });
+    return stream;
+  } catch {
+    streamFailed = true;
+    return null;
+  }
+}
+function log(level, msg, ...args) {
+  const timestamp = new Date().toISOString();
+  const suffix = args.length ? ` ${args.map((a) => a instanceof Error ? a.message : JSON.stringify(a)).join(" ")}` : "";
+  const line = `[${timestamp}] [${level}] ${msg}${suffix}
+`;
+  try {
+    getStream()?.write(line);
+  } catch {}
+}
+var logger2 = {
+  debug: (msg, ...args) => log("DEBUG", msg, ...args),
+  info: (msg, ...args) => log("INFO", msg, ...args),
+  warn: (msg, ...args) => {
+    console.warn(`[Zest:Warn] ${msg}`, ...args);
+    log("WARN", msg, ...args);
+  },
+  error: (msg, ...args) => {
+    console.error(`[Zest:Error] ${msg}`);
+    log("ERROR", msg, ...args);
+  }
+};
+
 // src/auth/session-manager.ts
 var sessionManager = createSessionManager({
   sessionFilePath: SESSION_FILE,
-  logger
+  logger: logger2
 });
 var {
   loadSession,
@@ -21427,7 +21127,7 @@ var {
 
 // src/utils/plugin-version.ts
 function getPluginVersion() {
-  return "0.1.1";
+  return "0.1.2";
 }
 
 // src/analytics/client.ts
@@ -21440,12 +21140,12 @@ async function getAnalyticsClient() {
     analyticsClient = createAnalyticsClient({
       posthogApiKey: POSTHOG_API_KEY,
       errorSourcePrefix: "hermes-plugin",
-      logger
+      logger: logger2
     });
     try {
       cachedSession = await loadSession();
     } catch (error51) {
-      logger.debug("Could not load session for analytics context", error51);
+      logger2.debug("Could not load session for analytics context", error51);
     }
   }
   return analyticsClient;
@@ -21463,13 +21163,491 @@ async function captureException(error51, errorType, errorSource, additionalPrope
     if (!client)
       return;
     client.captureException(error51, errorType, errorSource, cachedSession?.userId, enrichProperties(additionalProperties));
-    logger.debug("Exception captured in PostHog", {
+    logger2.debug("Exception captured in PostHog", {
       error_type: errorType,
       error_message: error51.message
     });
   } catch (e) {
-    logger.debug("Failed to capture exception in PostHog", e);
+    logger2.debug("Failed to capture exception in PostHog", e);
   }
+}
+// ../../packages/plugin-common/src/queue/queue-manager.ts
+import { appendFile, readFile as readFile3, unlink as unlink3, writeFile as writeFile3 } from "node:fs/promises";
+import { dirname as dirname4 } from "node:path";
+// ../../packages/utils/src/command-xml.ts
+var CLAUDE_BUILTIN_COMMANDS = new Set([
+  "add-dir",
+  "agents",
+  "allowed-tools",
+  "android",
+  "app",
+  "autofix-pr",
+  "bashes",
+  "branch",
+  "btw",
+  "bug",
+  "checkpoint",
+  "chrome",
+  "clear",
+  "color",
+  "compact",
+  "config",
+  "context",
+  "continue",
+  "copy",
+  "cost",
+  "desktop",
+  "diff",
+  "doctor",
+  "effort",
+  "exit",
+  "export",
+  "extra-usage",
+  "fast",
+  "feedback",
+  "fork",
+  "help",
+  "hooks",
+  "ide",
+  "init",
+  "insights",
+  "install-github-app",
+  "install-slack-app",
+  "ios",
+  "keybindings",
+  "login",
+  "logout",
+  "mcp",
+  "memory",
+  "mobile",
+  "model",
+  "new",
+  "output-style",
+  "passes",
+  "permissions",
+  "plan",
+  "plugin",
+  "powerup",
+  "pr-comments",
+  "privacy-settings",
+  "quit",
+  "rc",
+  "release-notes",
+  "reload-plugins",
+  "remote-control",
+  "remote-env",
+  "rename",
+  "reset",
+  "resume",
+  "review",
+  "rewind",
+  "sandbox",
+  "schedule",
+  "security-review",
+  "settings",
+  "setup-bedrock",
+  "skills",
+  "stats",
+  "status",
+  "statusline",
+  "stickers",
+  "tasks",
+  "teleport",
+  "terminal-setup",
+  "theme",
+  "todos",
+  "tp",
+  "ultraplan",
+  "upgrade",
+  "usage",
+  "vim",
+  "voice",
+  "web-setup"
+]);
+// ../../packages/utils/src/date-range.ts
+var PERIOD_TYPE_LABELS = {
+  ["today" /* Today */]: "Today",
+  ["this_week" /* ThisWeek */]: "This Week",
+  ["this_month" /* ThisMonth */]: "This Month"
+};
+var PERIOD_SUMMARY_LABELS = {
+  ["today" /* Today */]: "Daily Summary",
+  ["this_week" /* ThisWeek */]: "Weekly Summary",
+  ["this_month" /* ThisMonth */]: "Monthly Summary",
+  custom: "Custom Period"
+};
+// ../../packages/utils/src/frontmatter.ts
+var FRONTMATTER_KEYS = new Set(["name", "description"]);
+// ../../packages/utils/src/mcp-registry.ts
+var CACHE_TTL_MS = 30 * 60 * 1000;
+var CACHE_MAX_SIZE = 100;
+class TtlCache {
+  map = new Map;
+  get(key) {
+    const entry = this.map.get(key);
+    if (!entry)
+      return { hit: false };
+    if (Date.now() > entry.expiry) {
+      this.map.delete(key);
+      return { hit: false };
+    }
+    return { hit: true, value: entry.value };
+  }
+  set(key, value) {
+    if (this.map.size >= CACHE_MAX_SIZE && !this.map.has(key)) {
+      const firstKey = this.map.keys().next().value;
+      if (firstKey !== undefined)
+        this.map.delete(firstKey);
+    }
+    this.map.set(key, { value, expiry: Date.now() + CACHE_TTL_MS });
+  }
+  clear() {
+    this.map.clear();
+  }
+}
+var cache = new TtlCache;
+var toolCache = new TtlCache;
+var serverCache = new TtlCache;
+var GENERIC_SEGMENTS = new Set(["mcp", "com", "org", "io", "dev", "server", "api"]);
+var VERB_PREFIXES = new Set([
+  "get",
+  "list",
+  "create",
+  "delete",
+  "update",
+  "search",
+  "query",
+  "fetch",
+  "run",
+  "execute",
+  "resolve",
+  "find",
+  "read",
+  "write",
+  "set",
+  "send",
+  "check",
+  "add",
+  "remove"
+]);
+// ../../packages/utils/src/to-well-formed.ts
+function toWellFormed(str) {
+  return str.toWellFormed?.() ?? str;
+}
+// ../../packages/plugin-common/src/queue/queue-manager.ts
+function createQueueManager(config2) {
+  const {
+    queueDir,
+    queueFiles,
+    minMessagesPerSession = 3,
+    logger: logger3,
+    privacyManager,
+    onCaptureException
+  } = config2;
+  const maxQueueSizeMap = config2.maxQueueSize;
+  const withFileLock = resolveFileLock(config2.withFileLock);
+  async function readJsonl(filePath) {
+    try {
+      const content = await readFile3(filePath, "utf8");
+      const lines = content.trim().split(`
+`).filter(Boolean);
+      const results = [];
+      let corruptedLines = 0;
+      for (let i = 0;i < lines.length; i++) {
+        try {
+          results.push(JSON.parse(lines[i]));
+        } catch (error51) {
+          logger3?.warn(`Failed to parse line ${i + 1} in ${filePath}:`, error51);
+          corruptedLines++;
+        }
+      }
+      if (corruptedLines > 0) {
+        onCaptureException?.(new Error(`Queue file has ${corruptedLines} corrupted lines`), QUEUE_READ_CORRUPTED, "queue-manager", {
+          ...buildFileSystemProperties({ filePath, operation: "read" }),
+          corrupted_lines: corruptedLines,
+          total_lines: lines.length
+        });
+      }
+      return results;
+    } catch (error51) {
+      if (error51.code === "ENOENT") {
+        return [];
+      }
+      throw error51;
+    }
+  }
+  async function countLines(filePath) {
+    try {
+      const content = await readFile3(filePath, "utf8");
+      const lines = content.trim().split(`
+`).filter(Boolean);
+      return lines.length;
+    } catch (error51) {
+      if (error51.code === "ENOENT") {
+        return 0;
+      }
+      throw error51;
+    }
+  }
+  async function deleteFile(filePath) {
+    try {
+      await unlink3(filePath);
+    } catch (error51) {
+      if (error51.code === "ENOENT") {
+        return;
+      }
+      throw error51;
+    }
+  }
+  function sanitizingReplacer(_key, value) {
+    if (typeof value === "string") {
+      return toWellFormed(value);
+    }
+    return value;
+  }
+  async function enqueueChatSession(session) {
+    try {
+      const redactedSession = {
+        ...session,
+        title: session.title && privacyManager ? privacyManager.redactMessage(session.title) : session.title
+      };
+      await appendItem(queueFiles.sessions, redactedSession, (existing, newItem) => existing.some((sess) => sess.id === newItem.id));
+      logger3?.debug("Enqueued session", { sessionId: redactedSession.id });
+    } catch (error51) {
+      logger3?.error("Failed to enqueue session:", error51);
+      throw error51;
+    }
+  }
+  async function enqueueChatMessage(message) {
+    try {
+      const redactedMessage = {
+        ...message,
+        content: privacyManager ? privacyManager.redactMessage(message.content) : message.content
+      };
+      await appendItem(queueFiles.messages, redactedMessage, (existing, newItem) => existing.some((msg) => msg.id === newItem.id));
+      logger3?.debug("Enqueued message", {
+        sessionId: redactedMessage.session_id,
+        messageIndex: redactedMessage.message_index
+      });
+    } catch (error51) {
+      logger3?.error("Failed to enqueue message:", error51);
+      throw error51;
+    }
+  }
+  async function patchQueuedSession(sessionId, metadata, title) {
+    let found = false;
+    await atomicUpdateQueue(queueFiles.sessions, (sessions) => sessions.map((session) => {
+      if (session.id !== sessionId)
+        return session;
+      found = true;
+      return {
+        ...session,
+        title: title ?? session.title,
+        metadata: {
+          ...session.metadata ?? {},
+          ...metadata
+        }
+      };
+    }));
+    return found;
+  }
+  async function readQueue(queueFile) {
+    try {
+      return await readJsonl(queueFile);
+    } catch (error51) {
+      logger3?.error(`Failed to read queue file ${queueFile}:`, error51);
+      throw error51;
+    }
+  }
+  async function writeQueue(queueFile, items) {
+    try {
+      await withFileLock(queueFile, async () => {
+        await ensureDirectory(dirname4(queueFile));
+        const content = items.map((item) => JSON.stringify(item, sanitizingReplacer)).join(`
+`) + (items.length > 0 ? `
+` : "");
+        await writeFile3(queueFile, content, "utf8");
+        logger3?.debug(`Wrote ${items.length} items to queue file: ${queueFile}`);
+      });
+    } catch (error51) {
+      logger3?.error(`Failed to write queue file ${queueFile}:`, error51);
+      if (error51 instanceof Error) {
+        onCaptureException?.(error51, QUEUE_WRITE_FAILED, "queue-manager", {
+          ...buildFileSystemProperties({
+            filePath: queueFile,
+            operation: "write",
+            errnoCode: error51.code
+          }),
+          items_count: items.length
+        });
+      }
+      throw error51;
+    }
+  }
+  async function atomicUpdateQueue(queueFile, transform2) {
+    try {
+      await withFileLock(queueFile, async () => {
+        const currentItems = await readJsonl(queueFile);
+        const newItems = transform2(currentItems);
+        await ensureDirectory(dirname4(queueFile));
+        const content = newItems.map((item) => JSON.stringify(item, sanitizingReplacer)).join(`
+`) + (newItems.length > 0 ? `
+` : "");
+        await writeFile3(queueFile, content, "utf8");
+        logger3?.debug(`Atomically updated queue file: ${queueFile} (${currentItems.length} → ${newItems.length} items)`);
+      });
+    } catch (error51) {
+      logger3?.error(`Failed to atomically update queue file ${queueFile}:`, error51);
+      throw error51;
+    }
+  }
+  async function clearQueue(queueFile) {
+    try {
+      await withFileLock(queueFile, async () => {
+        await deleteFile(queueFile);
+        logger3?.debug(`Cleared queue file: ${queueFile}`);
+      });
+    } catch (error51) {
+      logger3?.error(`Failed to clear queue file ${queueFile}:`, error51);
+      throw error51;
+    }
+  }
+  async function getQueueStats() {
+    try {
+      await ensureDirectory(queueDir);
+      const [sessions, messages] = await Promise.all([
+        countLines(queueFiles.sessions),
+        countLines(queueFiles.messages)
+      ]);
+      return { sessions, messages };
+    } catch (error51) {
+      logger3?.error("Failed to get queue stats:", error51);
+      return { sessions: 0, messages: 0 };
+    }
+  }
+  async function initializeQueue() {
+    try {
+      await ensureDirectory(queueDir);
+      logger3?.debug("Queue directory initialized");
+    } catch (error51) {
+      logger3?.error("Failed to initialize queue directory:", error51);
+      throw error51;
+    }
+  }
+  async function appendItem(queueFile, item, isDuplicate) {
+    await withFileLock(queueFile, async () => {
+      let existingItems;
+      if (isDuplicate) {
+        existingItems = await readJsonl(queueFile);
+        if (isDuplicate(existingItems, item)) {
+          logger3?.debug(`Skipping duplicate item in ${queueFile}`);
+          return;
+        }
+      }
+      const cap = maxQueueSizeMap?.get(queueFile);
+      if (cap && cap > 0) {
+        const currentItems = existingItems ?? await readJsonl(queueFile);
+        if (currentItems.length >= cap) {
+          const targetSize = Math.floor(cap * 0.9);
+          const itemsToEvict = currentItems.length - targetSize;
+          const trimmed = currentItems.slice(itemsToEvict);
+          await ensureDirectory(dirname4(queueFile));
+          const content = [...trimmed, item].map((i) => JSON.stringify(i, sanitizingReplacer)).join(`
+`) + `
+`;
+          await writeFile3(queueFile, content, "utf8");
+          logger3?.warn(`Queue cap reached for ${queueFile}: evicted ${itemsToEvict} oldest items (${currentItems.length} → ${trimmed.length + 1})`);
+          onCaptureException?.(new Error(`Queue cap reached: evicted ${itemsToEvict} oldest items`), QUEUE_CAP_EVICTION, "queue-manager", {
+            evicted_count: itemsToEvict,
+            queue_size_before: currentItems.length,
+            queue_size_after: trimmed.length + 1,
+            cap,
+            filePath: queueFile
+          });
+          return;
+        }
+      }
+      await ensureDirectory(dirname4(queueFile));
+      const line = JSON.stringify(item, sanitizingReplacer) + `
+`;
+      await appendFile(queueFile, line, "utf8");
+    });
+  }
+  async function getDetailedQueueStats() {
+    try {
+      await ensureDirectory(queueDir);
+      const [sessions, messages] = await Promise.all([
+        readJsonl(queueFiles.sessions),
+        readJsonl(queueFiles.messages)
+      ]);
+      const maxMessageIndexBySession = new Map;
+      for (const message of messages) {
+        if (!message.session_id || message.message_index === undefined)
+          continue;
+        const currentMax = maxMessageIndexBySession.get(message.session_id) ?? -1;
+        if (message.message_index > currentMax) {
+          maxMessageIndexBySession.set(message.session_id, message.message_index);
+        }
+      }
+      let readyToSync = 0;
+      let waitingForMessages = 0;
+      const readySessionIds = new Set;
+      for (const session of sessions) {
+        if (!session.id)
+          continue;
+        const maxIndex = maxMessageIndexBySession.get(session.id) ?? -1;
+        if (maxIndex >= minMessagesPerSession - 1) {
+          readyToSync++;
+          readySessionIds.add(session.id);
+        } else {
+          waitingForMessages++;
+        }
+      }
+      let messagesInReadySessions = 0;
+      let messagesInWaitingSessions = 0;
+      for (const message of messages) {
+        if (!message.session_id)
+          continue;
+        if (readySessionIds.has(message.session_id)) {
+          messagesInReadySessions++;
+        } else {
+          messagesInWaitingSessions++;
+        }
+      }
+      return {
+        sessions: {
+          total: sessions.length,
+          readyToSync,
+          waitingForMessages
+        },
+        messages: {
+          total: messages.length,
+          inReadySessions: messagesInReadySessions,
+          inWaitingSessions: messagesInWaitingSessions
+        }
+      };
+    } catch (error51) {
+      logger3?.error("Failed to get detailed queue stats:", error51);
+      return {
+        sessions: { total: 0, readyToSync: 0, waitingForMessages: 0 },
+        messages: { total: 0, inReadySessions: 0, inWaitingSessions: 0 }
+      };
+    }
+  }
+  return {
+    readQueue,
+    writeQueue,
+    atomicUpdateQueue,
+    clearQueue,
+    countLines,
+    getQueueStats,
+    initializeQueue,
+    appendItem,
+    enqueueChatSession,
+    enqueueChatMessage,
+    patchQueuedSession,
+    getDetailedQueueStats
+  };
 }
 
 // src/config/settings.ts
@@ -21708,7 +21886,24 @@ var SENSITIVE_DATA_PATTERNS = [
     highlySensitive: true,
     priority: 95
   }),
-  createPattern("private_ip", "Private IP addresses", /\b(?:10\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|172\.(?:1[6-9]|2[0-9]|3[01])\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|192\.168\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))\b/g, "network", { redactionStrategy: "partial", priority: 50, aggressiveOnly: true })
+  createPattern("private_ip", "Private IP addresses", /\b(?:10\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|172\.(?:1[6-9]|2[0-9]|3[01])\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|192\.168\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))\b/g, "network", { redactionStrategy: "partial", priority: 50, aggressiveOnly: true }),
+  createPattern("session_pem_private_key", "Session analysis: PEM private key blocks", /-----BEGIN[A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END[A-Z0-9 ]*PRIVATE KEY-----/g, "cryptographic", { redactionStrategy: "full", highlySensitive: true, priority: 100, aggressiveOnly: true }),
+  createPattern("session_url_credentials", "Session analysis: credential-bearing URLs (scheme://user:pass@host)", /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@[^\s]+/gi, "generic", { redactionStrategy: "full", highlySensitive: true, priority: 85, aggressiveOnly: true }),
+  createPattern("session_jwt", "Session analysis: JSON Web Tokens", /\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 70, aggressiveOnly: true }),
+  createPattern("session_github_token", "Session analysis: GitHub tokens (personal, OAuth, app, refresh, server)", /\bgh[pousr]_[A-Za-z0-9_]{20,255}\b/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 85, aggressiveOnly: true }),
+  createPattern("session_slack_token", "Session analysis: Slack API tokens", /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g, "communication", { redactionStrategy: "full", highlySensitive: true, priority: 80, aggressiveOnly: true }),
+  createPattern("session_google_api_key", "Session analysis: Google API keys", /\bAIza[0-9A-Za-z_-]{35}\b/g, "cloud_services", { redactionStrategy: "full", highlySensitive: true, priority: 80, aggressiveOnly: true }),
+  createPattern("session_sk_key", "Session analysis: OpenAI/Anthropic-style sk- secret keys", /\bsk-[A-Za-z0-9_-]{20,}\b/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 90, aggressiveOnly: true }),
+  createPattern("session_github_pat", "Session analysis: GitHub fine-grained personal access tokens", /\bgithub_pat_[A-Za-z0-9_]+\b/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 85, aggressiveOnly: true }),
+  createPattern("session_gitlab_token", "Session analysis: GitLab personal/project access tokens", /\bglpat-[A-Za-z0-9_-]+/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 85, aggressiveOnly: true }),
+  createPattern("session_npm_token", "Session analysis: npm automation/access tokens", /\bnpm_[A-Za-z0-9]+\b/g, "api_keys", { redactionStrategy: "full", priority: 80, aggressiveOnly: true }),
+  createPattern("session_stripe_key", "Session analysis: Stripe secret/restricted keys (live and test)", /\b[sr]k_(?:live|test)_[A-Za-z0-9]+\b/g, "payment", { redactionStrategy: "full", highlySensitive: true, priority: 95, aggressiveOnly: true }),
+  createPattern("session_aws_access_key", "Session analysis: AWS access key IDs", /\bAKIA[0-9A-Z]{16}\b/g, "cloud_services", { redactionStrategy: "full", highlySensitive: true, priority: 90, aggressiveOnly: true }),
+  createPattern("session_aws_temp_key", "Session analysis: AWS temporary (STS) access key IDs", /\bASIA[A-Z0-9]{12,}\b/g, "cloud_services", { redactionStrategy: "full", highlySensitive: true, priority: 90, aggressiveOnly: true }),
+  createPattern("session_bearer_token", "Session analysis: Authorization Bearer headers", /\bBearer\s+[A-Za-z0-9._~+/-]{10,}=*/gi, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 80, aggressiveOnly: true }),
+  createPattern("session_secret_assignment", "Session analysis: explicit secret assignments (api_key=..., password: ...)", /\b(?:api[_-]?key|secret[_-]?key|access[_-]?key|client[_-]?secret|private[_-]?key|secret|password|passwd|pwd|token)\b\s*[:=]\s*["']?[^\s"']{6,}["']?/gi, "generic", { redactionStrategy: "full", highlySensitive: true, priority: 45, aggressiveOnly: true }),
+  createPattern("session_ipv4", "Session analysis: IPv4 addresses (all four-octet addresses)", /\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "network", { redactionStrategy: "full", priority: 50, aggressiveOnly: true }),
+  createPattern("session_email", "Session analysis: e-mail addresses", /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, "pii", { redactionStrategy: "full", priority: 60, aggressiveOnly: true })
 ];
 var HIGHLY_SENSITIVE_PATTERN_NAMES = [
   "private_key",
@@ -22873,9 +23068,9 @@ function validateSettings(rawSettings) {
 }
 function logSettingsLoadError(error51) {
   if (error51 instanceof exports_external.ZodError) {
-    logger.warn("Invalid settings format, using defaults:", error51.issues);
+    logger2.warn("Invalid settings format, using defaults:", error51.issues);
   } else if (error51.code !== "ENOENT") {
-    logger.warn("Failed to load settings, using defaults:", error51);
+    logger2.warn("Failed to load settings, using defaults:", error51);
   }
 }
 function loadSettingsSync() {
@@ -22900,7 +23095,7 @@ function getPrivacyManager() {
 
 // src/utils/file-lock.ts
 var fileLock = createFileLock({
-  logger,
+  logger: logger2,
   lockDir: QUEUE_DIR,
   onCaptureException: captureException
 });
@@ -22911,13 +23106,12 @@ var { minMessagesPerSession } = loadSettingsSync();
 var queueManager = createQueueManager({
   queueDir: QUEUE_DIR,
   queueFiles: {
-    events: EVENTS_QUEUE_FILE,
     sessions: SESSIONS_QUEUE_FILE,
     messages: MESSAGES_QUEUE_FILE
   },
   privacyManager: getPrivacyManager(),
   minMessagesPerSession,
-  logger,
+  logger: logger2,
   withFileLock,
   onCaptureException: captureException
 });
@@ -22928,7 +23122,6 @@ var {
   clearQueue,
   getQueueStats,
   initializeQueue,
-  enqueueEvent,
   enqueueChatSession,
   enqueueChatMessage,
   patchQueuedSession,
@@ -22948,7 +23141,8 @@ var DEFAULT_SYNC_STATUS = {
   errorType: null,
   errorMessage: null,
   lastErrorAt: null,
-  lastSuccessAt: null
+  lastSuccessAt: null,
+  stuckAlertedAt: null
 };
 var DEFAULT_DEV_MODE_STATUS = {
   active: false
@@ -23073,7 +23267,8 @@ function createStatusCacheManager(config2) {
           ...currentCache,
           syncStatus: {
             ...status,
-            lastSuccessAt: status.lastSuccessAt ?? currentCache.syncStatus.lastSuccessAt
+            lastSuccessAt: status.lastSuccessAt ?? currentCache.syncStatus.lastSuccessAt,
+            stuckAlertedAt: status.stuckAlertedAt ?? currentCache.syncStatus.stuckAlertedAt ?? null
           }
         };
         writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
@@ -23095,7 +23290,8 @@ function createStatusCacheManager(config2) {
           errorType: null,
           errorMessage: null,
           lastErrorAt: currentCache.syncStatus.lastErrorAt,
-          lastSuccessAt: Date.now()
+          lastSuccessAt: Date.now(),
+          stuckAlertedAt: null
         };
         const updatedCache = {
           ...currentCache,
@@ -23106,6 +23302,24 @@ function createStatusCacheManager(config2) {
       });
     } catch (error51) {
       logger3?.error("Failed to clear sync error in status cache", error51);
+    }
+  }
+  async function markStuckAlerted(now) {
+    try {
+      await withFileLock2(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const updatedCache = {
+          ...currentCache,
+          syncStatus: {
+            ...currentCache.syncStatus,
+            stuckAlertedAt: now
+          }
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        logger3?.debug("Marked sync stuck episode as alerted", { stuckAlertedAt: now });
+      });
+    } catch (error51) {
+      logger3?.error("Failed to mark sync stuck alerted in status cache", error51);
     }
   }
   async function writeDevModeActive() {
@@ -23149,8 +23363,8 @@ function createStatusCacheManager(config2) {
   }
   function hasActiveStandupNotification() {
     try {
-      const cache = readStatusCache();
-      const { message, expiresAt } = cache.standupNotification;
+      const cache2 = readStatusCache();
+      const { message, expiresAt } = cache2.standupNotification;
       return message !== null && expiresAt !== null && expiresAt > Date.now();
     } catch (error51) {
       logger3?.warn("Failed to check for active standup notification", error51);
@@ -23159,8 +23373,8 @@ function createStatusCacheManager(config2) {
   }
   function shouldShowFirstDataReady() {
     try {
-      const cache = readStatusCache();
-      const { firstDataReadyLastShownAt } = cache.standupNotification;
+      const cache2 = readStatusCache();
+      const { firstDataReadyLastShownAt } = cache2.standupNotification;
       if (!firstDataReadyLastShownAt)
         return true;
       return Date.now() - firstDataReadyLastShownAt >= standupNotificationThrottleMs;
@@ -23186,8 +23400,8 @@ function createStatusCacheManager(config2) {
   }
   function shouldShowStandupRefreshed() {
     try {
-      const cache = readStatusCache();
-      const { standupRefreshedLastShownAt } = cache.standupNotification;
+      const cache2 = readStatusCache();
+      const { standupRefreshedLastShownAt } = cache2.standupNotification;
       if (!standupRefreshedLastShownAt)
         return true;
       return Date.now() - standupRefreshedLastShownAt >= standupNotificationThrottleMs;
@@ -23202,6 +23416,7 @@ function createStatusCacheManager(config2) {
     writeLastUpdate,
     writeSyncStatus,
     clearSyncError,
+    markStuckAlerted,
     writeDevModeActive,
     writeStandupNotification,
     hasActiveStandupNotification,
@@ -23214,7 +23429,7 @@ function createStatusCacheManager(config2) {
 // src/utils/status-cache-manager.ts
 var statusCacheManager = createStatusCacheManager({
   statusCacheFile: STATUS_CACHE_FILE,
-  logger,
+  logger: logger2,
   withFileLock,
   notificationDurationMs: NOTIFICATION_DURATION_MS,
   standupNotificationThrottleMs: STANDUP_NOTIFICATION_THROTTLE_MS
@@ -23223,6 +23438,7 @@ var {
   readStatusCache,
   writeSyncStatus,
   clearSyncError,
+  markStuckAlerted,
   writeStandupNotification,
   writeVersionCheck,
   hasActiveStandupNotification,
@@ -23235,11 +23451,7 @@ import { readFile as readFile5, writeFile as writeFile4 } from "node:fs/promises
 import { dirname as dirname5 } from "node:path";
 var DEFAULT_RETENTION_MS = 60 * 60 * 1000;
 function createSyncMetricsManager(config2) {
-  const {
-    metricsFile,
-    retentionMs = DEFAULT_RETENTION_MS,
-    logger: logger3
-  } = config2;
+  const { metricsFile, retentionMs = DEFAULT_RETENTION_MS, logger: logger3 } = config2;
   const withFileLock2 = resolveFileLock(config2.withFileLock);
   async function readMetrics() {
     try {
@@ -23301,8 +23513,7 @@ function createSyncMetricsManager(config2) {
     const metrics = await getLastHourMetrics();
     const synced = {
       sessions: 0,
-      messages: 0,
-      events: 0
+      messages: 0
     };
     let errors3 = 0;
     let lastSyncAt = null;
@@ -23310,7 +23521,6 @@ function createSyncMetricsManager(config2) {
       if (metric.success) {
         synced.sessions += metric.uploaded.sessions;
         synced.messages += metric.uploaded.messages;
-        synced.events += metric.uploaded.events;
         if (lastSyncAt === null || metric.timestamp > lastSyncAt) {
           lastSyncAt = metric.timestamp;
         }
@@ -23318,7 +23528,7 @@ function createSyncMetricsManager(config2) {
         errors3++;
       }
     }
-    const total = synced.sessions + synced.messages + synced.events;
+    const total = synced.sessions + synced.messages;
     return { synced, total, errors: errors3, lastSyncAt };
   }
   return { recordSyncMetric, getLastHourMetrics, aggregateLastHourStats };
@@ -23328,7 +23538,7 @@ function createSyncMetricsManager(config2) {
 var syncMetricsManager = createSyncMetricsManager({
   metricsFile: SYNC_METRICS_FILE,
   retentionMs: SYNC_METRICS_RETENTION_MS,
-  logger,
+  logger: logger2,
   withFileLock
 });
 var { recordSyncMetric, getLastHourMetrics, aggregateLastHourStats } = syncMetricsManager;
@@ -23346,6 +23556,7 @@ var HermesSessionMetadataSchema = exports_external.object({
   cache_write_tokens: exports_external.number(),
   reasoning_tokens: exports_external.number(),
   cost_usd: exports_external.number().nullable(),
+  billing_mode: exports_external.enum(BILLING_MODES).optional(),
   message_count: exports_external.number(),
   tool_call_count: exports_external.number(),
   duration_ms: exports_external.number().nullable().optional(),
@@ -23369,6 +23580,7 @@ var RateLimitWindowSchema = exports_external.object({
 });
 var CodexSessionMetadataSchema = exports_external.object({
   model_with_reasoning: exports_external.string().optional(),
+  models_with_reasoning: exports_external.array(exports_external.string()).optional(),
   token_source: exports_external.enum(TOKEN_SOURCES).optional(),
   plan: exports_external.string().optional(),
   billing_mode: exports_external.enum(BILLING_MODES).optional(),
@@ -23438,175 +23650,98 @@ function validateSessionMetadata(source, metadata) {
     return { valid: true, data: result.data };
   return { valid: false, error: result.error.message };
 }
-
-// ../../packages/utils/src/command-xml.ts
-var CLAUDE_BUILTIN_COMMANDS = new Set([
-  "add-dir",
-  "agents",
-  "allowed-tools",
-  "android",
-  "app",
-  "autofix-pr",
-  "bashes",
-  "branch",
-  "btw",
-  "bug",
-  "checkpoint",
-  "chrome",
-  "clear",
-  "color",
-  "compact",
-  "config",
-  "context",
-  "continue",
-  "copy",
-  "cost",
-  "desktop",
-  "diff",
-  "doctor",
-  "effort",
-  "exit",
-  "export",
-  "extra-usage",
-  "fast",
-  "feedback",
-  "fork",
-  "help",
-  "hooks",
-  "ide",
-  "init",
-  "insights",
-  "install-github-app",
-  "install-slack-app",
-  "ios",
-  "keybindings",
-  "login",
-  "logout",
-  "mcp",
-  "memory",
-  "mobile",
-  "model",
-  "new",
-  "output-style",
-  "passes",
-  "permissions",
-  "plan",
-  "plugin",
-  "powerup",
-  "pr-comments",
-  "privacy-settings",
-  "quit",
-  "rc",
-  "release-notes",
-  "reload-plugins",
-  "remote-control",
-  "remote-env",
-  "rename",
-  "reset",
-  "resume",
-  "review",
-  "rewind",
-  "sandbox",
-  "schedule",
-  "security-review",
-  "settings",
-  "setup-bedrock",
-  "skills",
-  "stats",
-  "status",
-  "statusline",
-  "stickers",
-  "tasks",
-  "teleport",
-  "terminal-setup",
-  "theme",
-  "todos",
-  "tp",
-  "ultraplan",
-  "upgrade",
-  "usage",
-  "vim",
-  "voice",
-  "web-setup"
-]);
-// ../../packages/utils/src/date-range.ts
-var PERIOD_TYPE_LABELS = {
-  ["today" /* Today */]: "Today",
-  ["this_week" /* ThisWeek */]: "This Week",
-  ["this_month" /* ThisMonth */]: "This Month"
-};
-var PERIOD_SUMMARY_LABELS = {
-  ["today" /* Today */]: "Daily Summary",
-  ["this_week" /* ThisWeek */]: "Weekly Summary",
-  ["this_month" /* ThisMonth */]: "Monthly Summary",
-  custom: "Custom Period"
-};
-// ../../packages/utils/src/frontmatter.ts
-var FRONTMATTER_KEYS = new Set(["name", "description"]);
-// ../../packages/utils/src/mcp-registry.ts
-var CACHE_TTL_MS2 = 30 * 60 * 1000;
-var CACHE_MAX_SIZE = 100;
-class TtlCache {
-  map = new Map;
-  get(key) {
-    const entry = this.map.get(key);
-    if (!entry)
-      return { hit: false };
-    if (Date.now() > entry.expiry) {
-      this.map.delete(key);
-      return { hit: false };
-    }
-    return { hit: true, value: entry.value };
+// ../../node_modules/.bun/uuid@13.0.2/node_modules/uuid/dist-node/sha1.js
+import { createHash } from "node:crypto";
+function sha1(bytes) {
+  if (Array.isArray(bytes)) {
+    bytes = Buffer.from(bytes);
+  } else if (typeof bytes === "string") {
+    bytes = Buffer.from(bytes, "utf8");
   }
-  set(key, value) {
-    if (this.map.size >= CACHE_MAX_SIZE && !this.map.has(key)) {
-      const firstKey = this.map.keys().next().value;
-      if (firstKey !== undefined)
-        this.map.delete(firstKey);
-    }
-    this.map.set(key, { value, expiry: Date.now() + CACHE_TTL_MS2 });
-  }
-  clear() {
-    this.map.clear();
-  }
+  return createHash("sha1").update(bytes).digest();
 }
-var cache = new TtlCache;
-var toolCache = new TtlCache;
-var serverCache = new TtlCache;
-var GENERIC_SEGMENTS = new Set(["mcp", "com", "org", "io", "dev", "server", "api"]);
-var VERB_PREFIXES = new Set([
-  "get",
-  "list",
-  "create",
-  "delete",
-  "update",
-  "search",
-  "query",
-  "fetch",
-  "run",
-  "execute",
-  "resolve",
-  "find",
-  "read",
-  "write",
-  "set",
-  "send",
-  "check",
-  "add",
-  "remove"
-]);
-// ../../packages/utils/src/sanitize-null-bytes.ts
-function sanitizeNullBytes(value) {
-  if (typeof value === "string") {
-    return value.replace(/\u0000/g, "");
+var sha1_default = sha1;
+
+// ../../node_modules/.bun/uuid@13.0.2/node_modules/uuid/dist-node/regex.js
+var regex_default = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/i;
+
+// ../../node_modules/.bun/uuid@13.0.2/node_modules/uuid/dist-node/validate.js
+function validate(uuid3) {
+  return typeof uuid3 === "string" && regex_default.test(uuid3);
+}
+var validate_default = validate;
+
+// ../../node_modules/.bun/uuid@13.0.2/node_modules/uuid/dist-node/parse.js
+function parse5(uuid3) {
+  if (!validate_default(uuid3)) {
+    throw TypeError("Invalid UUID");
   }
-  if (Array.isArray(value)) {
-    return value.map(sanitizeNullBytes);
+  let v;
+  return Uint8Array.of((v = parseInt(uuid3.slice(0, 8), 16)) >>> 24, v >>> 16 & 255, v >>> 8 & 255, v & 255, (v = parseInt(uuid3.slice(9, 13), 16)) >>> 8, v & 255, (v = parseInt(uuid3.slice(14, 18), 16)) >>> 8, v & 255, (v = parseInt(uuid3.slice(19, 23), 16)) >>> 8, v & 255, (v = parseInt(uuid3.slice(24, 36), 16)) / 1099511627776 & 255, v / 4294967296 & 255, v >>> 24 & 255, v >>> 16 & 255, v >>> 8 & 255, v & 255);
+}
+var parse_default = parse5;
+
+// ../../node_modules/.bun/uuid@13.0.2/node_modules/uuid/dist-node/stringify.js
+var byteToHex = [];
+for (let i = 0;i < 256; ++i) {
+  byteToHex.push((i + 256).toString(16).slice(1));
+}
+function unsafeStringify(arr, offset = 0) {
+  return (byteToHex[arr[offset + 0]] + byteToHex[arr[offset + 1]] + byteToHex[arr[offset + 2]] + byteToHex[arr[offset + 3]] + "-" + byteToHex[arr[offset + 4]] + byteToHex[arr[offset + 5]] + "-" + byteToHex[arr[offset + 6]] + byteToHex[arr[offset + 7]] + "-" + byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9]] + "-" + byteToHex[arr[offset + 10]] + byteToHex[arr[offset + 11]] + byteToHex[arr[offset + 12]] + byteToHex[arr[offset + 13]] + byteToHex[arr[offset + 14]] + byteToHex[arr[offset + 15]]).toLowerCase();
+}
+
+// ../../node_modules/.bun/uuid@13.0.2/node_modules/uuid/dist-node/v35.js
+function stringToBytes(str) {
+  str = unescape(encodeURIComponent(str));
+  const bytes = new Uint8Array(str.length);
+  for (let i = 0;i < str.length; ++i) {
+    bytes[i] = str.charCodeAt(i);
   }
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, sanitizeNullBytes(v)]));
+  return bytes;
+}
+var DNS = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
+var URL2 = "6ba7b811-9dad-11d1-80b4-00c04fd430c8";
+function v35(version3, hash2, value, namespace, buf, offset) {
+  const valueBytes = typeof value === "string" ? stringToBytes(value) : value;
+  const namespaceBytes = typeof namespace === "string" ? parse_default(namespace) : namespace;
+  if (typeof namespace === "string") {
+    namespace = parse_default(namespace);
   }
-  return value;
+  if (namespace?.length !== 16) {
+    throw TypeError("Namespace must be array-like (16 iterable integer values, 0-255)");
+  }
+  let bytes = new Uint8Array(16 + valueBytes.length);
+  bytes.set(namespaceBytes);
+  bytes.set(valueBytes, namespaceBytes.length);
+  bytes = hash2(bytes);
+  bytes[6] = bytes[6] & 15 | version3;
+  bytes[8] = bytes[8] & 63 | 128;
+  if (buf) {
+    offset = offset || 0;
+    if (offset < 0 || offset + 16 > buf.length) {
+      throw new RangeError(`UUID byte range ${offset}:${offset + 15} is out of buffer bounds`);
+    }
+    for (let i = 0;i < 16; ++i) {
+      buf[offset + i] = bytes[i];
+    }
+    return buf;
+  }
+  return unsafeStringify(bytes);
+}
+
+// ../../node_modules/.bun/uuid@13.0.2/node_modules/uuid/dist-node/v5.js
+function v5(value, namespace, buf, offset) {
+  return v35(80, sha1_default, value, namespace, buf, offset);
+}
+v5.DNS = DNS;
+v5.URL = URL2;
+var v5_default = v5;
+// ../../packages/plugin-common/src/supabase/utils/session-id-normalizer.ts
+function normalizeSessionId(sessionId, namespace) {
+  if (validate_default(sessionId)) {
+    return sessionId;
+  }
+  return v5_default(sessionId, namespace);
 }
 // ../../packages/plugin-common/src/sync/upsert-fallback.ts
 var FALLBACK_CHUNK_SIZE = 50;
@@ -23624,7 +23759,8 @@ async function upsertWithFallback(options) {
       success: false,
       uploadedCount: 0,
       failedIndices: new Set,
-      errorCategory: category
+      errorCategory: category,
+      errorDetail: { httpStatus: status, isHtml: isHtmlResponse(error51.message) }
     };
   }
   let uploaded = 0;
@@ -23644,7 +23780,8 @@ async function upsertWithFallback(options) {
         success: false,
         uploadedCount: uploaded,
         failedIndices,
-        errorCategory: chunkCategory
+        errorCategory: chunkCategory,
+        errorDetail: { httpStatus: chunkStatus, isHtml: isHtmlResponse(chunkError.message) }
       };
     }
     for (let ri = 0;ri < chunk.length; ri++) {
@@ -23663,7 +23800,8 @@ async function upsertWithFallback(options) {
           success: false,
           uploadedCount: uploaded,
           failedIndices,
-          errorCategory: rowCategory
+          errorCategory: rowCategory,
+          errorDetail: { httpStatus: rowStatus, isHtml: isHtmlResponse(rowError.message) }
         };
       }
       logger3?.warn?.(`Skipping row ${rowId(row)} due to data error [${rowError.code ?? "unknown"}]`);
@@ -23817,16 +23955,19 @@ function createChatUploader(config2) {
           metadata = null;
         }
       }
+      const { title, ...sessionFields } = s;
       const session = {
-        ...s,
+        ...sessionFields,
         id: normalizeSessionId(s.id, sessionNamespace),
-        title: s.title ? sanitizeNullBytes(toWellFormed(s.title)) : s.title,
         user_id: userId,
         platform,
         source,
         analysis_status: "pending",
         metadata
       };
+      if (title?.trim()) {
+        session.title = title;
+      }
       if (workspaceId) {
         session.workspace_id = workspaceId;
       }
@@ -23845,10 +23986,10 @@ function createChatUploader(config2) {
     return filteredMessages.map((m) => ({
       ...m,
       session_id: normalizeSessionId(m.session_id, sessionNamespace),
-      content: sanitizeNullBytes(toWellFormed(m.content)),
+      content: m.content,
       user_id: userId,
       code_diffs: null,
-      metadata: m.metadata ? sanitizeNullBytes(m.metadata) : null
+      metadata: m.metadata ?? null
     }));
   }
   async function uploadSessionsToSupabase(supabase, sessions) {
@@ -23876,7 +24017,8 @@ function createChatUploader(config2) {
       success: result.success,
       uploadedCount: result.uploadedCount,
       failedSessionIds,
-      errorCategory: result.errorCategory
+      errorCategory: result.errorCategory,
+      errorDetail: result.errorDetail
     };
   }
   async function uploadMessagesToSupabase(supabase, messages) {
@@ -23903,7 +24045,8 @@ function createChatUploader(config2) {
     return {
       success: result.success,
       uploadedCount: result.uploadedCount,
-      errorCategory: result.errorCategory
+      errorCategory: result.errorCategory,
+      errorDetail: result.errorDetail
     };
   }
   async function removeMessagesFromQueue(messageIdsToRemove) {
@@ -24054,7 +24197,8 @@ function createChatUploader(config2) {
         return {
           success: false,
           uploaded: { sessions: 0, messages: 0 },
-          errorCategory: sessionsResult.errorCategory
+          errorCategory: sessionsResult.errorCategory,
+          errorDetail: sessionsResult.errorDetail
         };
       }
       const messagesForUpload = excludeMessagesForFailedSessions(messagesForThisCycle, sessionsResult.failedSessionIds);
@@ -24063,7 +24207,8 @@ function createChatUploader(config2) {
         return {
           success: false,
           uploaded: { sessions: sessionsResult.uploadedCount, messages: 0 },
-          errorCategory: messagesResult.errorCategory
+          errorCategory: messagesResult.errorCategory,
+          errorDetail: messagesResult.errorDetail
         };
       }
       const normalizedToRaw = new Map(uniqueSessions.filter((s) => !!s.id).map((s) => [normalizeSessionId(s.id, sessionNamespace), s.id]));
@@ -24378,7 +24523,7 @@ class SignalExtractor {
 // src/extractors/signal-extractor-instance.ts
 var signalExtractor = new SignalExtractor({
   stateDir: STATE_DIR,
-  logger
+  logger: logger2
 });
 
 // src/supabase/chat-uploader.ts
@@ -24391,396 +24536,33 @@ var chatUploader = createChatUploader({
   sessionNamespace: ZEST_SESSION_NAMESPACE,
   minMessagesPerSession: minMessagesPerSession2,
   staleSessionAgeMs: STALE_SESSION_AGE_MS,
-  logger,
+  logger: logger2,
   readQueue,
   atomicUpdateQueue,
   readSessionSignals: (sessionId) => signalExtractor.readSessionSignals(sessionId)
 });
 var { uploadChatData, uploadChatDataWithRetry } = chatUploader;
 
-// ../../packages/plugin-common/src/sync/events-uploader.ts
-import { fileURLToPath } from "node:url";
-
-// ../../packages/utils/src/git-utils.ts
-import { exec, execSync } from "node:child_process";
-import * as path from "node:path";
-import { promisify } from "node:util";
-var execAsync = promisify(exec);
-var UNKNOWN_PROJECT = {
-  projectId: "unknown",
-  projectName: "unknown"
-};
-var PROJECT_ID_NAMESPACE = "e1f3b3c4-0b7a-4c1e-8a7b-9f3c0e1d2a3b";
-function generateProjectId(input) {
-  return v5_default(input, PROJECT_ID_NAMESPACE);
-}
-function extractNameFromRemoteUrl(remoteUrl) {
-  const orgRepoMatch = remoteUrl.match(/[/:]([^/:.]+\/[^/]+?)(\.git)?$/);
-  if (orgRepoMatch?.[1]) {
-    return orgRepoMatch[1];
-  }
-  const repoMatch = remoteUrl.match(/\/([^/]+?)(\.git)?$/);
-  if (repoMatch?.[1]) {
-    return repoMatch[1];
-  }
-  return null;
-}
-function extractProjectName(workingDirectory) {
-  try {
-    try {
-      const remoteUrl = execSync("git config --get remote.origin.url", {
-        cwd: workingDirectory,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-        timeout: 5000
-      }).trim();
-      if (remoteUrl) {
-        const name = extractNameFromRemoteUrl(remoteUrl);
-        if (name) {
-          return name;
-        }
-      }
-    } catch {}
-    try {
-      const gitCommonDir = execSync("git rev-parse --git-common-dir", {
-        cwd: workingDirectory,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-        timeout: 5000
-      }).trim();
-      if (path.isAbsolute(gitCommonDir) && path.basename(gitCommonDir) === ".git") {
-        return path.basename(path.dirname(gitCommonDir));
-      }
-      const repoRoot = execSync("git rev-parse --show-toplevel", {
-        cwd: workingDirectory,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-        timeout: 5000
-      }).trim();
-      if (repoRoot) {
-        return path.basename(repoRoot);
-      }
-    } catch {}
-    return path.basename(workingDirectory);
-  } catch {
-    return null;
-  }
-}
-function isGitRepository(workingDirectory) {
-  try {
-    execSync("git rev-parse --is-inside-work-tree", {
-      cwd: workingDirectory,
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 5000
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-function getProjectInfoSync(workingDirectory) {
-  try {
-    if (!isGitRepository(workingDirectory)) {
-      return UNKNOWN_PROJECT;
-    }
-    const projectName = extractProjectName(workingDirectory);
-    if (!projectName) {
-      return UNKNOWN_PROJECT;
-    }
-    const absolutePath = path.resolve(workingDirectory);
-    const projectId = generateProjectId(absolutePath);
-    return {
-      projectId,
-      projectName
-    };
-  } catch {
-    return UNKNOWN_PROJECT;
-  }
-}
-// ../../packages/plugin-common/src/sync/events-uploader.ts
-var UNKNOWN_PROJECT2 = {
-  projectId: "unknown",
-  projectName: "unknown"
-};
-function parseFileUri(uri) {
-  if (uri.startsWith("file://")) {
-    try {
-      return fileURLToPath(uri);
-    } catch {
-      return uri.replace(/^file:\/\//, "");
-    }
-  }
-  return uri;
-}
-function deduplicateEvents(events) {
-  const eventMap = new Map;
-  for (const event of events) {
-    if (!event.id)
-      continue;
-    const existing = eventMap.get(event.id);
-    if (!existing) {
-      eventMap.set(event.id, event);
-      continue;
-    }
-    const existingTime = existing.timestamp ? new Date(existing.timestamp).getTime() : 0;
-    const currentTime = event.timestamp ? new Date(event.timestamp).getTime() : 0;
-    if (currentTime >= existingTime) {
-      eventMap.set(event.id, event);
-    }
-  }
-  return Array.from(eventMap.values());
-}
-function createEventsUploader(config2) {
-  const {
-    eventsQueueFile,
-    platform,
-    source,
-    sessionNamespace,
-    logger: logger3,
-    readQueue: readQueue2,
-    atomicUpdateQueue: atomicUpdateQueue2,
-    onCaptureException,
-    maxEventAgeDays,
-    maxEventsPerCycle
-  } = config2;
-  function transformEventForUpload(event, userId, workspaceId, projectInfo) {
-    let normalizedPayload = event.payload;
-    if (event.payload && typeof event.payload === "object" && !Array.isArray(event.payload) && "session_id" in event.payload && typeof event.payload.session_id === "string") {
-      normalizedPayload = {
-        ...event.payload,
-        session_id: normalizeSessionId(event.payload.session_id, sessionNamespace)
-      };
-    }
-    return {
-      ...event,
-      session_id: event.session_id ? normalizeSessionId(event.session_id, sessionNamespace) : event.session_id,
-      event_type: "file.changed",
-      user_id: userId,
-      workspace_id: event.workspace_id ?? workspaceId,
-      platform,
-      source,
-      payload: sanitizeNullBytes(normalizedPayload),
-      project_id: projectInfo.projectId !== "unknown" ? projectInfo.projectId : null
-    };
-  }
-  async function uploadEvents(supabase, session, dataControls) {
-    try {
-      const queuedEvents = await readQueue2(eventsQueueFile);
-      if (queuedEvents.length === 0) {
-        logger3?.debug("No events to upload");
-        return { success: true, uploaded: 0 };
-      }
-      if (dataControls && !dataControls.shouldUploadCodeDiffs()) {
-        logger3?.info("Skipping code_digest_events upload: code_diffs collection disabled");
-        await atomicUpdateQueue2(eventsQueueFile, () => []);
-        return { success: true, uploaded: 0 };
-      }
-      const uniqueEvents = deduplicateEvents(queuedEvents);
-      if (uniqueEvents.length < queuedEvents.length) {
-        logger3?.info(`Deduplicated events: ${queuedEvents.length} → ${uniqueEvents.length} (removed ${queuedEvents.length - uniqueEvents.length} duplicates)`);
-      }
-      let eventsToProcess = uniqueEvents;
-      if (maxEventAgeDays !== undefined && maxEventAgeDays > 0) {
-        const cutoff = new Date(Date.now() - maxEventAgeDays * 24 * 60 * 60 * 1000).toISOString();
-        const fresh = [];
-        const stale = [];
-        for (const e of uniqueEvents) {
-          if (e.timestamp && e.timestamp < cutoff) {
-            stale.push(e);
-          } else {
-            fresh.push(e);
-          }
-        }
-        if (stale.length > 0) {
-          const oldestTimestamp = stale.reduce((oldest, e) => e.timestamp && e.timestamp < oldest ? e.timestamp : oldest, stale[0].timestamp);
-          const oldestAgeDays = Math.round((Date.now() - new Date(oldestTimestamp).getTime()) / (24 * 60 * 60 * 1000));
-          logger3?.info(`Dropped ${stale.length} events older than ${maxEventAgeDays} days`);
-          onCaptureException?.(new Error(`Dropped ${stale.length} stale events`), SYNC_STALE_EVENTS_DROPPED, "events-uploader", {
-            dropped_count: stale.length,
-            max_age_days: maxEventAgeDays,
-            oldest_event_age_days: oldestAgeDays
-          });
-          const staleIds = new Set(stale.map((e) => e.id).filter((id) => !!id));
-          await atomicUpdateQueue2(eventsQueueFile, (current) => current.filter((e) => !e.id || !staleIds.has(e.id)));
-        }
-        eventsToProcess = fresh;
-      }
-      if (eventsToProcess.length === 0) {
-        logger3?.debug("No events to upload after age eviction");
-        return { success: true, uploaded: 0 };
-      }
-      let eventsForThisCycle = eventsToProcess;
-      if (maxEventsPerCycle && eventsToProcess.length > maxEventsPerCycle) {
-        eventsForThisCycle = eventsToProcess.slice(0, maxEventsPerCycle);
-        logger3?.info(`Drain throttle: uploading ${eventsForThisCycle.length} of ${eventsToProcess.length} events`);
-        onCaptureException?.(new Error(`Drain throttle active: ${eventsToProcess.length} events in queue`), SYNC_DRAIN_THROTTLED, "events-uploader", {
-          queue_size: eventsToProcess.length,
-          cycle_cap: maxEventsPerCycle,
-          queue_type: "events"
-        });
-      }
-      logger3?.info(`Uploading ${eventsForThisCycle.length} code digest events`);
-      const projectInfoCache = new Map;
-      for (const event of eventsForThisCycle) {
-        if (!event.workspace_folder_uri) {
-          logger3?.debug("Event missing workspace_folder_uri, using unknown project");
-          continue;
-        }
-        const workingDirectory = parseFileUri(event.workspace_folder_uri);
-        if (!projectInfoCache.has(workingDirectory)) {
-          projectInfoCache.set(workingDirectory, getProjectInfoSync(workingDirectory));
-        }
-      }
-      const allTransformedEvents = eventsForThisCycle.map((e) => {
-        const projectInfo = e.workspace_folder_uri ? projectInfoCache.get(parseFileUri(e.workspace_folder_uri)) ?? UNKNOWN_PROJECT2 : UNKNOWN_PROJECT2;
-        return transformEventForUpload(e, session.userId, session.workspaceId ?? null, projectInfo);
-      });
-      const droppedIds = new Set;
-      const eventsToUpload = allTransformedEvents.filter((e) => {
-        if (!e.workspace_id) {
-          if (e.id)
-            droppedIds.add(e.id);
-          return false;
-        }
-        return true;
-      });
-      if (droppedIds.size > 0) {
-        logger3?.warn(`Dropping ${droppedIds.size} events without workspace_id from queue`);
-        onCaptureException?.(new Error(`${droppedIds.size} events dropped: no workspace_id`), SYNC_BLOCKED_NO_WORKSPACE, "events-uploader", {
-          ...buildSyncProperties({ eventsAttempted: droppedIds.size }),
-          reason: "precondition_failed"
-        });
-        await atomicUpdateQueue2(eventsQueueFile, (current) => current.filter((e) => !e.id || !droppedIds.has(e.id)));
-      }
-      if (eventsToUpload.length === 0) {
-        logger3?.debug("No events to upload after workspace_id filter");
-        return { success: true, uploaded: 0 };
-      }
-      const batchSize = 100;
-      let uploadedCount = 0;
-      const processedIds = new Set;
-      for (let i = 0;i < eventsToUpload.length; i += batchSize) {
-        const batch = eventsToUpload.slice(i, i + batchSize);
-        const batchNumber = i / batchSize + 1;
-        const result = await upsertWithFallback({
-          rows: batch,
-          upsert: (rows) => supabase.from("code_digest_events").upsert(rows, { onConflict: "id", defaultToNull: false }),
-          rowId: (row) => row.id ?? "unknown",
-          logger: logger3
-        });
-        uploadedCount += result.uploadedCount;
-        if (result.success) {
-          for (const event of batch) {
-            if (event.id)
-              processedIds.add(event.id);
-          }
-        } else {
-          for (let idx = 0;idx < batch.length; idx++) {
-            if (!result.failedIndices.has(idx)) {
-              const id = batch[idx].id;
-              if (id)
-                processedIds.add(id);
-            }
-          }
-        }
-        if (result.failedIndices.size > 0) {
-          logger3?.warn(`Batch ${batchNumber}: ${result.failedIndices.size} events discarded`);
-          onCaptureException?.(new Error(`${result.failedIndices.size} events failed during fallback`), SYNC_DATA_ERROR, "events-uploader", {
-            ...buildSyncProperties({
-              syncErrorType: "data_error",
-              eventsAttempted: batch.length
-            }),
-            batch_number: batchNumber,
-            skipped: result.failedIndices.size,
-            uploaded: result.uploadedCount
-          });
-        }
-        if (!result.success) {
-          logger3?.error(`Events batch ${batchNumber} failed [${result.errorCategory}]`);
-          onCaptureException?.(new Error(`Events upload failed: ${result.errorCategory}`), SYNC_EVENTS_UPLOAD_FAILED, "events-uploader", {
-            ...buildSyncProperties({
-              syncErrorType: result.errorCategory === "data_error" ? "data_error" : "upload_failed",
-              eventsAttempted: eventsToUpload.length
-            }),
-            batch_number: batchNumber,
-            batch_size: batch.length,
-            uploaded_before_failure: uploadedCount,
-            error_category: result.errorCategory
-          });
-          if (processedIds.size > 0) {
-            await atomicUpdateQueue2(eventsQueueFile, (currentEvents) => currentEvents.filter((e) => !e.id || !processedIds.has(e.id)));
-            logger3?.info(`Removed ${processedIds.size} processed events from queue`);
-          }
-          return { success: false, uploaded: uploadedCount, errorCategory: result.errorCategory };
-        }
-        logger3?.debug(`✓ Uploaded batch ${batchNumber} (${batch.length} events)`);
-      }
-      await atomicUpdateQueue2(eventsQueueFile, (currentEvents) => currentEvents.filter((e) => !e.id || !processedIds.has(e.id)));
-      logger3?.info(`✓ Events upload completed: ${uploadedCount} events`);
-      return { success: true, uploaded: uploadedCount };
-    } catch (error51) {
-      logger3?.error("Failed to upload events", error51);
-      return {
-        success: false,
-        uploaded: 0,
-        errorCategory: classifyException(error51)
-      };
-    }
-  }
-  async function uploadEventsWithRetry(supabase, session, dataControls, maxRetries = 3, backoffMs = 5000) {
-    let lastResult = null;
-    for (let attempt = 1;attempt <= maxRetries; attempt++) {
-      const result = await uploadEvents(supabase, session, dataControls);
-      if (result.success) {
-        return result;
-      }
-      lastResult = result;
-      if (result.errorCategory && !isRetryableCategory(result.errorCategory)) {
-        return result;
-      }
-      logger3?.warn(`Events upload attempt ${attempt}/${maxRetries} failed`);
-      if (attempt < maxRetries) {
-        const delay = backoffMs * attempt;
-        logger3?.debug(`Retrying in ${delay}ms...`);
-        await new Promise((resolve2) => setTimeout(resolve2, delay));
-      }
-    }
-    logger3?.error(`Events upload failed after ${maxRetries} attempts`);
-    if (lastResult) {
-      onCaptureException?.(new Error(lastResult.errorCategory ?? "upload_failed"), SYNC_EVENTS_RETRY_EXHAUSTED, "events-uploader", { ...buildSyncProperties({ syncErrorType: "upload_failed", retryAttempt: maxRetries }) });
-    }
-    return lastResult ?? { success: false, uploaded: 0 };
-  }
-  return { uploadEvents, uploadEventsWithRetry };
-}
-
-// src/supabase/events-uploader.ts
-var eventsUploader = createEventsUploader({
-  eventsQueueFile: EVENTS_QUEUE_FILE,
-  platform: PLATFORM,
-  source: SOURCE,
-  sessionNamespace: ZEST_SESSION_NAMESPACE,
-  logger,
-  readQueue,
-  atomicUpdateQueue
-});
-var { uploadEvents, uploadEventsWithRetry } = eventsUploader;
-
 // src/supabase/sync.ts
 var syncOrchestrator = createSyncOrchestrator({
-  logger,
+  logger: logger2,
   getQueueStats,
-  uploadEventsWithRetry,
   uploadChatDataWithRetry
 });
 var { syncAllData } = syncOrchestrator;
 var syncRunner = createSyncRunner({
-  logger,
+  logger: logger2,
   syncAllData,
   recordSyncMetric,
   clearSyncError,
-  writeSyncStatus
+  writeSyncStatus,
+  readSyncStatus: () => {
+    const { lastSuccessAt, stuckAlertedAt } = readStatusCache().syncStatus;
+    return { lastSuccessAt, stuckAlertedAt: stuckAlertedAt ?? null };
+  },
+  markStuckAlerted,
+  getQueueStats,
+  onCaptureException: captureException
 });
 var { syncWithMessage } = syncRunner;
 export {

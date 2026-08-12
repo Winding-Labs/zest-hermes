@@ -21,7 +21,13 @@ class Analytics {
     this.providers = providers;
   }
   setContext(properties) {
-    Object.assign(this.defaultContext, properties);
+    for (const [key, value] of Object.entries(properties)) {
+      if (value === null || value === undefined) {
+        delete this.defaultContext[key];
+      } else {
+        this.defaultContext[key] = value;
+      }
+    }
   }
   set(collection, objectId, properties) {
     for (const provider of this.providers) {
@@ -35,7 +41,12 @@ class Analytics {
     }
   }
   event(collection, objectId, eventName, properties, context) {
-    const mergedContext = { ...this.defaultContext, ...context };
+    const ambient = { ...this.defaultContext };
+    for (const [key, value] of Object.entries(properties)) {
+      if (value !== undefined)
+        delete ambient[key];
+    }
+    const mergedContext = { ...ambient, ...context };
     for (const provider of this.providers) {
       try {
         provider.event(collection, objectId, eventName, properties, mergedContext);
@@ -93,8 +104,14 @@ var EVENTS = {
   EXTENSION_INSTALL_CLICKED: "Extension Install Clicked",
   EXTENSION_GUIDE_VIEWED: "Extension Guide Viewed",
   EXTENSION_INSTALLED: "Extension Installed",
+  EXTENSION_SYNC_STATUS_CHANGED: "sync_status_changed",
+  EXTENSION_FORCED_SIGNOUT_RECOVERY: "forced_signout_recovery_clicked",
+  EXTENSION_SIGNED_OUT: "extension_signed_out",
   FIRST_DATA_SENT: "First Data Sent",
   ONBOARDING_STEP_COMPLETED: "Onboarding Step Completed",
+  ONBOARDING_STARTED: "Onboarding Started",
+  ONBOARDING_STEP_VIEWED: "Onboarding Step Viewed",
+  ONBOARDING_COMPLETED: "Onboarding Completed",
   NAV_LINK_CLICKED: "Nav Link Clicked",
   WORKSPACE_SWITCHED: "Workspace Switched",
   TEAM_SWITCHED: "Team Switched",
@@ -102,6 +119,7 @@ var EVENTS = {
   ASK_ZEST_QUICK_ACTION_CLICKED: "Ask Zest Quick Action Clicked",
   ASK_ZEST_PROMPT_SELECTED: "Ask Zest Prompt Selected",
   ASK_ZEST_MENU_OPENED: "Ask Zest Menu Opened",
+  ASK_ZEST_CHAT_FAILED: "Ask Zest Chat Failed",
   STANDUP_GENERATED: "Standup Generated",
   STANDUP_VIEWED: "Standup Viewed",
   STANDUP_SHARED: "Standup Shared",
@@ -121,8 +139,14 @@ var EVENTS = {
   GITHUB_CONNECT_STARTED: "GitHub Connect Started",
   GITHUB_CONNECTION_REQUESTED: "GitHub Connection Requested",
   GITHUB_CONNECTED: "GitHub Connected",
+  AGENT_GITHUB_CONNECT_STARTED: "Agent GitHub Connect Started",
+  AGENT_GITHUB_CONNECTED: "Agent GitHub Connected",
+  AGENT_GITHUB_CONNECT_FAILED: "Agent GitHub Connect Failed",
+  AGENT_GITHUB_DISCONNECTED: "Agent GitHub Disconnected",
+  SLACK_CONNECT_STARTED: "Slack Connect Started",
+  SLACK_CONNECTED: "Slack Connected",
+  SLACK_MESSAGE_SENT: "Slack Message Sent",
   CLI_SIGNED_IN: "CLI Signed In",
-  TRIAL_STARTED: "Trial Started",
   PLAN_SELECTED: "Plan Selected",
   PAYMENT_SETUP_COMPLETED: "Payment Setup Completed",
   PAYMENT_SETUP_FAILED: "Payment Setup Failed",
@@ -136,14 +160,54 @@ var EVENTS = {
   PAYMENT_FAILED: "Payment Failed",
   BILLING_PORTAL_OPENED: "Billing Portal Opened",
   SUBSCRIPTION_GATE_SHOWN: "Subscription Gate Shown",
+  STARTUP_DISCOUNT_APPLIED: "Startup Discount Applied",
+  SIGNUP_PLAN_SELECTED: "Signup Plan Selected",
+  SIGNUP_CARD_ENTERED: "Signup Card Entered",
+  SIGNUP_PAYMENT_SKIPPED: "Signup Payment Skipped",
+  SIGNUP_STARTER_SELECTED: "Signup Starter Selected",
+  CREDIT_LIMIT_REACHED: "Credit Limit Reached",
+  SUBSCRIPTION_PROVISIONED: "Subscription Provisioned",
+  MEMBERS_SUSPENDED: "Members Suspended",
+  REPORT_CREATED: "Report Created",
+  REPORT_UPDATED: "Report Updated",
+  REPORT_DELETED: "Report Deleted",
+  REPORT_RUN_COMPLETED: "Report Run Completed",
+  REPORT_DELIVERY_FAILED: "Report Delivery Failed",
   ADMIN_IMPERSONATION_STARTED: "Admin Impersonation Started",
-  ADMIN_IMPERSONATION_ENDED: "Admin Impersonation Ended"
+  ADMIN_IMPERSONATION_ENDED: "Admin Impersonation Ended",
+  ADMIN_IMPERSONATION_ASK_ZEST_RUN: "Admin Impersonation Ask Zest Run"
 };
 var GA4_EVENT_MAP = {
   [EVENTS.USER_CREATED]: "sign_up"
 };
 
 // ../../packages/analytics/src/utils.ts
+var GA4_PII_KEYS = new Set([
+  "email",
+  "email_address",
+  "name",
+  "full_name",
+  "first_name",
+  "last_name",
+  "profile_name",
+  "user_name",
+  "username",
+  "phone",
+  "phone_number",
+  "ip",
+  "$ip"
+]);
+function stripGA4Pii(properties) {
+  const safe = {};
+  for (const [key, value] of Object.entries(properties)) {
+    if (key.startsWith("$"))
+      continue;
+    if (GA4_PII_KEYS.has(key.toLowerCase()))
+      continue;
+    safe[key] = value;
+  }
+  return safe;
+}
 function toSnakeCase(str) {
   return str.replace(/([A-Z])/g, " $1").trim().toLowerCase().replace(/\s+/g, "_");
 }
@@ -171,8 +235,7 @@ class GA4ServerProvider {
           {
             name: ga4Name,
             params: {
-              ...properties,
-              ...context,
+              ...stripGA4Pii({ ...properties, ...context }),
               engagement_time_msec: "100"
             }
           }
@@ -5344,14 +5407,13 @@ var AUTH_SESSION_LOAD_FAILED = "auth_session_load_failed";
 var AUTH_SESSION_CLEAR_FAILED = "auth_session_clear_failed";
 var AUTH_SESSION_SAVE_FAILED = "auth_session_save_failed";
 var SYNC_NOT_AUTHENTICATED = "sync_not_authenticated";
-var SYNC_EVENTS_UPLOAD_FAILED = "sync_events_upload_failed";
-var SYNC_EVENTS_RETRY_EXHAUSTED = "sync_events_upload_retry_exhausted";
 var SYNC_CHAT_UPLOAD_FAILED = "sync_chat_upload_failed";
 var SYNC_NETWORK_ERROR = "sync_network_error";
 var SYNC_SERVER_OVERLOAD = "sync_server_overload";
 var SYNC_DATA_ERROR = "sync_data_error";
 var SYNC_AUTH_ERROR = "sync_auth_error";
 var SYNC_BLOCKED_NO_WORKSPACE = "sync_blocked_no_workspace";
+var SYNC_STUCK = "sync_stuck";
 var AUTH_SESSION_METADATA_LOST = "auth_session_metadata_lost";
 var QUEUE_READ_CORRUPTED = "queue_read_corrupted";
 var QUEUE_WRITE_FAILED = "queue_write_failed";
@@ -5359,7 +5421,6 @@ var FILE_LOCK_TIMEOUT = "file_lock_timeout";
 var FILE_LOCK_CREATE_FAILED = "file_lock_create_failed";
 var NOTIFICATION_STATE_WRITE_FAILED = "notification_state_write_failed";
 var QUEUE_CAP_EVICTION = "queue_cap_eviction";
-var SYNC_STALE_EVENTS_DROPPED = "sync_stale_events_dropped";
 var SYNC_DRAIN_THROTTLED = "sync_drain_throttled";
 var SYNC_ORPHANED_MESSAGES_DROPPED = "sync_orphaned_messages_dropped";
 var EXTRACTION_PROJECT_DIR_NOT_FOUND = "extraction_project_dir_not_found";
@@ -5387,18 +5448,16 @@ var ERROR_TYPES = [
   AUTH_SESSION_SAVE_FAILED,
   AUTH_SESSION_METADATA_LOST,
   SYNC_NOT_AUTHENTICATED,
-  SYNC_EVENTS_UPLOAD_FAILED,
-  SYNC_EVENTS_RETRY_EXHAUSTED,
   SYNC_CHAT_UPLOAD_FAILED,
   SYNC_NETWORK_ERROR,
   SYNC_SERVER_OVERLOAD,
   SYNC_DATA_ERROR,
   SYNC_AUTH_ERROR,
   SYNC_BLOCKED_NO_WORKSPACE,
+  SYNC_STUCK,
   QUEUE_READ_CORRUPTED,
   QUEUE_WRITE_FAILED,
   QUEUE_CAP_EVICTION,
-  SYNC_STALE_EVENTS_DROPPED,
   SYNC_DRAIN_THROTTLED,
   SYNC_ORPHANED_MESSAGES_DROPPED,
   FILE_LOCK_TIMEOUT,
@@ -5672,7 +5731,6 @@ var STATE_DB_PATH = join(HERMES_HOME, "state.db");
 var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
 var PENDING_FINALIZE_FILE = join(HERMES_ZEST_HOME, "pending-finalize");
 var QUEUE_DIR = join(HERMES_ZEST_HOME, "queue");
-var EVENTS_QUEUE_FILE = join(QUEUE_DIR, "events.jsonl");
 var SESSIONS_QUEUE_FILE = join(QUEUE_DIR, "chat-sessions.jsonl");
 var MESSAGES_QUEUE_FILE = join(QUEUE_DIR, "chat-messages.jsonl");
 var STATE_DIR = join(HERMES_ZEST_HOME, "state");
@@ -5762,7 +5820,7 @@ var {
 
 // src/utils/plugin-version.ts
 function getPluginVersion() {
-  return "0.1.1";
+  return "0.1.2";
 }
 
 // src/analytics/client.ts
