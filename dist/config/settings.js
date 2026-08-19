@@ -14479,6 +14479,7 @@ var SENSITIVE_DATA_PATTERNS = [
     highlySensitive: true,
     priority: 90
   }),
+  createPattern("anthropic_key_truncated", "Truncated Anthropic API keys", /sk-ant-[A-Za-z0-9\-_]{20,79}/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 80 }),
   createPattern("auth0_secret", "Auth0 client secrets (generic pattern)", /[A-Za-z0-9\-_]{64}/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 25, aggressiveOnly: true }),
   createPattern("okta_token", "Okta API tokens", /00[A-Za-z0-9]{38}/g, "api_keys", {
     redactionStrategy: "full",
@@ -14683,7 +14684,7 @@ import { join as join2 } from "node:path";
 import { homedir } from "node:os";
 import { join } from "node:path";
 var HERMES_HOME = process.env.HERMES_DIR ?? join(homedir(), ".hermes");
-var HERMES_ZEST_HOME = join(homedir(), ".hermes-zest");
+var HERMES_ZEST_HOME = process.env.ZEST_HERMES_STATE_DIR ?? join(homedir(), ".hermes-zest");
 var HERMES_CONFIG_PATH = join(HERMES_HOME, "config.yaml");
 var STATE_DB_PATH = join(HERMES_HOME, "state.db");
 var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");

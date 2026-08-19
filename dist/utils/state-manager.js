@@ -24,6 +24,8 @@ var FILE_LOCK_TIMEOUT = "file_lock_timeout";
 var FILE_LOCK_CREATE_FAILED = "file_lock_create_failed";
 var NOTIFICATION_STATE_WRITE_FAILED = "notification_state_write_failed";
 var QUEUE_CAP_EVICTION = "queue_cap_eviction";
+var QUEUE_LEGACY_ENTRIES_DROPPED = "queue_legacy_entries_dropped";
+var QUEUE_MISMATCHED_ENTRIES_PURGED = "queue_mismatched_entries_purged";
 var SYNC_DRAIN_THROTTLED = "sync_drain_throttled";
 var SYNC_ORPHANED_MESSAGES_DROPPED = "sync_orphaned_messages_dropped";
 var EXTRACTION_PROJECT_DIR_NOT_FOUND = "extraction_project_dir_not_found";
@@ -61,6 +63,8 @@ var ERROR_TYPES = [
   QUEUE_READ_CORRUPTED,
   QUEUE_WRITE_FAILED,
   QUEUE_CAP_EVICTION,
+  QUEUE_LEGACY_ENTRIES_DROPPED,
+  QUEUE_MISMATCHED_ENTRIES_PURGED,
   SYNC_DRAIN_THROTTLED,
   SYNC_ORPHANED_MESSAGES_DROPPED,
   FILE_LOCK_TIMEOUT,
@@ -105,7 +109,7 @@ function resolveFileLock(callback) {
 import { homedir } from "node:os";
 import { join } from "node:path";
 var HERMES_HOME = process.env.HERMES_DIR ?? join(homedir(), ".hermes");
-var HERMES_ZEST_HOME = join(homedir(), ".hermes-zest");
+var HERMES_ZEST_HOME = process.env.ZEST_HERMES_STATE_DIR ?? join(homedir(), ".hermes-zest");
 var HERMES_CONFIG_PATH = join(HERMES_HOME, "config.yaml");
 var STATE_DB_PATH = join(HERMES_HOME, "state.db");
 var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");

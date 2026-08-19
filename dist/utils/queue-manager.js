@@ -198,6 +198,8 @@ var FILE_LOCK_TIMEOUT = "file_lock_timeout";
 var FILE_LOCK_CREATE_FAILED = "file_lock_create_failed";
 var NOTIFICATION_STATE_WRITE_FAILED = "notification_state_write_failed";
 var QUEUE_CAP_EVICTION = "queue_cap_eviction";
+var QUEUE_LEGACY_ENTRIES_DROPPED = "queue_legacy_entries_dropped";
+var QUEUE_MISMATCHED_ENTRIES_PURGED = "queue_mismatched_entries_purged";
 var SYNC_DRAIN_THROTTLED = "sync_drain_throttled";
 var SYNC_ORPHANED_MESSAGES_DROPPED = "sync_orphaned_messages_dropped";
 var EXTRACTION_PROJECT_DIR_NOT_FOUND = "extraction_project_dir_not_found";
@@ -235,6 +237,8 @@ var ERROR_TYPES = [
   QUEUE_READ_CORRUPTED,
   QUEUE_WRITE_FAILED,
   QUEUE_CAP_EVICTION,
+  QUEUE_LEGACY_ENTRIES_DROPPED,
+  QUEUE_MISMATCHED_ENTRIES_PURGED,
   SYNC_DRAIN_THROTTLED,
   SYNC_ORPHANED_MESSAGES_DROPPED,
   FILE_LOCK_TIMEOUT,
@@ -539,7 +543,13 @@ function createQueueManager(config) {
     }
     return value;
   }
+  function assertPrivacyReady(caller) {
+    if (privacyManager && !privacyManager.isInitialized()) {
+      throw new Error(`${caller}: privacyManager is configured but not initialized — call ` + "privacyManager.initialize() before any capture path reaches the queue.");
+    }
+  }
   async function enqueueChatSession(session) {
+    assertPrivacyReady("enqueueChatSession");
     try {
       const redactedSession = {
         ...session,
@@ -553,6 +563,7 @@ function createQueueManager(config) {
     }
   }
   async function enqueueChatMessage(message) {
+    assertPrivacyReady("enqueueChatMessage");
     try {
       const redactedMessage = {
         ...message,
@@ -883,6 +894,14 @@ var EVENTS = {
   ONBOARDING_STARTED: "Onboarding Started",
   ONBOARDING_STEP_VIEWED: "Onboarding Step Viewed",
   ONBOARDING_COMPLETED: "Onboarding Completed",
+  HOME_TOUR_OPENED: "Home Tour Opened",
+  HOME_TOUR_STEP_VIEWED: "Home Tour Step Viewed",
+  HOME_TOUR_COMPLETED: "Home Tour Completed",
+  HOME_TOUR_SKIPPED: "Home Tour Skipped",
+  HOME_TOUR_INSTALL_COPY: "Home Tour Install Command Copied",
+  HOME_TOUR_INSTALL_OPEN: "Home Tour Install Link Opened",
+  SEE_HOW_ZEST_WORKS_TILE_CLICKED: "See How Zest Works Tile Clicked",
+  SEE_HOW_ZEST_WORKS_DISMISSED: "See How Zest Works Dismissed",
   NAV_LINK_CLICKED: "Nav Link Clicked",
   WORKSPACE_SWITCHED: "Workspace Switched",
   TEAM_SWITCHED: "Team Switched",
@@ -6371,7 +6390,7 @@ function createSessionManager(config) {
 import { homedir } from "node:os";
 import { join } from "node:path";
 var HERMES_HOME = process.env.HERMES_DIR ?? join(homedir(), ".hermes");
-var HERMES_ZEST_HOME = join(homedir(), ".hermes-zest");
+var HERMES_ZEST_HOME = process.env.ZEST_HERMES_STATE_DIR ?? join(homedir(), ".hermes-zest");
 var HERMES_CONFIG_PATH = join(HERMES_HOME, "config.yaml");
 var STATE_DB_PATH = join(HERMES_HOME, "state.db");
 var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
@@ -6467,7 +6486,7 @@ var {
 
 // src/utils/plugin-version.ts
 function getPluginVersion() {
-  return "0.1.2";
+  return "0.1.3";
 }
 
 // src/analytics/client.ts
@@ -21003,6 +21022,7 @@ var SENSITIVE_DATA_PATTERNS = [
     highlySensitive: true,
     priority: 90
   }),
+  createPattern("anthropic_key_truncated", "Truncated Anthropic API keys", /sk-ant-[A-Za-z0-9\-_]{20,79}/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 80 }),
   createPattern("auth0_secret", "Auth0 client secrets (generic pattern)", /[A-Za-z0-9\-_]{64}/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 25, aggressiveOnly: true }),
   createPattern("okta_token", "Okta API tokens", /00[A-Za-z0-9]{38}/g, "api_keys", {
     redactionStrategy: "full",
@@ -21063,6 +21083,7 @@ var HIGHLY_SENSITIVE_PATTERN_NAMES = [
   "openai_key",
   "openai_project_key",
   "anthropic_key",
+  "anthropic_key_truncated",
   "auth0_secret",
   "okta_token",
   "generic_secret",

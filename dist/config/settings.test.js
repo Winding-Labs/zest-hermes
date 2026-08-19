@@ -64,7 +64,7 @@ import { join } from "node:path";
 var HERMES_HOME, HERMES_ZEST_HOME, HERMES_CONFIG_PATH, STATE_DB_PATH, CHECKPOINT_PATH, PENDING_FINALIZE_FILE, QUEUE_DIR, SESSIONS_QUEUE_FILE, MESSAGES_QUEUE_FILE, STATE_DIR, LOGS_DIR, SESSION_FILE, SETTINGS_FILE, DAEMON_PID_FILE, DAEMON_LOG_FILE, ACTIVE_SESSIONS_FILE, ORPHAN_CHECK_INTERVAL_MS = 30000, ORPHAN_MISS_THRESHOLD = 3, SYNC_METRICS_FILE, SYNC_METRICS_RETENTION_MS, STATUS_CACHE_FILE, PLATFORM = "cli", SOURCE = "hermes", CLIENT_ID = "hermes", ZEST_SESSION_NAMESPACE = "a7e3f1d9-8b4c-4e2a-9f6d-3c5b7a1e0d82", SYNC_INTERVAL_MS = 30000, VERSION_CHECK_INTERVAL_MS, VERSION_CHECK_TIMEOUT_MS = 5000, UPDATE_CHECK_CACHE_TTL_MS, STALE_SESSION_AGE_MS, AGENT_MIN_MESSAGES_PER_SESSION = 1, MIN_MESSAGES_PER_SESSION = 3, NOTIFICATION_DURATION_MS, STANDUP_NOTIFICATION_THROTTLE_MS, FIRST_DATA_THRESHOLD_MESSAGES = 5, LOG_RETENTION_DAYS = 7, WEB_APP_URL = "https://app.meetzest.com", SUPABASE_URL = "https://fnnlebrtmlxxjwdvngck.supabase.co", SUPABASE_ANON_KEY = "sb_publishable_gJsE8TaVHipVQfLNDFV3tA_z7SRAZBY", POSTHOG_API_KEY = "phc_cSYAEzsJX9gr0sgCp4tfnr7QJ71PwGD04eUQSglw4iQ", DEFAULT_STANDUP_MODEL = "anthropic/claude-opus-4-5";
 var init_constants = __esm(() => {
   HERMES_HOME = process.env.HERMES_DIR ?? join(homedir(), ".hermes");
-  HERMES_ZEST_HOME = join(homedir(), ".hermes-zest");
+  HERMES_ZEST_HOME = process.env.ZEST_HERMES_STATE_DIR ?? join(homedir(), ".hermes-zest");
   HERMES_CONFIG_PATH = join(HERMES_HOME, "config.yaml");
   STATE_DB_PATH = join(HERMES_HOME, "state.db");
   CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
@@ -14906,6 +14906,7 @@ var init_sensitive_patterns = __esm(() => {
       highlySensitive: true,
       priority: 90
     }),
+    createPattern("anthropic_key_truncated", "Truncated Anthropic API keys", /sk-ant-[A-Za-z0-9\-_]{20,79}/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 80 }),
     createPattern("auth0_secret", "Auth0 client secrets (generic pattern)", /[A-Za-z0-9\-_]{64}/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 25, aggressiveOnly: true }),
     createPattern("okta_token", "Okta API tokens", /00[A-Za-z0-9]{38}/g, "api_keys", {
       redactionStrategy: "full",

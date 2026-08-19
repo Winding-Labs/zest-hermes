@@ -14290,7 +14290,11 @@ function date4(params) {
 // ../../node_modules/.bun/zod@4.4.3/node_modules/zod/v4/classic/external.js
 config(en_default());
 // ../../packages/types/token-usage.ts
-var TOKEN_SOURCES = ["provider_reported", "estimated_heuristic"];
+var TOKEN_SOURCES = [
+  "provider_reported",
+  "provider_reported_totals_only",
+  "estimated_heuristic"
+];
 var COST_SOURCES = [
   "provider_reported",
   "derived_openrouter",
@@ -14322,7 +14326,8 @@ var SessionTokenUsageSchema = exports_external.object({
     cache_creation_5m_input_tokens: exports_external.number().nonnegative().optional(),
     cache_creation_1h_input_tokens: exports_external.number().nonnegative().optional(),
     reasoning_tokens: exports_external.number().nonnegative().optional(),
-    cost_usd: exports_external.number().nonnegative().optional()
+    cost_usd: exports_external.number().nonnegative().optional(),
+    uncomposed_total_tokens: exports_external.number().nonnegative().optional()
   })).optional(),
   context_used_percent: exports_external.number().nonnegative().max(100).optional(),
   context_window_size: exports_external.number().int().nonnegative().optional(),
@@ -14438,12 +14443,22 @@ var ClaudeCodeSessionMetadataSchema = exports_external.object({
   }).optional(),
   token_data_source: exports_external.string().optional()
 }).passthrough();
+var GrokBuildSessionMetadataSchema = exports_external.object({
+  model: exports_external.string().optional(),
+  total_tokens: exports_external.number().optional(),
+  token_source: exports_external.enum(TOKEN_SOURCES).optional(),
+  context_used_percent: exports_external.number().optional(),
+  context_window_size: exports_external.number().optional(),
+  context_tokens_used: exports_external.number().optional(),
+  chat_format_version: exports_external.number().optional()
+});
 var metadataSchemasBySource = {
   codex: CodexSessionMetadataSchema,
   hermes: HermesSessionMetadataSchema,
   "claude-code": ClaudeCodeSessionMetadataSchema,
   claude_code: ClaudeCodeSessionMetadataSchema,
-  "claude-desktop": ClaudeCodeSessionMetadataSchema
+  "claude-desktop": ClaudeCodeSessionMetadataSchema,
+  "grok-build": GrokBuildSessionMetadataSchema
 };
 function validateSessionMetadata(source, metadata) {
   const schema = metadataSchemasBySource[source];
@@ -14477,6 +14492,8 @@ var FILE_LOCK_TIMEOUT = "file_lock_timeout";
 var FILE_LOCK_CREATE_FAILED = "file_lock_create_failed";
 var NOTIFICATION_STATE_WRITE_FAILED = "notification_state_write_failed";
 var QUEUE_CAP_EVICTION = "queue_cap_eviction";
+var QUEUE_LEGACY_ENTRIES_DROPPED = "queue_legacy_entries_dropped";
+var QUEUE_MISMATCHED_ENTRIES_PURGED = "queue_mismatched_entries_purged";
 var SYNC_DRAIN_THROTTLED = "sync_drain_throttled";
 var SYNC_ORPHANED_MESSAGES_DROPPED = "sync_orphaned_messages_dropped";
 var EXTRACTION_PROJECT_DIR_NOT_FOUND = "extraction_project_dir_not_found";
@@ -14514,6 +14531,8 @@ var ERROR_TYPES = [
   QUEUE_READ_CORRUPTED,
   QUEUE_WRITE_FAILED,
   QUEUE_CAP_EVICTION,
+  QUEUE_LEGACY_ENTRIES_DROPPED,
+  QUEUE_MISMATCHED_ENTRIES_PURGED,
   SYNC_DRAIN_THROTTLED,
   SYNC_ORPHANED_MESSAGES_DROPPED,
   FILE_LOCK_TIMEOUT,
@@ -15039,6 +15058,62 @@ function partitionMessagesBySessionCategory(messages, categories) {
   }
   return { valid, stale, pending, orphaned };
 }
+function partitionSessionsByIdentity(sessions, userId, workspaceId) {
+  const owned = [];
+  const legacyIds = new Set;
+  const mismatched = [];
+  for (const session of sessions) {
+    if (!session.id)
+      continue;
+    if (!session.user_id) {
+      legacyIds.add(session.id);
+      owned.push(session);
+      continue;
+    }
+    const workspaceMismatch = session.workspace_id != null && session.workspace_id !== workspaceId;
+    if (session.user_id !== userId || workspaceMismatch) {
+      mismatched.push(session);
+      continue;
+    }
+    owned.push(session);
+  }
+  return { owned, legacyIds, mismatched };
+}
+function partitionMessagesByIdentity(messages, userId, parentSessions) {
+  const owned = [];
+  const legacyIds = new Set;
+  const mismatched = [];
+  const ownedSessionIds = new Set(parentSessions?.owned.map((s) => s.id).filter((id) => !!id));
+  const mismatchedSessionIds = new Set(parentSessions?.mismatched.map((s) => s.id).filter((id) => !!id));
+  const hasParentIndex = parentSessions != null;
+  for (const message of messages) {
+    if (!message.id)
+      continue;
+    if (hasParentIndex && message.session_id) {
+      if (mismatchedSessionIds.has(message.session_id)) {
+        mismatched.push(message);
+        continue;
+      }
+      if (ownedSessionIds.has(message.session_id)) {
+        if (!message.user_id)
+          legacyIds.add(message.id);
+        owned.push(message);
+        continue;
+      }
+    }
+    if (!message.user_id) {
+      legacyIds.add(message.id);
+      owned.push(message);
+      continue;
+    }
+    if (message.user_id !== userId) {
+      mismatched.push(message);
+      continue;
+    }
+    owned.push(message);
+  }
+  return { owned, legacyIds, mismatched };
+}
 function deduplicateSessions(sessions) {
   const sessionMap = new Map;
   for (const session of sessions) {
@@ -15145,7 +15220,7 @@ function createChatUploader(config2) {
           metadata = null;
         }
       }
-      const { title, ...sessionFields } = s;
+      const { title, first_seen_mismatched_at: _seen, ...sessionFields } = s;
       const session = {
         ...sessionFields,
         id: normalizeSessionId(s.id, sessionNamespace),
@@ -15173,14 +15248,17 @@ function createChatUploader(config2) {
     if (filteredMessages.length < messages.length) {
       logger?.warn(`Filtered out ${messages.length - filteredMessages.length} messages without session IDs`);
     }
-    return filteredMessages.map((m) => ({
-      ...m,
-      session_id: normalizeSessionId(m.session_id, sessionNamespace),
-      content: m.content,
-      user_id: userId,
-      code_diffs: null,
-      metadata: m.metadata ?? null
-    }));
+    return filteredMessages.map((m) => {
+      const { first_seen_mismatched_at: _seen, ...messageFields } = m;
+      return {
+        ...messageFields,
+        session_id: normalizeSessionId(m.session_id, sessionNamespace),
+        content: m.content,
+        user_id: userId,
+        code_diffs: null,
+        metadata: m.metadata ?? null
+      };
+    });
   }
   async function uploadSessionsToSupabase(supabase, sessions) {
     if (sessions.length === 0)
@@ -15254,9 +15332,52 @@ function createChatUploader(config2) {
         logger?.debug("No chat data to upload");
         return { success: true, uploaded: { sessions: 0, messages: 0 } };
       }
-      const maxMessageIndexBySession = getMaxMessageIndexPerSession(queuedMessages);
-      const categories = categorizeSessions(queuedSessions, maxMessageIndexBySession);
-      const messagePartition = partitionMessagesBySessionCategory(queuedMessages, categories);
+      const workspaceId = session.workspaceId ?? null;
+      if (!workspaceId) {
+        logger?.warn("Skipping chat upload: workspace_id is missing from auth session");
+        onCaptureException?.(new Error("Chat upload blocked: no workspace_id in auth session"), SYNC_BLOCKED_NO_WORKSPACE, "chat-uploader", { reason: "precondition_failed" });
+        return {
+          success: false,
+          uploaded: { sessions: 0, messages: 0 },
+          errorCategory: "auth_error"
+        };
+      }
+      const sessionIdentity = partitionSessionsByIdentity(queuedSessions, session.userId, workspaceId);
+      const messageIdentity = partitionMessagesByIdentity(queuedMessages, session.userId, sessionIdentity);
+      if (sessionIdentity.legacyIds.size > 0 || messageIdentity.legacyIds.size > 0) {
+        await atomicUpdateQueue(sessionsQueueFile, (items) => items.map((s) => s.id && sessionIdentity.legacyIds.has(s.id) ? { ...s, user_id: session.userId, workspace_id: workspaceId } : s));
+        await atomicUpdateQueue(messagesQueueFile, (items) => items.map((m) => m.id && messageIdentity.legacyIds.has(m.id) ? { ...m, user_id: session.userId } : m));
+        logger?.info(`Adopting ${sessionIdentity.legacyIds.size} unstamped session(s) and ${messageIdentity.legacyIds.size} unstamped message(s) under the current identity`);
+      }
+      const observedAt = new Date().toISOString();
+      const mismatchedSessionIds = new Set(sessionIdentity.mismatched.map((s) => s.id).filter((id) => !!id));
+      const mismatchedMessageIds = new Set(messageIdentity.mismatched.map((m) => m.id).filter((id) => !!id));
+      if (mismatchedSessionIds.size > 0 || mismatchedMessageIds.size > 0) {
+        await atomicUpdateQueue(sessionsQueueFile, (items) => items.map((s) => s.id && mismatchedSessionIds.has(s.id) && !s.first_seen_mismatched_at ? { ...s, first_seen_mismatched_at: observedAt } : s));
+        await atomicUpdateQueue(messagesQueueFile, (items) => items.map((m) => m.id && mismatchedMessageIds.has(m.id) && !m.first_seen_mismatched_at ? { ...m, first_seen_mismatched_at: observedAt } : m));
+      }
+      const staleThreshold = Date.now() - staleSessionAgeMs;
+      const stalePurgedSessionIds = new Set(sessionIdentity.mismatched.filter((s) => {
+        if (!s.id)
+          return false;
+        const seen = s.first_seen_mismatched_at ?? observedAt;
+        return new Date(seen).getTime() < staleThreshold;
+      }).map((s) => s.id));
+      const stalePurgedMessageIds = new Set(messageIdentity.mismatched.filter((m) => {
+        if (!m.id)
+          return false;
+        const seen = m.first_seen_mismatched_at ?? observedAt;
+        return new Date(seen).getTime() < staleThreshold;
+      }).map((m) => m.id));
+      if (stalePurgedSessionIds.size > 0 || stalePurgedMessageIds.size > 0) {
+        await atomicUpdateQueue(sessionsQueueFile, (items) => items.filter((s) => !s.id || !stalePurgedSessionIds.has(s.id)));
+        await atomicUpdateQueue(messagesQueueFile, (items) => items.filter((m) => !m.id || !stalePurgedMessageIds.has(m.id)));
+        logger?.warn(`Purging ${stalePurgedSessionIds.size} session(s) and ${stalePurgedMessageIds.size} message(s) belonging to a different account, unclaimed for over ${staleSessionAgeDays} days`);
+        onCaptureException?.(new Error(`Purged ${stalePurgedSessionIds.size} mismatched sessions, ${stalePurgedMessageIds.size} mismatched messages`), QUEUE_MISMATCHED_ENTRIES_PURGED, "chat-uploader", { sessions: stalePurgedSessionIds.size, messages: stalePurgedMessageIds.size });
+      }
+      const maxMessageIndexBySession = getMaxMessageIndexPerSession(messageIdentity.owned);
+      const categories = categorizeSessions(sessionIdentity.owned, maxMessageIndexBySession);
+      const messagePartition = partitionMessagesBySessionCategory(messageIdentity.owned, categories);
       logSessionCategorization(categories, messagePartition);
       if (messagePartition.orphaned.length > 0) {
         const orphanedSessionIds2 = [
@@ -15315,19 +15436,6 @@ function createChatUploader(config2) {
       const uniqueSessions = deduplicateSessions(categories.valid);
       const allMessagesToUpload = [...messagePartition.valid, ...messagePartition.orphaned];
       const uniqueMessages = deduplicateMessages(allMessagesToUpload);
-      const workspaceId = session.workspaceId ?? null;
-      if (!workspaceId) {
-        logger?.warn("Skipping chat upload: workspace_id is missing from auth session");
-        onCaptureException?.(new Error("Chat upload blocked: no workspace_id in auth session"), SYNC_BLOCKED_NO_WORKSPACE, "chat-uploader", {
-          ...buildSyncProperties({ sessionsAttempted: uniqueSessions.length }),
-          reason: "precondition_failed"
-        });
-        return {
-          success: false,
-          uploaded: { sessions: 0, messages: 0 },
-          errorCategory: "auth_error"
-        };
-      }
       const sessionsToUpload = await enrichSessionsForUpload(uniqueSessions, session.userId, workspaceId);
       let sessionsForThisCycle = sessionsToUpload;
       if (maxSessionsPerCycle && sessionsToUpload.length > maxSessionsPerCycle) {
@@ -15461,12 +15569,22 @@ function createChatUploader(config2) {
     logger?.error(`Chat upload failed after ${maxRetries} attempts`);
     return lastResult ?? { success: false, uploaded: { sessions: 0, messages: 0 } };
   }
+  async function getIdentityStats(userId, workspaceId) {
+    const queuedSessions = await readQueue(sessionsQueueFile);
+    const queuedMessages = await readQueue(messagesQueueFile);
+    const sessions = partitionSessionsByIdentity(queuedSessions, userId, workspaceId);
+    return {
+      mismatchedSessions: sessions.mismatched.length,
+      mismatchedMessages: partitionMessagesByIdentity(queuedMessages, userId, sessions).mismatched.length
+    };
+  }
   return {
     uploadChatData,
     uploadChatDataWithRetry,
     categorizeSessions,
     enrichSessionsForUpload,
-    enrichMessagesForUpload
+    enrichMessagesForUpload,
+    getIdentityStats
   };
 }
 
@@ -15474,7 +15592,7 @@ function createChatUploader(config2) {
 import { homedir } from "node:os";
 import { join } from "node:path";
 var HERMES_HOME = process.env.HERMES_DIR ?? join(homedir(), ".hermes");
-var HERMES_ZEST_HOME = join(homedir(), ".hermes-zest");
+var HERMES_ZEST_HOME = process.env.ZEST_HERMES_STATE_DIR ?? join(homedir(), ".hermes-zest");
 var HERMES_CONFIG_PATH = join(HERMES_HOME, "config.yaml");
 var STATE_DB_PATH = join(HERMES_HOME, "state.db");
 var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
@@ -15728,6 +15846,7 @@ var SENSITIVE_DATA_PATTERNS = [
     highlySensitive: true,
     priority: 90
   }),
+  createPattern("anthropic_key_truncated", "Truncated Anthropic API keys", /sk-ant-[A-Za-z0-9\-_]{20,79}/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 80 }),
   createPattern("auth0_secret", "Auth0 client secrets (generic pattern)", /[A-Za-z0-9\-_]{64}/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 25, aggressiveOnly: true }),
   createPattern("okta_token", "Okta API tokens", /00[A-Za-z0-9]{38}/g, "api_keys", {
     redactionStrategy: "full",
@@ -15788,6 +15907,7 @@ var HIGHLY_SENSITIVE_PATTERN_NAMES = [
   "openai_key",
   "openai_project_key",
   "anthropic_key",
+  "anthropic_key_truncated",
   "auth0_secret",
   "okta_token",
   "generic_secret",
@@ -17010,14 +17130,14 @@ import { readdirSync } from "node:fs";
 import { join as join3 } from "node:path";
 var BUNDLED_SKILLS_DIR = join3(HERMES_HOME, "hermes-agent", "skills");
 var bundledSkills;
-function scanBundledSkills() {
+function scanBundledSkills(dir = BUNDLED_SKILLS_DIR) {
   const names = new Set;
   try {
-    const categories = readdirSync(BUNDLED_SKILLS_DIR, { withFileTypes: true });
+    const categories = readdirSync(dir, { withFileTypes: true });
     for (const cat of categories) {
       if (!cat.isDirectory())
         continue;
-      const skills = readdirSync(join3(BUNDLED_SKILLS_DIR, cat.name), { withFileTypes: true });
+      const skills = readdirSync(join3(dir, cat.name), { withFileTypes: true });
       for (const skill of skills) {
         if (skill.isDirectory())
           names.add(skill.name);
@@ -17474,7 +17594,13 @@ function createQueueManager(config2) {
     }
     return value;
   }
+  function assertPrivacyReady(caller) {
+    if (privacyManager && !privacyManager.isInitialized()) {
+      throw new Error(`${caller}: privacyManager is configured but not initialized — call ` + "privacyManager.initialize() before any capture path reaches the queue.");
+    }
+  }
   async function enqueueChatSession(session) {
+    assertPrivacyReady("enqueueChatSession");
     try {
       const redactedSession = {
         ...session,
@@ -17488,6 +17614,7 @@ function createQueueManager(config2) {
     }
   }
   async function enqueueChatMessage(message) {
+    assertPrivacyReady("enqueueChatMessage");
     try {
       const redactedMessage = {
         ...message,
@@ -17818,6 +17945,14 @@ var EVENTS = {
   ONBOARDING_STARTED: "Onboarding Started",
   ONBOARDING_STEP_VIEWED: "Onboarding Step Viewed",
   ONBOARDING_COMPLETED: "Onboarding Completed",
+  HOME_TOUR_OPENED: "Home Tour Opened",
+  HOME_TOUR_STEP_VIEWED: "Home Tour Step Viewed",
+  HOME_TOUR_COMPLETED: "Home Tour Completed",
+  HOME_TOUR_SKIPPED: "Home Tour Skipped",
+  HOME_TOUR_INSTALL_COPY: "Home Tour Install Command Copied",
+  HOME_TOUR_INSTALL_OPEN: "Home Tour Install Link Opened",
+  SEE_HOW_ZEST_WORKS_TILE_CLICKED: "See How Zest Works Tile Clicked",
+  SEE_HOW_ZEST_WORKS_DISMISSED: "See How Zest Works Dismissed",
   NAV_LINK_CLICKED: "Nav Link Clicked",
   WORKSPACE_SWITCHED: "Workspace Switched",
   TEAM_SWITCHED: "Team Switched",
@@ -23318,7 +23453,7 @@ var {
 
 // src/utils/plugin-version.ts
 function getPluginVersion() {
-  return "0.1.2";
+  return "0.1.3";
 }
 
 // src/analytics/client.ts
@@ -23407,6 +23542,410 @@ var {
   getDetailedQueueStats
 } = queueManager;
 
+// ../../packages/plugin-common/src/cache/status-cache-manager.ts
+import { readFileSync as readFileSync2, writeFileSync } from "node:fs";
+var DEFAULT_VERSION_CHECK = {
+  updateAvailable: false,
+  currentVersion: "unknown",
+  latestVersion: "unknown",
+  checkedAt: 0
+};
+var DEFAULT_SYNC_STATUS = {
+  hasError: false,
+  errorType: null,
+  errorMessage: null,
+  lastErrorAt: null,
+  lastSuccessAt: null,
+  stuckAlertedAt: null
+};
+var DEFAULT_DEV_MODE_STATUS = {
+  active: false
+};
+var DEFAULT_STANDUP_NOTIFICATION = {
+  message: null,
+  createdAt: null,
+  expiresAt: null,
+  firstDataReadyLastShownAt: null,
+  standupRefreshedLastShownAt: null
+};
+var DEFAULT_STATUS_CACHE = {
+  versionCheck: DEFAULT_VERSION_CHECK,
+  syncStatus: DEFAULT_SYNC_STATUS,
+  devMode: DEFAULT_DEV_MODE_STATUS,
+  standupNotification: DEFAULT_STANDUP_NOTIFICATION,
+  daemonWarmingUpUntil: null,
+  legacyQueueDrop: null,
+  captureBlockedByAuth: null
+};
+function createStatusCacheManager(config2) {
+  const {
+    statusCacheFile,
+    logger: logger3,
+    notificationDurationMs = 0,
+    standupNotificationThrottleMs = 0
+  } = config2;
+  const withFileLock2 = resolveFileLock(config2.withFileLock);
+  function readStatusCache() {
+    try {
+      const data = readFileSync2(statusCacheFile, "utf-8");
+      const parsed = JSON.parse(data);
+      if (parsed.updateAvailable !== undefined && !parsed.versionCheck) {
+        logger3?.info("Migrating old update-check.json format to new status-cache.json format");
+        const migrated = {
+          versionCheck: {
+            updateAvailable: parsed.updateAvailable ?? false,
+            currentVersion: parsed.currentVersion ?? "unknown",
+            latestVersion: parsed.latestVersion ?? "unknown",
+            checkedAt: parsed.checkedAt ?? 0
+          },
+          syncStatus: DEFAULT_SYNC_STATUS,
+          devMode: DEFAULT_DEV_MODE_STATUS,
+          standupNotification: DEFAULT_STANDUP_NOTIFICATION,
+          daemonWarmingUpUntil: null
+        };
+        return migrated;
+      }
+      return {
+        versionCheck: {
+          ...DEFAULT_VERSION_CHECK,
+          ...parsed.versionCheck
+        },
+        syncStatus: {
+          ...DEFAULT_SYNC_STATUS,
+          ...parsed.syncStatus
+        },
+        devMode: {
+          ...DEFAULT_DEV_MODE_STATUS,
+          ...parsed.devMode
+        },
+        standupNotification: {
+          ...DEFAULT_STANDUP_NOTIFICATION,
+          ...parsed.standupNotification
+        },
+        daemonWarmingUpUntil: parsed.daemonWarmingUpUntil ?? null,
+        lastUpdate: parsed.lastUpdate ?? undefined,
+        legacyQueueDrop: parsed.legacyQueueDrop ?? null,
+        captureBlockedByAuth: parsed.captureBlockedByAuth ?? null
+      };
+    } catch (error51) {
+      if (error51.code === "ENOENT") {
+        logger3?.debug("Status cache file does not exist, using defaults");
+      } else {
+        logger3?.warn("Failed to read status cache file, using defaults", error51);
+      }
+      return DEFAULT_STATUS_CACHE;
+    }
+  }
+  async function writeVersionCheck(check2) {
+    try {
+      await withFileLock2(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const updatedCache = {
+          ...currentCache,
+          versionCheck: check2
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        logger3?.debug("Wrote version check to status cache", {
+          updateAvailable: check2.updateAvailable,
+          currentVersion: check2.currentVersion,
+          latestVersion: check2.latestVersion
+        });
+      });
+    } catch (error51) {
+      logger3?.error("Failed to write version check to status cache", error51);
+    }
+  }
+  async function writeLastUpdate(update) {
+    try {
+      await withFileLock2(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const updatedCache = {
+          ...currentCache,
+          lastUpdate: update,
+          versionCheck: {
+            ...currentCache.versionCheck,
+            updateAvailable: false
+          }
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        logger3?.debug("Wrote last update to status cache", {
+          fromVersion: update.fromVersion,
+          toVersion: update.toVersion
+        });
+      });
+    } catch (error51) {
+      logger3?.error("Failed to write last update to status cache", error51);
+    }
+  }
+  async function writeSyncStatus(status) {
+    try {
+      await withFileLock2(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const updatedCache = {
+          ...currentCache,
+          syncStatus: {
+            ...status,
+            lastSuccessAt: status.lastSuccessAt ?? currentCache.syncStatus.lastSuccessAt,
+            stuckAlertedAt: status.stuckAlertedAt ?? currentCache.syncStatus.stuckAlertedAt ?? null
+          }
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        logger3?.debug("Wrote sync status to status cache", {
+          hasError: status.hasError,
+          errorType: status.errorType
+        });
+      });
+    } catch (error51) {
+      logger3?.error("Failed to write sync status to status cache", error51);
+    }
+  }
+  async function clearSyncError() {
+    try {
+      await withFileLock2(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const clearedStatus = {
+          hasError: false,
+          errorType: null,
+          errorMessage: null,
+          lastErrorAt: currentCache.syncStatus.lastErrorAt,
+          lastSuccessAt: Date.now(),
+          stuckAlertedAt: null
+        };
+        const updatedCache = {
+          ...currentCache,
+          syncStatus: clearedStatus
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        logger3?.debug("Cleared sync error in status cache");
+      });
+    } catch (error51) {
+      logger3?.error("Failed to clear sync error in status cache", error51);
+    }
+  }
+  async function markStuckAlerted(now) {
+    try {
+      await withFileLock2(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const updatedCache = {
+          ...currentCache,
+          syncStatus: {
+            ...currentCache.syncStatus,
+            stuckAlertedAt: now
+          }
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        logger3?.debug("Marked sync stuck episode as alerted", { stuckAlertedAt: now });
+      });
+    } catch (error51) {
+      logger3?.error("Failed to mark sync stuck alerted in status cache", error51);
+    }
+  }
+  async function writeLegacyQueueDrop(counts) {
+    try {
+      await withFileLock2(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const updatedCache = {
+          ...currentCache,
+          legacyQueueDrop: {
+            sessions: counts.sessions,
+            messages: counts.messages,
+            droppedAt: Date.now(),
+            acknowledged: false
+          }
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        logger3?.debug("Wrote legacy queue drop to status cache", counts);
+      });
+    } catch (error51) {
+      logger3?.error("Failed to write legacy queue drop to status cache", error51);
+    }
+  }
+  async function acknowledgeLegacyQueueDrop() {
+    try {
+      await withFileLock2(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        if (!currentCache.legacyQueueDrop || currentCache.legacyQueueDrop.acknowledged)
+          return;
+        const updatedCache = {
+          ...currentCache,
+          legacyQueueDrop: { ...currentCache.legacyQueueDrop, acknowledged: true }
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+      });
+    } catch (error51) {
+      logger3?.error("Failed to acknowledge legacy queue drop in status cache", error51);
+    }
+  }
+  async function recordCaptureBlockedByAuth(sessionId) {
+    try {
+      await withFileLock2(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const existing = currentCache.captureBlockedByAuth;
+        if (existing?.sessionIds.includes(sessionId))
+          return;
+        const updatedCache = {
+          ...currentCache,
+          captureBlockedByAuth: {
+            sessionIds: [...existing?.sessionIds ?? [], sessionId],
+            since: existing?.since ?? Date.now()
+          }
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+      });
+    } catch (error51) {
+      logger3?.error("Failed to record capture-blocked-by-auth in status cache", error51);
+    }
+  }
+  async function clearCaptureBlockedByAuth(sessionId) {
+    try {
+      await withFileLock2(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const existing = currentCache.captureBlockedByAuth;
+        if (!existing)
+          return;
+        const remaining = existing.sessionIds.filter((id) => id !== sessionId);
+        const updatedCache = {
+          ...currentCache,
+          captureBlockedByAuth: remaining.length > 0 ? { ...existing, sessionIds: remaining } : null
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+      });
+    } catch (error51) {
+      logger3?.error("Failed to clear capture-blocked-by-auth in status cache", error51);
+    }
+  }
+  async function writeDevModeActive() {
+    try {
+      await withFileLock2(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const updatedCache = {
+          ...currentCache,
+          devMode: { active: true }
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        logger3?.debug("Wrote dev mode active to status cache");
+      });
+    } catch (error51) {
+      logger3?.error("Failed to write dev mode to status cache", error51);
+    }
+  }
+  async function writeStandupNotification(message, options) {
+    try {
+      await withFileLock2(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const now = Date.now();
+        const updatedNotification = {
+          ...currentCache.standupNotification,
+          message,
+          createdAt: now,
+          expiresAt: now + notificationDurationMs,
+          ...options?.updateFirstDataReadyThrottle && { firstDataReadyLastShownAt: now },
+          ...options?.updateRefreshedThrottle && { standupRefreshedLastShownAt: now }
+        };
+        const updatedCache = {
+          ...currentCache,
+          standupNotification: updatedNotification
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        logger3?.debug("Wrote standup notification to status cache", { message });
+      });
+    } catch (error51) {
+      logger3?.error("Failed to write standup notification to status cache", error51);
+    }
+  }
+  function hasActiveStandupNotification() {
+    try {
+      const cache2 = readStatusCache();
+      const { message, expiresAt } = cache2.standupNotification;
+      return message !== null && expiresAt !== null && expiresAt > Date.now();
+    } catch (error51) {
+      logger3?.warn("Failed to check for active standup notification", error51);
+      return false;
+    }
+  }
+  function shouldShowFirstDataReady() {
+    try {
+      const cache2 = readStatusCache();
+      const { firstDataReadyLastShownAt } = cache2.standupNotification;
+      if (!firstDataReadyLastShownAt)
+        return true;
+      return Date.now() - firstDataReadyLastShownAt >= standupNotificationThrottleMs;
+    } catch (error51) {
+      logger3?.warn("Failed to check first data ready throttle", error51);
+      return true;
+    }
+  }
+  async function writeDaemonWarmingUp(durationMs) {
+    try {
+      await withFileLock2(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const updatedCache = {
+          ...currentCache,
+          daemonWarmingUpUntil: Date.now() + durationMs
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        logger3?.debug(`Wrote daemon warmup grace period (${durationMs}ms)`);
+      });
+    } catch (error51) {
+      logger3?.error("Failed to write daemon warmup to status cache", error51);
+    }
+  }
+  function shouldShowStandupRefreshed() {
+    try {
+      const cache2 = readStatusCache();
+      const { standupRefreshedLastShownAt } = cache2.standupNotification;
+      if (!standupRefreshedLastShownAt)
+        return true;
+      return Date.now() - standupRefreshedLastShownAt >= standupNotificationThrottleMs;
+    } catch (error51) {
+      logger3?.warn("Failed to check standup refreshed throttle", error51);
+      return true;
+    }
+  }
+  return {
+    readStatusCache,
+    writeVersionCheck,
+    writeLastUpdate,
+    writeSyncStatus,
+    clearSyncError,
+    markStuckAlerted,
+    writeLegacyQueueDrop,
+    acknowledgeLegacyQueueDrop,
+    recordCaptureBlockedByAuth,
+    clearCaptureBlockedByAuth,
+    writeDevModeActive,
+    writeStandupNotification,
+    hasActiveStandupNotification,
+    shouldShowFirstDataReady,
+    writeDaemonWarmingUp,
+    shouldShowStandupRefreshed
+  };
+}
+
+// src/utils/status-cache-manager.ts
+var statusCacheManager = createStatusCacheManager({
+  statusCacheFile: STATUS_CACHE_FILE,
+  logger,
+  withFileLock,
+  notificationDurationMs: NOTIFICATION_DURATION_MS,
+  standupNotificationThrottleMs: STANDUP_NOTIFICATION_THROTTLE_MS
+});
+var {
+  readStatusCache,
+  writeSyncStatus,
+  clearSyncError,
+  markStuckAlerted,
+  writeStandupNotification,
+  writeVersionCheck,
+  hasActiveStandupNotification,
+  shouldShowFirstDataReady,
+  shouldShowStandupRefreshed,
+  writeLegacyQueueDrop,
+  acknowledgeLegacyQueueDrop,
+  recordCaptureBlockedByAuth,
+  clearCaptureBlockedByAuth
+} = statusCacheManager;
+
 // src/supabase/chat-uploader.ts
 var { minMessagesPerSession: minMessagesPerSession2 } = loadSettingsSync();
 var chatUploader = createChatUploader({
@@ -23420,10 +23959,12 @@ var chatUploader = createChatUploader({
   logger,
   readQueue,
   atomicUpdateQueue,
-  readSessionSignals: (sessionId) => signalExtractor.readSessionSignals(sessionId)
+  readSessionSignals: (sessionId) => signalExtractor.readSessionSignals(sessionId),
+  onLegacyQueueEntriesDropped: writeLegacyQueueDrop
 });
-var { uploadChatData, uploadChatDataWithRetry } = chatUploader;
+var { uploadChatData, uploadChatDataWithRetry, getIdentityStats } = chatUploader;
 export {
   uploadChatDataWithRetry,
-  uploadChatData
+  uploadChatData,
+  getIdentityStats
 };

@@ -9100,6 +9100,8 @@ var FILE_LOCK_TIMEOUT = "file_lock_timeout";
 var FILE_LOCK_CREATE_FAILED = "file_lock_create_failed";
 var NOTIFICATION_STATE_WRITE_FAILED = "notification_state_write_failed";
 var QUEUE_CAP_EVICTION = "queue_cap_eviction";
+var QUEUE_LEGACY_ENTRIES_DROPPED = "queue_legacy_entries_dropped";
+var QUEUE_MISMATCHED_ENTRIES_PURGED = "queue_mismatched_entries_purged";
 var SYNC_DRAIN_THROTTLED = "sync_drain_throttled";
 var SYNC_ORPHANED_MESSAGES_DROPPED = "sync_orphaned_messages_dropped";
 var EXTRACTION_PROJECT_DIR_NOT_FOUND = "extraction_project_dir_not_found";
@@ -9137,6 +9139,8 @@ var ERROR_TYPES = [
   QUEUE_READ_CORRUPTED,
   QUEUE_WRITE_FAILED,
   QUEUE_CAP_EVICTION,
+  QUEUE_LEGACY_ENTRIES_DROPPED,
+  QUEUE_MISMATCHED_ENTRIES_PURGED,
   SYNC_DRAIN_THROTTLED,
   SYNC_ORPHANED_MESSAGES_DROPPED,
   FILE_LOCK_TIMEOUT,
@@ -9537,7 +9541,7 @@ function createSessionManager(config) {
 import { homedir } from "node:os";
 import { join } from "node:path";
 var HERMES_HOME = process.env.HERMES_DIR ?? join(homedir(), ".hermes");
-var HERMES_ZEST_HOME = join(homedir(), ".hermes-zest");
+var HERMES_ZEST_HOME = process.env.ZEST_HERMES_STATE_DIR ?? join(homedir(), ".hermes-zest");
 var HERMES_CONFIG_PATH = join(HERMES_HOME, "config.yaml");
 var STATE_DB_PATH = join(HERMES_HOME, "state.db");
 var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
@@ -12897,6 +12901,14 @@ var EVENTS = {
   ONBOARDING_STARTED: "Onboarding Started",
   ONBOARDING_STEP_VIEWED: "Onboarding Step Viewed",
   ONBOARDING_COMPLETED: "Onboarding Completed",
+  HOME_TOUR_OPENED: "Home Tour Opened",
+  HOME_TOUR_STEP_VIEWED: "Home Tour Step Viewed",
+  HOME_TOUR_COMPLETED: "Home Tour Completed",
+  HOME_TOUR_SKIPPED: "Home Tour Skipped",
+  HOME_TOUR_INSTALL_COPY: "Home Tour Install Command Copied",
+  HOME_TOUR_INSTALL_OPEN: "Home Tour Install Link Opened",
+  SEE_HOW_ZEST_WORKS_TILE_CLICKED: "See How Zest Works Tile Clicked",
+  SEE_HOW_ZEST_WORKS_DISMISSED: "See How Zest Works Dismissed",
   NAV_LINK_CLICKED: "Nav Link Clicked",
   WORKSPACE_SWITCHED: "Workspace Switched",
   TEAM_SWITCHED: "Team Switched",
@@ -18228,7 +18240,7 @@ function createAnalyticsClient(config) {
 
 // src/utils/plugin-version.ts
 function getPluginVersion() {
-  return "0.1.2";
+  return "0.1.3";
 }
 
 // src/analytics/client.ts
@@ -32752,6 +32764,9 @@ function date4(params) {
 
 // ../../node_modules/.bun/zod@4.4.3/node_modules/zod/v4/classic/external.js
 config(en_default());
+// ../../packages/types/ask-zest-runner.ts
+var ASK_ZEST_RUNNERS = ["claude-code", "ai-sdk"];
+var AskZestRunnerSchema = exports_external.enum(ASK_ZEST_RUNNERS);
 // ../../packages/types/behavioral-profile.ts
 var BASIC_AI_PRACTICES = [
   {
@@ -33107,7 +33122,11 @@ var CustomPromptMetadataSchema = exports_external.object({
   example_output: exports_external.unknown().optional()
 });
 // ../../packages/types/token-usage.ts
-var TOKEN_SOURCES = ["provider_reported", "estimated_heuristic"];
+var TOKEN_SOURCES = [
+  "provider_reported",
+  "provider_reported_totals_only",
+  "estimated_heuristic"
+];
 var COST_SOURCES = [
   "provider_reported",
   "derived_openrouter",
@@ -33139,7 +33158,8 @@ var SessionTokenUsageSchema = exports_external.object({
     cache_creation_5m_input_tokens: exports_external.number().nonnegative().optional(),
     cache_creation_1h_input_tokens: exports_external.number().nonnegative().optional(),
     reasoning_tokens: exports_external.number().nonnegative().optional(),
-    cost_usd: exports_external.number().nonnegative().optional()
+    cost_usd: exports_external.number().nonnegative().optional(),
+    uncomposed_total_tokens: exports_external.number().nonnegative().optional()
   })).optional(),
   context_used_percent: exports_external.number().nonnegative().max(100).optional(),
   context_window_size: exports_external.number().int().nonnegative().optional(),
@@ -33163,6 +33183,16 @@ var SessionTokenUsageSchema = exports_external.object({
     rate_limit_reached_type: exports_external.string().optional()
   })).optional()
 });
+// ../../packages/types/tone-tokens.ts
+var SKILL_REPORT_TONES = [
+  "positive",
+  "negative",
+  "warning",
+  "info",
+  "highlight",
+  "muted"
+];
+var ORPHAN_TONE_TOKEN_PATTERN = `\\{\\{(?:${SKILL_REPORT_TONES.join("|")}):`;
 // ../../packages/types/data-controls-schemas.ts
 var collectionSettingsSchema = exports_external.object({
   user_messages: exports_external.boolean(),
@@ -33342,6 +33372,9 @@ function createSyncRunner(config2) {
       }
     }
     const result = await syncAllData(supabase, session, dataControls);
+    if (result.remoteDisabled) {
+      return { success: true, message: "Remote sync disabled — data captured locally" };
+    }
     if (result.success) {
       await recordSyncMetric({
         timestamp: Date.now(),
@@ -33408,326 +33441,9 @@ function createSyncRunner(config2) {
   }
   return { syncWithMessage };
 }
-// ../../packages/plugin-common/src/queue/queue-manager.ts
-import { appendFile, readFile as readFile3, unlink as unlink3, writeFile as writeFile3 } from "node:fs/promises";
-import { dirname as dirname4 } from "node:path";
-function createQueueManager(config2) {
-  const {
-    queueDir,
-    queueFiles,
-    minMessagesPerSession = 3,
-    logger: logger3,
-    privacyManager,
-    onCaptureException
-  } = config2;
-  const maxQueueSizeMap = config2.maxQueueSize;
-  const withFileLock = resolveFileLock(config2.withFileLock);
-  async function readJsonl(filePath) {
-    try {
-      const content = await readFile3(filePath, "utf8");
-      const lines = content.trim().split(`
-`).filter(Boolean);
-      const results = [];
-      let corruptedLines = 0;
-      for (let i = 0;i < lines.length; i++) {
-        try {
-          results.push(JSON.parse(lines[i]));
-        } catch (error51) {
-          logger3?.warn(`Failed to parse line ${i + 1} in ${filePath}:`, error51);
-          corruptedLines++;
-        }
-      }
-      if (corruptedLines > 0) {
-        onCaptureException?.(new Error(`Queue file has ${corruptedLines} corrupted lines`), QUEUE_READ_CORRUPTED, "queue-manager", {
-          ...buildFileSystemProperties({ filePath, operation: "read" }),
-          corrupted_lines: corruptedLines,
-          total_lines: lines.length
-        });
-      }
-      return results;
-    } catch (error51) {
-      if (error51.code === "ENOENT") {
-        return [];
-      }
-      throw error51;
-    }
-  }
-  async function countLines(filePath) {
-    try {
-      const content = await readFile3(filePath, "utf8");
-      const lines = content.trim().split(`
-`).filter(Boolean);
-      return lines.length;
-    } catch (error51) {
-      if (error51.code === "ENOENT") {
-        return 0;
-      }
-      throw error51;
-    }
-  }
-  async function deleteFile(filePath) {
-    try {
-      await unlink3(filePath);
-    } catch (error51) {
-      if (error51.code === "ENOENT") {
-        return;
-      }
-      throw error51;
-    }
-  }
-  function sanitizingReplacer(_key, value) {
-    if (typeof value === "string") {
-      return toWellFormed(value);
-    }
-    return value;
-  }
-  async function enqueueChatSession(session) {
-    try {
-      const redactedSession = {
-        ...session,
-        title: session.title && privacyManager ? privacyManager.redactMessage(session.title) : session.title
-      };
-      await appendItem(queueFiles.sessions, redactedSession, (existing, newItem) => existing.some((sess) => sess.id === newItem.id));
-      logger3?.debug("Enqueued session", { sessionId: redactedSession.id });
-    } catch (error51) {
-      logger3?.error("Failed to enqueue session:", error51);
-      throw error51;
-    }
-  }
-  async function enqueueChatMessage(message) {
-    try {
-      const redactedMessage = {
-        ...message,
-        content: privacyManager ? privacyManager.redactMessage(message.content) : message.content
-      };
-      await appendItem(queueFiles.messages, redactedMessage, (existing, newItem) => existing.some((msg) => msg.id === newItem.id));
-      logger3?.debug("Enqueued message", {
-        sessionId: redactedMessage.session_id,
-        messageIndex: redactedMessage.message_index
-      });
-    } catch (error51) {
-      logger3?.error("Failed to enqueue message:", error51);
-      throw error51;
-    }
-  }
-  async function patchQueuedSession(sessionId, metadata, title) {
-    let found = false;
-    await atomicUpdateQueue(queueFiles.sessions, (sessions) => sessions.map((session) => {
-      if (session.id !== sessionId)
-        return session;
-      found = true;
-      return {
-        ...session,
-        title: title ?? session.title,
-        metadata: {
-          ...session.metadata ?? {},
-          ...metadata
-        }
-      };
-    }));
-    return found;
-  }
-  async function readQueue(queueFile) {
-    try {
-      return await readJsonl(queueFile);
-    } catch (error51) {
-      logger3?.error(`Failed to read queue file ${queueFile}:`, error51);
-      throw error51;
-    }
-  }
-  async function writeQueue(queueFile, items) {
-    try {
-      await withFileLock(queueFile, async () => {
-        await ensureDirectory(dirname4(queueFile));
-        const content = items.map((item) => JSON.stringify(item, sanitizingReplacer)).join(`
-`) + (items.length > 0 ? `
-` : "");
-        await writeFile3(queueFile, content, "utf8");
-        logger3?.debug(`Wrote ${items.length} items to queue file: ${queueFile}`);
-      });
-    } catch (error51) {
-      logger3?.error(`Failed to write queue file ${queueFile}:`, error51);
-      if (error51 instanceof Error) {
-        onCaptureException?.(error51, QUEUE_WRITE_FAILED, "queue-manager", {
-          ...buildFileSystemProperties({
-            filePath: queueFile,
-            operation: "write",
-            errnoCode: error51.code
-          }),
-          items_count: items.length
-        });
-      }
-      throw error51;
-    }
-  }
-  async function atomicUpdateQueue(queueFile, transform2) {
-    try {
-      await withFileLock(queueFile, async () => {
-        const currentItems = await readJsonl(queueFile);
-        const newItems = transform2(currentItems);
-        await ensureDirectory(dirname4(queueFile));
-        const content = newItems.map((item) => JSON.stringify(item, sanitizingReplacer)).join(`
-`) + (newItems.length > 0 ? `
-` : "");
-        await writeFile3(queueFile, content, "utf8");
-        logger3?.debug(`Atomically updated queue file: ${queueFile} (${currentItems.length} → ${newItems.length} items)`);
-      });
-    } catch (error51) {
-      logger3?.error(`Failed to atomically update queue file ${queueFile}:`, error51);
-      throw error51;
-    }
-  }
-  async function clearQueue(queueFile) {
-    try {
-      await withFileLock(queueFile, async () => {
-        await deleteFile(queueFile);
-        logger3?.debug(`Cleared queue file: ${queueFile}`);
-      });
-    } catch (error51) {
-      logger3?.error(`Failed to clear queue file ${queueFile}:`, error51);
-      throw error51;
-    }
-  }
-  async function getQueueStats() {
-    try {
-      await ensureDirectory(queueDir);
-      const [sessions, messages] = await Promise.all([
-        countLines(queueFiles.sessions),
-        countLines(queueFiles.messages)
-      ]);
-      return { sessions, messages };
-    } catch (error51) {
-      logger3?.error("Failed to get queue stats:", error51);
-      return { sessions: 0, messages: 0 };
-    }
-  }
-  async function initializeQueue() {
-    try {
-      await ensureDirectory(queueDir);
-      logger3?.debug("Queue directory initialized");
-    } catch (error51) {
-      logger3?.error("Failed to initialize queue directory:", error51);
-      throw error51;
-    }
-  }
-  async function appendItem(queueFile, item, isDuplicate) {
-    await withFileLock(queueFile, async () => {
-      let existingItems;
-      if (isDuplicate) {
-        existingItems = await readJsonl(queueFile);
-        if (isDuplicate(existingItems, item)) {
-          logger3?.debug(`Skipping duplicate item in ${queueFile}`);
-          return;
-        }
-      }
-      const cap = maxQueueSizeMap?.get(queueFile);
-      if (cap && cap > 0) {
-        const currentItems = existingItems ?? await readJsonl(queueFile);
-        if (currentItems.length >= cap) {
-          const targetSize = Math.floor(cap * 0.9);
-          const itemsToEvict = currentItems.length - targetSize;
-          const trimmed = currentItems.slice(itemsToEvict);
-          await ensureDirectory(dirname4(queueFile));
-          const content = [...trimmed, item].map((i) => JSON.stringify(i, sanitizingReplacer)).join(`
-`) + `
-`;
-          await writeFile3(queueFile, content, "utf8");
-          logger3?.warn(`Queue cap reached for ${queueFile}: evicted ${itemsToEvict} oldest items (${currentItems.length} → ${trimmed.length + 1})`);
-          onCaptureException?.(new Error(`Queue cap reached: evicted ${itemsToEvict} oldest items`), QUEUE_CAP_EVICTION, "queue-manager", {
-            evicted_count: itemsToEvict,
-            queue_size_before: currentItems.length,
-            queue_size_after: trimmed.length + 1,
-            cap,
-            filePath: queueFile
-          });
-          return;
-        }
-      }
-      await ensureDirectory(dirname4(queueFile));
-      const line = JSON.stringify(item, sanitizingReplacer) + `
-`;
-      await appendFile(queueFile, line, "utf8");
-    });
-  }
-  async function getDetailedQueueStats() {
-    try {
-      await ensureDirectory(queueDir);
-      const [sessions, messages] = await Promise.all([
-        readJsonl(queueFiles.sessions),
-        readJsonl(queueFiles.messages)
-      ]);
-      const maxMessageIndexBySession = new Map;
-      for (const message of messages) {
-        if (!message.session_id || message.message_index === undefined)
-          continue;
-        const currentMax = maxMessageIndexBySession.get(message.session_id) ?? -1;
-        if (message.message_index > currentMax) {
-          maxMessageIndexBySession.set(message.session_id, message.message_index);
-        }
-      }
-      let readyToSync = 0;
-      let waitingForMessages = 0;
-      const readySessionIds = new Set;
-      for (const session of sessions) {
-        if (!session.id)
-          continue;
-        const maxIndex = maxMessageIndexBySession.get(session.id) ?? -1;
-        if (maxIndex >= minMessagesPerSession - 1) {
-          readyToSync++;
-          readySessionIds.add(session.id);
-        } else {
-          waitingForMessages++;
-        }
-      }
-      let messagesInReadySessions = 0;
-      let messagesInWaitingSessions = 0;
-      for (const message of messages) {
-        if (!message.session_id)
-          continue;
-        if (readySessionIds.has(message.session_id)) {
-          messagesInReadySessions++;
-        } else {
-          messagesInWaitingSessions++;
-        }
-      }
-      return {
-        sessions: {
-          total: sessions.length,
-          readyToSync,
-          waitingForMessages
-        },
-        messages: {
-          total: messages.length,
-          inReadySessions: messagesInReadySessions,
-          inWaitingSessions: messagesInWaitingSessions
-        }
-      };
-    } catch (error51) {
-      logger3?.error("Failed to get detailed queue stats:", error51);
-      return {
-        sessions: { total: 0, readyToSync: 0, waitingForMessages: 0 },
-        messages: { total: 0, inReadySessions: 0, inWaitingSessions: 0 }
-      };
-    }
-  }
-  return {
-    readQueue,
-    writeQueue,
-    atomicUpdateQueue,
-    clearQueue,
-    countLines,
-    getQueueStats,
-    initializeQueue,
-    appendItem,
-    enqueueChatSession,
-    enqueueChatMessage,
-    patchQueuedSession,
-    getDetailedQueueStats
-  };
-}
-
 // src/config/settings.ts
 import { readFileSync } from "node:fs";
+import { chmod, readFile as readFile4, writeFile as writeFile3 } from "node:fs/promises";
 
 // ../../packages/privacy-redaction/src/config/defaults.ts
 var DEFAULT_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
@@ -33941,6 +33657,7 @@ var SENSITIVE_DATA_PATTERNS = [
     highlySensitive: true,
     priority: 90
   }),
+  createPattern("anthropic_key_truncated", "Truncated Anthropic API keys", /sk-ant-[A-Za-z0-9\-_]{20,79}/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 80 }),
   createPattern("auth0_secret", "Auth0 client secrets (generic pattern)", /[A-Za-z0-9\-_]{64}/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 25, aggressiveOnly: true }),
   createPattern("okta_token", "Okta API tokens", /00[A-Za-z0-9]{38}/g, "api_keys", {
     redactionStrategy: "full",
@@ -34001,6 +33718,7 @@ var HIGHLY_SENSITIVE_PATTERN_NAMES = [
   "openai_key",
   "openai_project_key",
   "anthropic_key",
+  "anthropic_key_truncated",
   "auth0_secret",
   "okta_token",
   "generic_secret",
@@ -34954,11 +34672,11 @@ class PrivacyService {
 }
 
 // ../../packages/privacy-redaction/src/manager/node-fs-adapter.ts
-import { readdir as readdir2, readFile as readFile4, stat as stat2 } from "node:fs/promises";
+import { readdir as readdir2, readFile as readFile3, stat as stat2 } from "node:fs/promises";
 function createNodeFsAdapter(workspaceRoot) {
   return {
     async readFile(path) {
-      return readFile4(path, "utf-8");
+      return readFile3(path, "utf-8");
     },
     async fileExists(path) {
       try {
@@ -35149,6 +34867,20 @@ function logSettingsLoadError(error51) {
     logger.warn("Failed to load settings, using defaults:", error51);
   }
 }
+async function loadSettings() {
+  let rawSettings;
+  try {
+    const content = await readFile4(SETTINGS_FILE, "utf-8");
+    rawSettings = JSON.parse(content);
+    return validateSettings(rawSettings);
+  } catch (error51) {
+    if (error51 instanceof exports_external.ZodError && rawSettings?.authMode === "agent") {
+      throw new Error(`Invalid agent settings: ${JSON.stringify(error51.issues)}`);
+    }
+    logSettingsLoadError(error51);
+    return DEFAULT_SETTINGS;
+  }
+}
 function loadSettingsSync() {
   try {
     const content = readFileSync(SETTINGS_FILE, "utf-8");
@@ -35158,6 +34890,331 @@ function loadSettingsSync() {
     logSettingsLoadError(error51);
     return DEFAULT_SETTINGS;
   }
+}
+
+// ../../packages/plugin-common/src/queue/queue-manager.ts
+import { appendFile, readFile as readFile5, unlink as unlink3, writeFile as writeFile4 } from "node:fs/promises";
+import { dirname as dirname4 } from "node:path";
+function createQueueManager(config2) {
+  const {
+    queueDir,
+    queueFiles,
+    minMessagesPerSession = 3,
+    logger: logger3,
+    privacyManager,
+    onCaptureException
+  } = config2;
+  const maxQueueSizeMap = config2.maxQueueSize;
+  const withFileLock = resolveFileLock(config2.withFileLock);
+  async function readJsonl(filePath) {
+    try {
+      const content = await readFile5(filePath, "utf8");
+      const lines = content.trim().split(`
+`).filter(Boolean);
+      const results = [];
+      let corruptedLines = 0;
+      for (let i = 0;i < lines.length; i++) {
+        try {
+          results.push(JSON.parse(lines[i]));
+        } catch (error51) {
+          logger3?.warn(`Failed to parse line ${i + 1} in ${filePath}:`, error51);
+          corruptedLines++;
+        }
+      }
+      if (corruptedLines > 0) {
+        onCaptureException?.(new Error(`Queue file has ${corruptedLines} corrupted lines`), QUEUE_READ_CORRUPTED, "queue-manager", {
+          ...buildFileSystemProperties({ filePath, operation: "read" }),
+          corrupted_lines: corruptedLines,
+          total_lines: lines.length
+        });
+      }
+      return results;
+    } catch (error51) {
+      if (error51.code === "ENOENT") {
+        return [];
+      }
+      throw error51;
+    }
+  }
+  async function countLines(filePath) {
+    try {
+      const content = await readFile5(filePath, "utf8");
+      const lines = content.trim().split(`
+`).filter(Boolean);
+      return lines.length;
+    } catch (error51) {
+      if (error51.code === "ENOENT") {
+        return 0;
+      }
+      throw error51;
+    }
+  }
+  async function deleteFile(filePath) {
+    try {
+      await unlink3(filePath);
+    } catch (error51) {
+      if (error51.code === "ENOENT") {
+        return;
+      }
+      throw error51;
+    }
+  }
+  function sanitizingReplacer(_key, value) {
+    if (typeof value === "string") {
+      return toWellFormed(value);
+    }
+    return value;
+  }
+  function assertPrivacyReady(caller) {
+    if (privacyManager && !privacyManager.isInitialized()) {
+      throw new Error(`${caller}: privacyManager is configured but not initialized — call ` + "privacyManager.initialize() before any capture path reaches the queue.");
+    }
+  }
+  async function enqueueChatSession(session) {
+    assertPrivacyReady("enqueueChatSession");
+    try {
+      const redactedSession = {
+        ...session,
+        title: session.title && privacyManager ? privacyManager.redactMessage(session.title) : session.title
+      };
+      await appendItem(queueFiles.sessions, redactedSession, (existing, newItem) => existing.some((sess) => sess.id === newItem.id));
+      logger3?.debug("Enqueued session", { sessionId: redactedSession.id });
+    } catch (error51) {
+      logger3?.error("Failed to enqueue session:", error51);
+      throw error51;
+    }
+  }
+  async function enqueueChatMessage(message) {
+    assertPrivacyReady("enqueueChatMessage");
+    try {
+      const redactedMessage = {
+        ...message,
+        content: privacyManager ? privacyManager.redactMessage(message.content) : message.content
+      };
+      await appendItem(queueFiles.messages, redactedMessage, (existing, newItem) => existing.some((msg) => msg.id === newItem.id));
+      logger3?.debug("Enqueued message", {
+        sessionId: redactedMessage.session_id,
+        messageIndex: redactedMessage.message_index
+      });
+    } catch (error51) {
+      logger3?.error("Failed to enqueue message:", error51);
+      throw error51;
+    }
+  }
+  async function patchQueuedSession(sessionId, metadata, title) {
+    let found = false;
+    await atomicUpdateQueue(queueFiles.sessions, (sessions) => sessions.map((session) => {
+      if (session.id !== sessionId)
+        return session;
+      found = true;
+      return {
+        ...session,
+        title: title ?? session.title,
+        metadata: {
+          ...session.metadata ?? {},
+          ...metadata
+        }
+      };
+    }));
+    return found;
+  }
+  async function readQueue(queueFile) {
+    try {
+      return await readJsonl(queueFile);
+    } catch (error51) {
+      logger3?.error(`Failed to read queue file ${queueFile}:`, error51);
+      throw error51;
+    }
+  }
+  async function writeQueue(queueFile, items) {
+    try {
+      await withFileLock(queueFile, async () => {
+        await ensureDirectory(dirname4(queueFile));
+        const content = items.map((item) => JSON.stringify(item, sanitizingReplacer)).join(`
+`) + (items.length > 0 ? `
+` : "");
+        await writeFile4(queueFile, content, "utf8");
+        logger3?.debug(`Wrote ${items.length} items to queue file: ${queueFile}`);
+      });
+    } catch (error51) {
+      logger3?.error(`Failed to write queue file ${queueFile}:`, error51);
+      if (error51 instanceof Error) {
+        onCaptureException?.(error51, QUEUE_WRITE_FAILED, "queue-manager", {
+          ...buildFileSystemProperties({
+            filePath: queueFile,
+            operation: "write",
+            errnoCode: error51.code
+          }),
+          items_count: items.length
+        });
+      }
+      throw error51;
+    }
+  }
+  async function atomicUpdateQueue(queueFile, transform2) {
+    try {
+      await withFileLock(queueFile, async () => {
+        const currentItems = await readJsonl(queueFile);
+        const newItems = transform2(currentItems);
+        await ensureDirectory(dirname4(queueFile));
+        const content = newItems.map((item) => JSON.stringify(item, sanitizingReplacer)).join(`
+`) + (newItems.length > 0 ? `
+` : "");
+        await writeFile4(queueFile, content, "utf8");
+        logger3?.debug(`Atomically updated queue file: ${queueFile} (${currentItems.length} → ${newItems.length} items)`);
+      });
+    } catch (error51) {
+      logger3?.error(`Failed to atomically update queue file ${queueFile}:`, error51);
+      throw error51;
+    }
+  }
+  async function clearQueue(queueFile) {
+    try {
+      await withFileLock(queueFile, async () => {
+        await deleteFile(queueFile);
+        logger3?.debug(`Cleared queue file: ${queueFile}`);
+      });
+    } catch (error51) {
+      logger3?.error(`Failed to clear queue file ${queueFile}:`, error51);
+      throw error51;
+    }
+  }
+  async function getQueueStats() {
+    try {
+      await ensureDirectory(queueDir);
+      const [sessions, messages] = await Promise.all([
+        countLines(queueFiles.sessions),
+        countLines(queueFiles.messages)
+      ]);
+      return { sessions, messages };
+    } catch (error51) {
+      logger3?.error("Failed to get queue stats:", error51);
+      return { sessions: 0, messages: 0 };
+    }
+  }
+  async function initializeQueue() {
+    try {
+      await ensureDirectory(queueDir);
+      logger3?.debug("Queue directory initialized");
+    } catch (error51) {
+      logger3?.error("Failed to initialize queue directory:", error51);
+      throw error51;
+    }
+  }
+  async function appendItem(queueFile, item, isDuplicate) {
+    await withFileLock(queueFile, async () => {
+      let existingItems;
+      if (isDuplicate) {
+        existingItems = await readJsonl(queueFile);
+        if (isDuplicate(existingItems, item)) {
+          logger3?.debug(`Skipping duplicate item in ${queueFile}`);
+          return;
+        }
+      }
+      const cap = maxQueueSizeMap?.get(queueFile);
+      if (cap && cap > 0) {
+        const currentItems = existingItems ?? await readJsonl(queueFile);
+        if (currentItems.length >= cap) {
+          const targetSize = Math.floor(cap * 0.9);
+          const itemsToEvict = currentItems.length - targetSize;
+          const trimmed = currentItems.slice(itemsToEvict);
+          await ensureDirectory(dirname4(queueFile));
+          const content = [...trimmed, item].map((i) => JSON.stringify(i, sanitizingReplacer)).join(`
+`) + `
+`;
+          await writeFile4(queueFile, content, "utf8");
+          logger3?.warn(`Queue cap reached for ${queueFile}: evicted ${itemsToEvict} oldest items (${currentItems.length} → ${trimmed.length + 1})`);
+          onCaptureException?.(new Error(`Queue cap reached: evicted ${itemsToEvict} oldest items`), QUEUE_CAP_EVICTION, "queue-manager", {
+            evicted_count: itemsToEvict,
+            queue_size_before: currentItems.length,
+            queue_size_after: trimmed.length + 1,
+            cap,
+            filePath: queueFile
+          });
+          return;
+        }
+      }
+      await ensureDirectory(dirname4(queueFile));
+      const line = JSON.stringify(item, sanitizingReplacer) + `
+`;
+      await appendFile(queueFile, line, "utf8");
+    });
+  }
+  async function getDetailedQueueStats() {
+    try {
+      await ensureDirectory(queueDir);
+      const [sessions, messages] = await Promise.all([
+        readJsonl(queueFiles.sessions),
+        readJsonl(queueFiles.messages)
+      ]);
+      const maxMessageIndexBySession = new Map;
+      for (const message of messages) {
+        if (!message.session_id || message.message_index === undefined)
+          continue;
+        const currentMax = maxMessageIndexBySession.get(message.session_id) ?? -1;
+        if (message.message_index > currentMax) {
+          maxMessageIndexBySession.set(message.session_id, message.message_index);
+        }
+      }
+      let readyToSync = 0;
+      let waitingForMessages = 0;
+      const readySessionIds = new Set;
+      for (const session of sessions) {
+        if (!session.id)
+          continue;
+        const maxIndex = maxMessageIndexBySession.get(session.id) ?? -1;
+        if (maxIndex >= minMessagesPerSession - 1) {
+          readyToSync++;
+          readySessionIds.add(session.id);
+        } else {
+          waitingForMessages++;
+        }
+      }
+      let messagesInReadySessions = 0;
+      let messagesInWaitingSessions = 0;
+      for (const message of messages) {
+        if (!message.session_id)
+          continue;
+        if (readySessionIds.has(message.session_id)) {
+          messagesInReadySessions++;
+        } else {
+          messagesInWaitingSessions++;
+        }
+      }
+      return {
+        sessions: {
+          total: sessions.length,
+          readyToSync,
+          waitingForMessages
+        },
+        messages: {
+          total: messages.length,
+          inReadySessions: messagesInReadySessions,
+          inWaitingSessions: messagesInWaitingSessions
+        }
+      };
+    } catch (error51) {
+      logger3?.error("Failed to get detailed queue stats:", error51);
+      return {
+        sessions: { total: 0, readyToSync: 0, waitingForMessages: 0 },
+        messages: { total: 0, inReadySessions: 0, inWaitingSessions: 0 }
+      };
+    }
+  }
+  return {
+    readQueue,
+    writeQueue,
+    atomicUpdateQueue,
+    clearQueue,
+    countLines,
+    getQueueStats,
+    initializeQueue,
+    appendItem,
+    enqueueChatSession,
+    enqueueChatMessage,
+    patchQueuedSession,
+    getDetailedQueueStats
+  };
 }
 
 // src/privacy/privacy-manager.ts
@@ -35235,7 +35292,9 @@ var DEFAULT_STATUS_CACHE = {
   syncStatus: DEFAULT_SYNC_STATUS,
   devMode: DEFAULT_DEV_MODE_STATUS,
   standupNotification: DEFAULT_STANDUP_NOTIFICATION,
-  daemonWarmingUpUntil: null
+  daemonWarmingUpUntil: null,
+  legacyQueueDrop: null,
+  captureBlockedByAuth: null
 };
 function createStatusCacheManager(config2) {
   const {
@@ -35283,7 +35342,9 @@ function createStatusCacheManager(config2) {
           ...parsed.standupNotification
         },
         daemonWarmingUpUntil: parsed.daemonWarmingUpUntil ?? null,
-        lastUpdate: parsed.lastUpdate ?? undefined
+        lastUpdate: parsed.lastUpdate ?? undefined,
+        legacyQueueDrop: parsed.legacyQueueDrop ?? null,
+        captureBlockedByAuth: parsed.captureBlockedByAuth ?? null
       };
     } catch (error51) {
       if (error51.code === "ENOENT") {
@@ -35398,6 +35459,80 @@ function createStatusCacheManager(config2) {
       logger3?.error("Failed to mark sync stuck alerted in status cache", error51);
     }
   }
+  async function writeLegacyQueueDrop(counts) {
+    try {
+      await withFileLock2(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const updatedCache = {
+          ...currentCache,
+          legacyQueueDrop: {
+            sessions: counts.sessions,
+            messages: counts.messages,
+            droppedAt: Date.now(),
+            acknowledged: false
+          }
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        logger3?.debug("Wrote legacy queue drop to status cache", counts);
+      });
+    } catch (error51) {
+      logger3?.error("Failed to write legacy queue drop to status cache", error51);
+    }
+  }
+  async function acknowledgeLegacyQueueDrop() {
+    try {
+      await withFileLock2(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        if (!currentCache.legacyQueueDrop || currentCache.legacyQueueDrop.acknowledged)
+          return;
+        const updatedCache = {
+          ...currentCache,
+          legacyQueueDrop: { ...currentCache.legacyQueueDrop, acknowledged: true }
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+      });
+    } catch (error51) {
+      logger3?.error("Failed to acknowledge legacy queue drop in status cache", error51);
+    }
+  }
+  async function recordCaptureBlockedByAuth(sessionId) {
+    try {
+      await withFileLock2(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const existing = currentCache.captureBlockedByAuth;
+        if (existing?.sessionIds.includes(sessionId))
+          return;
+        const updatedCache = {
+          ...currentCache,
+          captureBlockedByAuth: {
+            sessionIds: [...existing?.sessionIds ?? [], sessionId],
+            since: existing?.since ?? Date.now()
+          }
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+      });
+    } catch (error51) {
+      logger3?.error("Failed to record capture-blocked-by-auth in status cache", error51);
+    }
+  }
+  async function clearCaptureBlockedByAuth(sessionId) {
+    try {
+      await withFileLock2(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const existing = currentCache.captureBlockedByAuth;
+        if (!existing)
+          return;
+        const remaining = existing.sessionIds.filter((id) => id !== sessionId);
+        const updatedCache = {
+          ...currentCache,
+          captureBlockedByAuth: remaining.length > 0 ? { ...existing, sessionIds: remaining } : null
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+      });
+    } catch (error51) {
+      logger3?.error("Failed to clear capture-blocked-by-auth in status cache", error51);
+    }
+  }
   async function writeDevModeActive() {
     try {
       await withFileLock2(statusCacheFile, async () => {
@@ -35493,6 +35628,10 @@ function createStatusCacheManager(config2) {
     writeSyncStatus,
     clearSyncError,
     markStuckAlerted,
+    writeLegacyQueueDrop,
+    acknowledgeLegacyQueueDrop,
+    recordCaptureBlockedByAuth,
+    clearCaptureBlockedByAuth,
     writeDevModeActive,
     writeStandupNotification,
     hasActiveStandupNotification,
@@ -35519,11 +35658,15 @@ var {
   writeVersionCheck,
   hasActiveStandupNotification,
   shouldShowFirstDataReady,
-  shouldShowStandupRefreshed
+  shouldShowStandupRefreshed,
+  writeLegacyQueueDrop,
+  acknowledgeLegacyQueueDrop,
+  recordCaptureBlockedByAuth,
+  clearCaptureBlockedByAuth
 } = statusCacheManager;
 
 // ../../packages/plugin-common/src/metrics/sync-metrics-manager.ts
-import { readFile as readFile5, writeFile as writeFile4 } from "node:fs/promises";
+import { readFile as readFile6, writeFile as writeFile5 } from "node:fs/promises";
 import { dirname as dirname5 } from "node:path";
 var DEFAULT_RETENTION_MS = 60 * 60 * 1000;
 function createSyncMetricsManager(config2) {
@@ -35531,7 +35674,7 @@ function createSyncMetricsManager(config2) {
   const withFileLock2 = resolveFileLock(config2.withFileLock);
   async function readMetrics() {
     try {
-      const content = await readFile5(metricsFile, "utf8");
+      const content = await readFile6(metricsFile, "utf8");
       const lines = content.trim().split(`
 `).filter(Boolean);
       const results = [];
@@ -35555,7 +35698,7 @@ function createSyncMetricsManager(config2) {
     const content = entries.map((entry) => JSON.stringify(entry)).join(`
 `) + (entries.length > 0 ? `
 ` : "");
-    await writeFile4(metricsFile, content, "utf8");
+    await writeFile5(metricsFile, content, "utf8");
   }
   async function recordSyncMetric(entry) {
     try {
@@ -35710,12 +35853,22 @@ var ClaudeCodeSessionMetadataSchema = exports_external.object({
   }).optional(),
   token_data_source: exports_external.string().optional()
 }).passthrough();
+var GrokBuildSessionMetadataSchema = exports_external.object({
+  model: exports_external.string().optional(),
+  total_tokens: exports_external.number().optional(),
+  token_source: exports_external.enum(TOKEN_SOURCES).optional(),
+  context_used_percent: exports_external.number().optional(),
+  context_window_size: exports_external.number().optional(),
+  context_tokens_used: exports_external.number().optional(),
+  chat_format_version: exports_external.number().optional()
+});
 var metadataSchemasBySource = {
   codex: CodexSessionMetadataSchema,
   hermes: HermesSessionMetadataSchema,
   "claude-code": ClaudeCodeSessionMetadataSchema,
   claude_code: ClaudeCodeSessionMetadataSchema,
-  "claude-desktop": ClaudeCodeSessionMetadataSchema
+  "claude-desktop": ClaudeCodeSessionMetadataSchema,
+  "grok-build": GrokBuildSessionMetadataSchema
 };
 function validateSessionMetadata(source, metadata) {
   const schema = metadataSchemasBySource[source];
@@ -35925,6 +36078,62 @@ function partitionMessagesBySessionCategory(messages, categories) {
   }
   return { valid, stale, pending, orphaned };
 }
+function partitionSessionsByIdentity(sessions, userId, workspaceId) {
+  const owned = [];
+  const legacyIds = new Set;
+  const mismatched = [];
+  for (const session of sessions) {
+    if (!session.id)
+      continue;
+    if (!session.user_id) {
+      legacyIds.add(session.id);
+      owned.push(session);
+      continue;
+    }
+    const workspaceMismatch = session.workspace_id != null && session.workspace_id !== workspaceId;
+    if (session.user_id !== userId || workspaceMismatch) {
+      mismatched.push(session);
+      continue;
+    }
+    owned.push(session);
+  }
+  return { owned, legacyIds, mismatched };
+}
+function partitionMessagesByIdentity(messages, userId, parentSessions) {
+  const owned = [];
+  const legacyIds = new Set;
+  const mismatched = [];
+  const ownedSessionIds = new Set(parentSessions?.owned.map((s) => s.id).filter((id) => !!id));
+  const mismatchedSessionIds = new Set(parentSessions?.mismatched.map((s) => s.id).filter((id) => !!id));
+  const hasParentIndex = parentSessions != null;
+  for (const message of messages) {
+    if (!message.id)
+      continue;
+    if (hasParentIndex && message.session_id) {
+      if (mismatchedSessionIds.has(message.session_id)) {
+        mismatched.push(message);
+        continue;
+      }
+      if (ownedSessionIds.has(message.session_id)) {
+        if (!message.user_id)
+          legacyIds.add(message.id);
+        owned.push(message);
+        continue;
+      }
+    }
+    if (!message.user_id) {
+      legacyIds.add(message.id);
+      owned.push(message);
+      continue;
+    }
+    if (message.user_id !== userId) {
+      mismatched.push(message);
+      continue;
+    }
+    owned.push(message);
+  }
+  return { owned, legacyIds, mismatched };
+}
 function deduplicateSessions(sessions) {
   const sessionMap = new Map;
   for (const session of sessions) {
@@ -36031,7 +36240,7 @@ function createChatUploader(config2) {
           metadata = null;
         }
       }
-      const { title, ...sessionFields } = s;
+      const { title, first_seen_mismatched_at: _seen, ...sessionFields } = s;
       const session = {
         ...sessionFields,
         id: normalizeSessionId(s.id, sessionNamespace),
@@ -36059,14 +36268,17 @@ function createChatUploader(config2) {
     if (filteredMessages.length < messages.length) {
       logger3?.warn(`Filtered out ${messages.length - filteredMessages.length} messages without session IDs`);
     }
-    return filteredMessages.map((m) => ({
-      ...m,
-      session_id: normalizeSessionId(m.session_id, sessionNamespace),
-      content: m.content,
-      user_id: userId,
-      code_diffs: null,
-      metadata: m.metadata ?? null
-    }));
+    return filteredMessages.map((m) => {
+      const { first_seen_mismatched_at: _seen, ...messageFields } = m;
+      return {
+        ...messageFields,
+        session_id: normalizeSessionId(m.session_id, sessionNamespace),
+        content: m.content,
+        user_id: userId,
+        code_diffs: null,
+        metadata: m.metadata ?? null
+      };
+    });
   }
   async function uploadSessionsToSupabase(supabase, sessions) {
     if (sessions.length === 0)
@@ -36140,9 +36352,52 @@ function createChatUploader(config2) {
         logger3?.debug("No chat data to upload");
         return { success: true, uploaded: { sessions: 0, messages: 0 } };
       }
-      const maxMessageIndexBySession = getMaxMessageIndexPerSession(queuedMessages);
-      const categories = categorizeSessions(queuedSessions, maxMessageIndexBySession);
-      const messagePartition = partitionMessagesBySessionCategory(queuedMessages, categories);
+      const workspaceId = session.workspaceId ?? null;
+      if (!workspaceId) {
+        logger3?.warn("Skipping chat upload: workspace_id is missing from auth session");
+        onCaptureException?.(new Error("Chat upload blocked: no workspace_id in auth session"), SYNC_BLOCKED_NO_WORKSPACE, "chat-uploader", { reason: "precondition_failed" });
+        return {
+          success: false,
+          uploaded: { sessions: 0, messages: 0 },
+          errorCategory: "auth_error"
+        };
+      }
+      const sessionIdentity = partitionSessionsByIdentity(queuedSessions, session.userId, workspaceId);
+      const messageIdentity = partitionMessagesByIdentity(queuedMessages, session.userId, sessionIdentity);
+      if (sessionIdentity.legacyIds.size > 0 || messageIdentity.legacyIds.size > 0) {
+        await atomicUpdateQueue2(sessionsQueueFile, (items) => items.map((s) => s.id && sessionIdentity.legacyIds.has(s.id) ? { ...s, user_id: session.userId, workspace_id: workspaceId } : s));
+        await atomicUpdateQueue2(messagesQueueFile, (items) => items.map((m) => m.id && messageIdentity.legacyIds.has(m.id) ? { ...m, user_id: session.userId } : m));
+        logger3?.info(`Adopting ${sessionIdentity.legacyIds.size} unstamped session(s) and ${messageIdentity.legacyIds.size} unstamped message(s) under the current identity`);
+      }
+      const observedAt = new Date().toISOString();
+      const mismatchedSessionIds = new Set(sessionIdentity.mismatched.map((s) => s.id).filter((id) => !!id));
+      const mismatchedMessageIds = new Set(messageIdentity.mismatched.map((m) => m.id).filter((id) => !!id));
+      if (mismatchedSessionIds.size > 0 || mismatchedMessageIds.size > 0) {
+        await atomicUpdateQueue2(sessionsQueueFile, (items) => items.map((s) => s.id && mismatchedSessionIds.has(s.id) && !s.first_seen_mismatched_at ? { ...s, first_seen_mismatched_at: observedAt } : s));
+        await atomicUpdateQueue2(messagesQueueFile, (items) => items.map((m) => m.id && mismatchedMessageIds.has(m.id) && !m.first_seen_mismatched_at ? { ...m, first_seen_mismatched_at: observedAt } : m));
+      }
+      const staleThreshold = Date.now() - staleSessionAgeMs;
+      const stalePurgedSessionIds = new Set(sessionIdentity.mismatched.filter((s) => {
+        if (!s.id)
+          return false;
+        const seen = s.first_seen_mismatched_at ?? observedAt;
+        return new Date(seen).getTime() < staleThreshold;
+      }).map((s) => s.id));
+      const stalePurgedMessageIds = new Set(messageIdentity.mismatched.filter((m) => {
+        if (!m.id)
+          return false;
+        const seen = m.first_seen_mismatched_at ?? observedAt;
+        return new Date(seen).getTime() < staleThreshold;
+      }).map((m) => m.id));
+      if (stalePurgedSessionIds.size > 0 || stalePurgedMessageIds.size > 0) {
+        await atomicUpdateQueue2(sessionsQueueFile, (items) => items.filter((s) => !s.id || !stalePurgedSessionIds.has(s.id)));
+        await atomicUpdateQueue2(messagesQueueFile, (items) => items.filter((m) => !m.id || !stalePurgedMessageIds.has(m.id)));
+        logger3?.warn(`Purging ${stalePurgedSessionIds.size} session(s) and ${stalePurgedMessageIds.size} message(s) belonging to a different account, unclaimed for over ${staleSessionAgeDays} days`);
+        onCaptureException?.(new Error(`Purged ${stalePurgedSessionIds.size} mismatched sessions, ${stalePurgedMessageIds.size} mismatched messages`), QUEUE_MISMATCHED_ENTRIES_PURGED, "chat-uploader", { sessions: stalePurgedSessionIds.size, messages: stalePurgedMessageIds.size });
+      }
+      const maxMessageIndexBySession = getMaxMessageIndexPerSession(messageIdentity.owned);
+      const categories = categorizeSessions(sessionIdentity.owned, maxMessageIndexBySession);
+      const messagePartition = partitionMessagesBySessionCategory(messageIdentity.owned, categories);
       logSessionCategorization(categories, messagePartition);
       if (messagePartition.orphaned.length > 0) {
         const orphanedSessionIds2 = [
@@ -36201,19 +36456,6 @@ function createChatUploader(config2) {
       const uniqueSessions = deduplicateSessions(categories.valid);
       const allMessagesToUpload = [...messagePartition.valid, ...messagePartition.orphaned];
       const uniqueMessages = deduplicateMessages(allMessagesToUpload);
-      const workspaceId = session.workspaceId ?? null;
-      if (!workspaceId) {
-        logger3?.warn("Skipping chat upload: workspace_id is missing from auth session");
-        onCaptureException?.(new Error("Chat upload blocked: no workspace_id in auth session"), SYNC_BLOCKED_NO_WORKSPACE, "chat-uploader", {
-          ...buildSyncProperties({ sessionsAttempted: uniqueSessions.length }),
-          reason: "precondition_failed"
-        });
-        return {
-          success: false,
-          uploaded: { sessions: 0, messages: 0 },
-          errorCategory: "auth_error"
-        };
-      }
       const sessionsToUpload = await enrichSessionsForUpload(uniqueSessions, session.userId, workspaceId);
       let sessionsForThisCycle = sessionsToUpload;
       if (maxSessionsPerCycle && sessionsToUpload.length > maxSessionsPerCycle) {
@@ -36347,17 +36589,27 @@ function createChatUploader(config2) {
     logger3?.error(`Chat upload failed after ${maxRetries} attempts`);
     return lastResult ?? { success: false, uploaded: { sessions: 0, messages: 0 } };
   }
+  async function getIdentityStats(userId, workspaceId) {
+    const queuedSessions = await readQueue2(sessionsQueueFile);
+    const queuedMessages = await readQueue2(messagesQueueFile);
+    const sessions = partitionSessionsByIdentity(queuedSessions, userId, workspaceId);
+    return {
+      mismatchedSessions: sessions.mismatched.length,
+      mismatchedMessages: partitionMessagesByIdentity(queuedMessages, userId, sessions).mismatched.length
+    };
+  }
   return {
     uploadChatData,
     uploadChatDataWithRetry,
     categorizeSessions,
     enrichSessionsForUpload,
-    enrichMessagesForUpload
+    enrichMessagesForUpload,
+    getIdentityStats
   };
 }
 
 // src/extractors/signal-extractor.ts
-import { readFile as readFile6, writeFile as writeFile5 } from "node:fs/promises";
+import { readFile as readFile7, writeFile as writeFile6 } from "node:fs/promises";
 import { join as join4 } from "node:path";
 
 // src/utils/bundled-skills.ts
@@ -36365,14 +36617,14 @@ import { readdirSync } from "node:fs";
 import { join as join3 } from "node:path";
 var BUNDLED_SKILLS_DIR = join3(HERMES_HOME, "hermes-agent", "skills");
 var bundledSkills;
-function scanBundledSkills() {
+function scanBundledSkills(dir = BUNDLED_SKILLS_DIR) {
   const names = new Set;
   try {
-    const categories = readdirSync(BUNDLED_SKILLS_DIR, { withFileTypes: true });
+    const categories = readdirSync(dir, { withFileTypes: true });
     for (const cat of categories) {
       if (!cat.isDirectory())
         continue;
-      const skills = readdirSync(join3(BUNDLED_SKILLS_DIR, cat.name), { withFileTypes: true });
+      const skills = readdirSync(join3(dir, cat.name), { withFileTypes: true });
       for (const skill of skills) {
         if (skill.isDirectory())
           names.add(skill.name);
@@ -36584,7 +36836,7 @@ class SignalExtractor {
   }
   async readState(sessionId) {
     try {
-      const raw = await readFile6(this.statePath(sessionId), "utf-8");
+      const raw = await readFile7(this.statePath(sessionId), "utf-8");
       return JSON.parse(raw);
     } catch {
       return { lastMessageId: 0, totals: { ...EMPTY_SIGNALS } };
@@ -36592,7 +36844,7 @@ class SignalExtractor {
   }
   async writeState(sessionId, state) {
     await ensureDirectory(this.stateDir);
-    await writeFile5(this.statePath(sessionId), JSON.stringify(state), "utf-8");
+    await writeFile6(this.statePath(sessionId), JSON.stringify(state), "utf-8");
   }
 }
 
@@ -36615,9 +36867,10 @@ var chatUploader = createChatUploader({
   logger,
   readQueue,
   atomicUpdateQueue,
-  readSessionSignals: (sessionId) => signalExtractor.readSessionSignals(sessionId)
+  readSessionSignals: (sessionId) => signalExtractor.readSessionSignals(sessionId),
+  onLegacyQueueEntriesDropped: writeLegacyQueueDrop
 });
-var { uploadChatData, uploadChatDataWithRetry } = chatUploader;
+var { uploadChatData, uploadChatDataWithRetry, getIdentityStats } = chatUploader;
 
 // src/supabase/sync.ts
 var syncOrchestrator = createSyncOrchestrator({
@@ -36625,7 +36878,13 @@ var syncOrchestrator = createSyncOrchestrator({
   getQueueStats,
   uploadChatDataWithRetry
 });
-var { syncAllData } = syncOrchestrator;
+async function syncAllData(supabase, session, dataControls) {
+  const settings = await loadSettings();
+  if (!settings.enableRemotePersistence) {
+    return { success: true, uploaded: { sessions: 0, messages: 0 }, remoteDisabled: true };
+  }
+  return syncOrchestrator.syncAllData(supabase, session, dataControls);
+}
 var syncRunner = createSyncRunner({
   logger,
   syncAllData,

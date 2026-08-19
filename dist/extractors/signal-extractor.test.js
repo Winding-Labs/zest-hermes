@@ -4,20 +4,6 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as join4 } from "node:path";
 
-// src/extractors/signal-extractor.ts
-import { readFile, writeFile } from "node:fs/promises";
-import { join as join3 } from "node:path";
-
-// ../../packages/plugin-common/src/utils/fs-utils.ts
-import { mkdir, stat } from "node:fs/promises";
-async function ensureDirectory(dirPath) {
-  try {
-    await stat(dirPath);
-  } catch {
-    await mkdir(dirPath, { recursive: true, mode: 448 });
-  }
-}
-
 // src/utils/bundled-skills.ts
 import { readdirSync } from "node:fs";
 import { join as join2 } from "node:path";
@@ -26,7 +12,7 @@ import { join as join2 } from "node:path";
 import { homedir } from "node:os";
 import { join } from "node:path";
 var HERMES_HOME = process.env.HERMES_DIR ?? join(homedir(), ".hermes");
-var HERMES_ZEST_HOME = join(homedir(), ".hermes-zest");
+var HERMES_ZEST_HOME = process.env.ZEST_HERMES_STATE_DIR ?? join(homedir(), ".hermes-zest");
 var HERMES_CONFIG_PATH = join(HERMES_HOME, "config.yaml");
 var STATE_DB_PATH = join(HERMES_HOME, "state.db");
 var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
@@ -53,14 +39,14 @@ var STANDUP_NOTIFICATION_THROTTLE_MS = 2 * 60 * 60 * 1000;
 // src/utils/bundled-skills.ts
 var BUNDLED_SKILLS_DIR = join2(HERMES_HOME, "hermes-agent", "skills");
 var bundledSkills;
-function scanBundledSkills() {
+function scanBundledSkills(dir = BUNDLED_SKILLS_DIR) {
   const names = new Set;
   try {
-    const categories = readdirSync(BUNDLED_SKILLS_DIR, { withFileTypes: true });
+    const categories = readdirSync(dir, { withFileTypes: true });
     for (const cat of categories) {
       if (!cat.isDirectory())
         continue;
-      const skills = readdirSync(join2(BUNDLED_SKILLS_DIR, cat.name), { withFileTypes: true });
+      const skills = readdirSync(join2(dir, cat.name), { withFileTypes: true });
       for (const skill of skills) {
         if (skill.isDirectory())
           names.add(skill.name);
@@ -72,6 +58,23 @@ function scanBundledSkills() {
 function isBundledSkill(name) {
   bundledSkills ??= scanBundledSkills();
   return bundledSkills.has(name);
+}
+function _setBundledSkillsForTesting(skills) {
+  bundledSkills = skills;
+}
+
+// src/extractors/signal-extractor.ts
+import { readFile, writeFile } from "node:fs/promises";
+import { join as join3 } from "node:path";
+
+// ../../packages/plugin-common/src/utils/fs-utils.ts
+import { mkdir, stat } from "node:fs/promises";
+async function ensureDirectory(dirPath) {
+  try {
+    await stat(dirPath);
+  } catch {
+    await mkdir(dirPath, { recursive: true, mode: 448 });
+  }
 }
 
 // src/utils/tool-call-parser.ts
@@ -485,6 +488,7 @@ describe("extractSignalsFromMessages", () => {
     expect(signals.skill_usage).toEqual({ skill_view: 1 });
   });
   test("populates tool_metadata for skill_view calls", () => {
+    _setBundledSkillsForTesting(new Set(["ascii-art"]));
     const messages = [
       makeMessage({
         id: 1,
@@ -501,6 +505,7 @@ describe("extractSignalsFromMessages", () => {
       category: "skill",
       is_bundled: true
     });
+    _setBundledSkillsForTesting(new Set);
   });
   test("routes memory to builtin_usage and records the write with its target", () => {
     const messages = [

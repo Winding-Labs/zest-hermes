@@ -14501,6 +14501,7 @@ var SENSITIVE_DATA_PATTERNS = [
     highlySensitive: true,
     priority: 90
   }),
+  createPattern("anthropic_key_truncated", "Truncated Anthropic API keys", /sk-ant-[A-Za-z0-9\-_]{20,79}/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 80 }),
   createPattern("auth0_secret", "Auth0 client secrets (generic pattern)", /[A-Za-z0-9\-_]{64}/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 25, aggressiveOnly: true }),
   createPattern("okta_token", "Okta API tokens", /00[A-Za-z0-9]{38}/g, "api_keys", {
     redactionStrategy: "full",
@@ -14561,6 +14562,7 @@ var HIGHLY_SENSITIVE_PATTERN_NAMES = [
   "openai_key",
   "openai_project_key",
   "anthropic_key",
+  "anthropic_key_truncated",
   "auth0_secret",
   "okta_token",
   "generic_secret",

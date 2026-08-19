@@ -9094,6 +9094,8 @@ var FILE_LOCK_TIMEOUT = "file_lock_timeout";
 var FILE_LOCK_CREATE_FAILED = "file_lock_create_failed";
 var NOTIFICATION_STATE_WRITE_FAILED = "notification_state_write_failed";
 var QUEUE_CAP_EVICTION = "queue_cap_eviction";
+var QUEUE_LEGACY_ENTRIES_DROPPED = "queue_legacy_entries_dropped";
+var QUEUE_MISMATCHED_ENTRIES_PURGED = "queue_mismatched_entries_purged";
 var SYNC_DRAIN_THROTTLED = "sync_drain_throttled";
 var SYNC_ORPHANED_MESSAGES_DROPPED = "sync_orphaned_messages_dropped";
 var EXTRACTION_PROJECT_DIR_NOT_FOUND = "extraction_project_dir_not_found";
@@ -9131,6 +9133,8 @@ var ERROR_TYPES = [
   QUEUE_READ_CORRUPTED,
   QUEUE_WRITE_FAILED,
   QUEUE_CAP_EVICTION,
+  QUEUE_LEGACY_ENTRIES_DROPPED,
+  QUEUE_MISMATCHED_ENTRIES_PURGED,
   SYNC_DRAIN_THROTTLED,
   SYNC_ORPHANED_MESSAGES_DROPPED,
   FILE_LOCK_TIMEOUT,
@@ -9269,6 +9273,14 @@ var EVENTS = {
   ONBOARDING_STARTED: "Onboarding Started",
   ONBOARDING_STEP_VIEWED: "Onboarding Step Viewed",
   ONBOARDING_COMPLETED: "Onboarding Completed",
+  HOME_TOUR_OPENED: "Home Tour Opened",
+  HOME_TOUR_STEP_VIEWED: "Home Tour Step Viewed",
+  HOME_TOUR_COMPLETED: "Home Tour Completed",
+  HOME_TOUR_SKIPPED: "Home Tour Skipped",
+  HOME_TOUR_INSTALL_COPY: "Home Tour Install Command Copied",
+  HOME_TOUR_INSTALL_OPEN: "Home Tour Install Link Opened",
+  SEE_HOW_ZEST_WORKS_TILE_CLICKED: "See How Zest Works Tile Clicked",
+  SEE_HOW_ZEST_WORKS_DISMISSED: "See How Zest Works Dismissed",
   NAV_LINK_CLICKED: "Nav Link Clicked",
   WORKSPACE_SWITCHED: "Workspace Switched",
   TEAM_SWITCHED: "Team Switched",
@@ -14964,7 +14976,7 @@ function createSessionManager(config) {
 import { homedir } from "node:os";
 import { join } from "node:path";
 var HERMES_HOME = process.env.HERMES_DIR ?? join(homedir(), ".hermes");
-var HERMES_ZEST_HOME = join(homedir(), ".hermes-zest");
+var HERMES_ZEST_HOME = process.env.ZEST_HERMES_STATE_DIR ?? join(homedir(), ".hermes-zest");
 var HERMES_CONFIG_PATH = join(HERMES_HOME, "config.yaml");
 var STATE_DB_PATH = join(HERMES_HOME, "state.db");
 var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
@@ -15067,7 +15079,7 @@ var {
 
 // src/utils/plugin-version.ts
 function getPluginVersion() {
-  return "0.1.2";
+  return "0.1.3";
 }
 
 // src/analytics/client.ts
@@ -29604,6 +29616,7 @@ var SENSITIVE_DATA_PATTERNS = [
     highlySensitive: true,
     priority: 90
   }),
+  createPattern("anthropic_key_truncated", "Truncated Anthropic API keys", /sk-ant-[A-Za-z0-9\-_]{20,79}/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 80 }),
   createPattern("auth0_secret", "Auth0 client secrets (generic pattern)", /[A-Za-z0-9\-_]{64}/g, "api_keys", { redactionStrategy: "full", highlySensitive: true, priority: 25, aggressiveOnly: true }),
   createPattern("okta_token", "Okta API tokens", /00[A-Za-z0-9]{38}/g, "api_keys", {
     redactionStrategy: "full",
@@ -29664,6 +29677,7 @@ var HIGHLY_SENSITIVE_PATTERN_NAMES = [
   "openai_key",
   "openai_project_key",
   "anthropic_key",
+  "anthropic_key_truncated",
   "auth0_secret",
   "okta_token",
   "generic_secret",
@@ -31092,7 +31106,9 @@ var DEFAULT_STATUS_CACHE = {
   syncStatus: DEFAULT_SYNC_STATUS,
   devMode: DEFAULT_DEV_MODE_STATUS,
   standupNotification: DEFAULT_STANDUP_NOTIFICATION,
-  daemonWarmingUpUntil: null
+  daemonWarmingUpUntil: null,
+  legacyQueueDrop: null,
+  captureBlockedByAuth: null
 };
 function createStatusCacheManager(config2) {
   const {
@@ -31140,7 +31156,9 @@ function createStatusCacheManager(config2) {
           ...parsed.standupNotification
         },
         daemonWarmingUpUntil: parsed.daemonWarmingUpUntil ?? null,
-        lastUpdate: parsed.lastUpdate ?? undefined
+        lastUpdate: parsed.lastUpdate ?? undefined,
+        legacyQueueDrop: parsed.legacyQueueDrop ?? null,
+        captureBlockedByAuth: parsed.captureBlockedByAuth ?? null
       };
     } catch (error51) {
       if (error51.code === "ENOENT") {
@@ -31255,6 +31273,80 @@ function createStatusCacheManager(config2) {
       logger3?.error("Failed to mark sync stuck alerted in status cache", error51);
     }
   }
+  async function writeLegacyQueueDrop(counts) {
+    try {
+      await withFileLock(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const updatedCache = {
+          ...currentCache,
+          legacyQueueDrop: {
+            sessions: counts.sessions,
+            messages: counts.messages,
+            droppedAt: Date.now(),
+            acknowledged: false
+          }
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        logger3?.debug("Wrote legacy queue drop to status cache", counts);
+      });
+    } catch (error51) {
+      logger3?.error("Failed to write legacy queue drop to status cache", error51);
+    }
+  }
+  async function acknowledgeLegacyQueueDrop() {
+    try {
+      await withFileLock(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        if (!currentCache.legacyQueueDrop || currentCache.legacyQueueDrop.acknowledged)
+          return;
+        const updatedCache = {
+          ...currentCache,
+          legacyQueueDrop: { ...currentCache.legacyQueueDrop, acknowledged: true }
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+      });
+    } catch (error51) {
+      logger3?.error("Failed to acknowledge legacy queue drop in status cache", error51);
+    }
+  }
+  async function recordCaptureBlockedByAuth(sessionId) {
+    try {
+      await withFileLock(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const existing = currentCache.captureBlockedByAuth;
+        if (existing?.sessionIds.includes(sessionId))
+          return;
+        const updatedCache = {
+          ...currentCache,
+          captureBlockedByAuth: {
+            sessionIds: [...existing?.sessionIds ?? [], sessionId],
+            since: existing?.since ?? Date.now()
+          }
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+      });
+    } catch (error51) {
+      logger3?.error("Failed to record capture-blocked-by-auth in status cache", error51);
+    }
+  }
+  async function clearCaptureBlockedByAuth(sessionId) {
+    try {
+      await withFileLock(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const existing = currentCache.captureBlockedByAuth;
+        if (!existing)
+          return;
+        const remaining = existing.sessionIds.filter((id) => id !== sessionId);
+        const updatedCache = {
+          ...currentCache,
+          captureBlockedByAuth: remaining.length > 0 ? { ...existing, sessionIds: remaining } : null
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+      });
+    } catch (error51) {
+      logger3?.error("Failed to clear capture-blocked-by-auth in status cache", error51);
+    }
+  }
   async function writeDevModeActive() {
     try {
       await withFileLock(statusCacheFile, async () => {
@@ -31350,6 +31442,10 @@ function createStatusCacheManager(config2) {
     writeSyncStatus,
     clearSyncError,
     markStuckAlerted,
+    writeLegacyQueueDrop,
+    acknowledgeLegacyQueueDrop,
+    recordCaptureBlockedByAuth,
+    clearCaptureBlockedByAuth,
     writeDevModeActive,
     writeStandupNotification,
     hasActiveStandupNotification,
@@ -31384,7 +31480,11 @@ var {
   writeVersionCheck,
   hasActiveStandupNotification,
   shouldShowFirstDataReady,
-  shouldShowStandupRefreshed
+  shouldShowStandupRefreshed,
+  writeLegacyQueueDrop,
+  acknowledgeLegacyQueueDrop,
+  recordCaptureBlockedByAuth,
+  clearCaptureBlockedByAuth
 } = statusCacheManager;
 
 // src/notifications/standup-notifications.ts
@@ -34771,6 +34871,9 @@ function createSyncOrchestrator(config2) {
   }
   return { syncAllData };
 }
+// ../../packages/types/ask-zest-runner.ts
+var ASK_ZEST_RUNNERS = ["claude-code", "ai-sdk"];
+var AskZestRunnerSchema = exports_external.enum(ASK_ZEST_RUNNERS);
 // ../../packages/types/behavioral-profile.ts
 var BASIC_AI_PRACTICES = [
   {
@@ -35126,7 +35229,11 @@ var CustomPromptMetadataSchema = exports_external.object({
   example_output: exports_external.unknown().optional()
 });
 // ../../packages/types/token-usage.ts
-var TOKEN_SOURCES = ["provider_reported", "estimated_heuristic"];
+var TOKEN_SOURCES = [
+  "provider_reported",
+  "provider_reported_totals_only",
+  "estimated_heuristic"
+];
 var COST_SOURCES = [
   "provider_reported",
   "derived_openrouter",
@@ -35158,7 +35265,8 @@ var SessionTokenUsageSchema = exports_external.object({
     cache_creation_5m_input_tokens: exports_external.number().nonnegative().optional(),
     cache_creation_1h_input_tokens: exports_external.number().nonnegative().optional(),
     reasoning_tokens: exports_external.number().nonnegative().optional(),
-    cost_usd: exports_external.number().nonnegative().optional()
+    cost_usd: exports_external.number().nonnegative().optional(),
+    uncomposed_total_tokens: exports_external.number().nonnegative().optional()
   })).optional(),
   context_used_percent: exports_external.number().nonnegative().max(100).optional(),
   context_window_size: exports_external.number().int().nonnegative().optional(),
@@ -35182,6 +35290,16 @@ var SessionTokenUsageSchema = exports_external.object({
     rate_limit_reached_type: exports_external.string().optional()
   })).optional()
 });
+// ../../packages/types/tone-tokens.ts
+var SKILL_REPORT_TONES = [
+  "positive",
+  "negative",
+  "warning",
+  "info",
+  "highlight",
+  "muted"
+];
+var ORPHAN_TONE_TOKEN_PATTERN = `\\{\\{(?:${SKILL_REPORT_TONES.join("|")}):`;
 // ../../packages/types/data-controls-schemas.ts
 var collectionSettingsSchema = exports_external.object({
   user_messages: exports_external.boolean(),
@@ -35361,6 +35479,9 @@ function createSyncRunner(config2) {
       }
     }
     const result = await syncAllData(supabase, session, dataControls);
+    if (result.remoteDisabled) {
+      return { success: true, message: "Remote sync disabled — data captured locally" };
+    }
     if (result.success) {
       await recordSyncMetric({
         timestamp: Date.now(),
@@ -35500,7 +35621,13 @@ function createQueueManager(config2) {
     }
     return value;
   }
+  function assertPrivacyReady(caller) {
+    if (privacyManager && !privacyManager.isInitialized()) {
+      throw new Error(`${caller}: privacyManager is configured but not initialized — call ` + "privacyManager.initialize() before any capture path reaches the queue.");
+    }
+  }
   async function enqueueChatSession(session) {
+    assertPrivacyReady("enqueueChatSession");
     try {
       const redactedSession = {
         ...session,
@@ -35514,6 +35641,7 @@ function createQueueManager(config2) {
     }
   }
   async function enqueueChatMessage(message) {
+    assertPrivacyReady("enqueueChatMessage");
     try {
       const redactedMessage = {
         ...message,
@@ -35969,12 +36097,22 @@ var ClaudeCodeSessionMetadataSchema = exports_external.object({
   }).optional(),
   token_data_source: exports_external.string().optional()
 }).passthrough();
+var GrokBuildSessionMetadataSchema = exports_external.object({
+  model: exports_external.string().optional(),
+  total_tokens: exports_external.number().optional(),
+  token_source: exports_external.enum(TOKEN_SOURCES).optional(),
+  context_used_percent: exports_external.number().optional(),
+  context_window_size: exports_external.number().optional(),
+  context_tokens_used: exports_external.number().optional(),
+  chat_format_version: exports_external.number().optional()
+});
 var metadataSchemasBySource = {
   codex: CodexSessionMetadataSchema,
   hermes: HermesSessionMetadataSchema,
   "claude-code": ClaudeCodeSessionMetadataSchema,
   claude_code: ClaudeCodeSessionMetadataSchema,
-  "claude-desktop": ClaudeCodeSessionMetadataSchema
+  "claude-desktop": ClaudeCodeSessionMetadataSchema,
+  "grok-build": GrokBuildSessionMetadataSchema
 };
 function validateSessionMetadata(source, metadata) {
   const schema = metadataSchemasBySource[source];
@@ -36184,6 +36322,62 @@ function partitionMessagesBySessionCategory(messages, categories) {
   }
   return { valid, stale, pending, orphaned };
 }
+function partitionSessionsByIdentity(sessions, userId, workspaceId) {
+  const owned = [];
+  const legacyIds = new Set;
+  const mismatched = [];
+  for (const session of sessions) {
+    if (!session.id)
+      continue;
+    if (!session.user_id) {
+      legacyIds.add(session.id);
+      owned.push(session);
+      continue;
+    }
+    const workspaceMismatch = session.workspace_id != null && session.workspace_id !== workspaceId;
+    if (session.user_id !== userId || workspaceMismatch) {
+      mismatched.push(session);
+      continue;
+    }
+    owned.push(session);
+  }
+  return { owned, legacyIds, mismatched };
+}
+function partitionMessagesByIdentity(messages, userId, parentSessions) {
+  const owned = [];
+  const legacyIds = new Set;
+  const mismatched = [];
+  const ownedSessionIds = new Set(parentSessions?.owned.map((s) => s.id).filter((id) => !!id));
+  const mismatchedSessionIds = new Set(parentSessions?.mismatched.map((s) => s.id).filter((id) => !!id));
+  const hasParentIndex = parentSessions != null;
+  for (const message of messages) {
+    if (!message.id)
+      continue;
+    if (hasParentIndex && message.session_id) {
+      if (mismatchedSessionIds.has(message.session_id)) {
+        mismatched.push(message);
+        continue;
+      }
+      if (ownedSessionIds.has(message.session_id)) {
+        if (!message.user_id)
+          legacyIds.add(message.id);
+        owned.push(message);
+        continue;
+      }
+    }
+    if (!message.user_id) {
+      legacyIds.add(message.id);
+      owned.push(message);
+      continue;
+    }
+    if (message.user_id !== userId) {
+      mismatched.push(message);
+      continue;
+    }
+    owned.push(message);
+  }
+  return { owned, legacyIds, mismatched };
+}
 function deduplicateSessions(sessions) {
   const sessionMap = new Map;
   for (const session of sessions) {
@@ -36290,7 +36484,7 @@ function createChatUploader(config2) {
           metadata = null;
         }
       }
-      const { title, ...sessionFields } = s;
+      const { title, first_seen_mismatched_at: _seen, ...sessionFields } = s;
       const session = {
         ...sessionFields,
         id: normalizeSessionId(s.id, sessionNamespace),
@@ -36318,14 +36512,17 @@ function createChatUploader(config2) {
     if (filteredMessages.length < messages.length) {
       logger3?.warn(`Filtered out ${messages.length - filteredMessages.length} messages without session IDs`);
     }
-    return filteredMessages.map((m) => ({
-      ...m,
-      session_id: normalizeSessionId(m.session_id, sessionNamespace),
-      content: m.content,
-      user_id: userId,
-      code_diffs: null,
-      metadata: m.metadata ?? null
-    }));
+    return filteredMessages.map((m) => {
+      const { first_seen_mismatched_at: _seen, ...messageFields } = m;
+      return {
+        ...messageFields,
+        session_id: normalizeSessionId(m.session_id, sessionNamespace),
+        content: m.content,
+        user_id: userId,
+        code_diffs: null,
+        metadata: m.metadata ?? null
+      };
+    });
   }
   async function uploadSessionsToSupabase(supabase, sessions) {
     if (sessions.length === 0)
@@ -36399,9 +36596,52 @@ function createChatUploader(config2) {
         logger3?.debug("No chat data to upload");
         return { success: true, uploaded: { sessions: 0, messages: 0 } };
       }
-      const maxMessageIndexBySession = getMaxMessageIndexPerSession(queuedMessages);
-      const categories = categorizeSessions(queuedSessions, maxMessageIndexBySession);
-      const messagePartition = partitionMessagesBySessionCategory(queuedMessages, categories);
+      const workspaceId = session.workspaceId ?? null;
+      if (!workspaceId) {
+        logger3?.warn("Skipping chat upload: workspace_id is missing from auth session");
+        onCaptureException?.(new Error("Chat upload blocked: no workspace_id in auth session"), SYNC_BLOCKED_NO_WORKSPACE, "chat-uploader", { reason: "precondition_failed" });
+        return {
+          success: false,
+          uploaded: { sessions: 0, messages: 0 },
+          errorCategory: "auth_error"
+        };
+      }
+      const sessionIdentity = partitionSessionsByIdentity(queuedSessions, session.userId, workspaceId);
+      const messageIdentity = partitionMessagesByIdentity(queuedMessages, session.userId, sessionIdentity);
+      if (sessionIdentity.legacyIds.size > 0 || messageIdentity.legacyIds.size > 0) {
+        await atomicUpdateQueue2(sessionsQueueFile, (items) => items.map((s) => s.id && sessionIdentity.legacyIds.has(s.id) ? { ...s, user_id: session.userId, workspace_id: workspaceId } : s));
+        await atomicUpdateQueue2(messagesQueueFile, (items) => items.map((m) => m.id && messageIdentity.legacyIds.has(m.id) ? { ...m, user_id: session.userId } : m));
+        logger3?.info(`Adopting ${sessionIdentity.legacyIds.size} unstamped session(s) and ${messageIdentity.legacyIds.size} unstamped message(s) under the current identity`);
+      }
+      const observedAt = new Date().toISOString();
+      const mismatchedSessionIds = new Set(sessionIdentity.mismatched.map((s) => s.id).filter((id) => !!id));
+      const mismatchedMessageIds = new Set(messageIdentity.mismatched.map((m) => m.id).filter((id) => !!id));
+      if (mismatchedSessionIds.size > 0 || mismatchedMessageIds.size > 0) {
+        await atomicUpdateQueue2(sessionsQueueFile, (items) => items.map((s) => s.id && mismatchedSessionIds.has(s.id) && !s.first_seen_mismatched_at ? { ...s, first_seen_mismatched_at: observedAt } : s));
+        await atomicUpdateQueue2(messagesQueueFile, (items) => items.map((m) => m.id && mismatchedMessageIds.has(m.id) && !m.first_seen_mismatched_at ? { ...m, first_seen_mismatched_at: observedAt } : m));
+      }
+      const staleThreshold = Date.now() - staleSessionAgeMs;
+      const stalePurgedSessionIds = new Set(sessionIdentity.mismatched.filter((s) => {
+        if (!s.id)
+          return false;
+        const seen = s.first_seen_mismatched_at ?? observedAt;
+        return new Date(seen).getTime() < staleThreshold;
+      }).map((s) => s.id));
+      const stalePurgedMessageIds = new Set(messageIdentity.mismatched.filter((m) => {
+        if (!m.id)
+          return false;
+        const seen = m.first_seen_mismatched_at ?? observedAt;
+        return new Date(seen).getTime() < staleThreshold;
+      }).map((m) => m.id));
+      if (stalePurgedSessionIds.size > 0 || stalePurgedMessageIds.size > 0) {
+        await atomicUpdateQueue2(sessionsQueueFile, (items) => items.filter((s) => !s.id || !stalePurgedSessionIds.has(s.id)));
+        await atomicUpdateQueue2(messagesQueueFile, (items) => items.filter((m) => !m.id || !stalePurgedMessageIds.has(m.id)));
+        logger3?.warn(`Purging ${stalePurgedSessionIds.size} session(s) and ${stalePurgedMessageIds.size} message(s) belonging to a different account, unclaimed for over ${staleSessionAgeDays} days`);
+        onCaptureException?.(new Error(`Purged ${stalePurgedSessionIds.size} mismatched sessions, ${stalePurgedMessageIds.size} mismatched messages`), QUEUE_MISMATCHED_ENTRIES_PURGED, "chat-uploader", { sessions: stalePurgedSessionIds.size, messages: stalePurgedMessageIds.size });
+      }
+      const maxMessageIndexBySession = getMaxMessageIndexPerSession(messageIdentity.owned);
+      const categories = categorizeSessions(sessionIdentity.owned, maxMessageIndexBySession);
+      const messagePartition = partitionMessagesBySessionCategory(messageIdentity.owned, categories);
       logSessionCategorization(categories, messagePartition);
       if (messagePartition.orphaned.length > 0) {
         const orphanedSessionIds2 = [
@@ -36460,19 +36700,6 @@ function createChatUploader(config2) {
       const uniqueSessions = deduplicateSessions(categories.valid);
       const allMessagesToUpload = [...messagePartition.valid, ...messagePartition.orphaned];
       const uniqueMessages = deduplicateMessages(allMessagesToUpload);
-      const workspaceId = session.workspaceId ?? null;
-      if (!workspaceId) {
-        logger3?.warn("Skipping chat upload: workspace_id is missing from auth session");
-        onCaptureException?.(new Error("Chat upload blocked: no workspace_id in auth session"), SYNC_BLOCKED_NO_WORKSPACE, "chat-uploader", {
-          ...buildSyncProperties({ sessionsAttempted: uniqueSessions.length }),
-          reason: "precondition_failed"
-        });
-        return {
-          success: false,
-          uploaded: { sessions: 0, messages: 0 },
-          errorCategory: "auth_error"
-        };
-      }
       const sessionsToUpload = await enrichSessionsForUpload(uniqueSessions, session.userId, workspaceId);
       let sessionsForThisCycle = sessionsToUpload;
       if (maxSessionsPerCycle && sessionsToUpload.length > maxSessionsPerCycle) {
@@ -36606,12 +36833,22 @@ function createChatUploader(config2) {
     logger3?.error(`Chat upload failed after ${maxRetries} attempts`);
     return lastResult ?? { success: false, uploaded: { sessions: 0, messages: 0 } };
   }
+  async function getIdentityStats(userId, workspaceId) {
+    const queuedSessions = await readQueue2(sessionsQueueFile);
+    const queuedMessages = await readQueue2(messagesQueueFile);
+    const sessions = partitionSessionsByIdentity(queuedSessions, userId, workspaceId);
+    return {
+      mismatchedSessions: sessions.mismatched.length,
+      mismatchedMessages: partitionMessagesByIdentity(queuedMessages, userId, sessions).mismatched.length
+    };
+  }
   return {
     uploadChatData,
     uploadChatDataWithRetry,
     categorizeSessions,
     enrichSessionsForUpload,
-    enrichMessagesForUpload
+    enrichMessagesForUpload,
+    getIdentityStats
   };
 }
 
@@ -36624,14 +36861,14 @@ import { readdirSync } from "node:fs";
 import { join as join3 } from "node:path";
 var BUNDLED_SKILLS_DIR = join3(HERMES_HOME, "hermes-agent", "skills");
 var bundledSkills;
-function scanBundledSkills() {
+function scanBundledSkills(dir = BUNDLED_SKILLS_DIR) {
   const names = new Set;
   try {
-    const categories = readdirSync(BUNDLED_SKILLS_DIR, { withFileTypes: true });
+    const categories = readdirSync(dir, { withFileTypes: true });
     for (const cat of categories) {
       if (!cat.isDirectory())
         continue;
-      const skills = readdirSync(join3(BUNDLED_SKILLS_DIR, cat.name), { withFileTypes: true });
+      const skills = readdirSync(join3(dir, cat.name), { withFileTypes: true });
       for (const skill of skills) {
         if (skill.isDirectory())
           names.add(skill.name);
@@ -36874,9 +37111,10 @@ var chatUploader = createChatUploader({
   logger: logger2,
   readQueue,
   atomicUpdateQueue,
-  readSessionSignals: (sessionId) => signalExtractor.readSessionSignals(sessionId)
+  readSessionSignals: (sessionId) => signalExtractor.readSessionSignals(sessionId),
+  onLegacyQueueEntriesDropped: writeLegacyQueueDrop
 });
-var { uploadChatData, uploadChatDataWithRetry } = chatUploader;
+var { uploadChatData, uploadChatDataWithRetry, getIdentityStats } = chatUploader;
 
 // src/supabase/sync.ts
 var syncOrchestrator = createSyncOrchestrator({
@@ -36884,7 +37122,13 @@ var syncOrchestrator = createSyncOrchestrator({
   getQueueStats,
   uploadChatDataWithRetry
 });
-var { syncAllData } = syncOrchestrator;
+async function syncAllData(supabase, session, dataControls) {
+  const settings = await loadSettings();
+  if (!settings.enableRemotePersistence) {
+    return { success: true, uploaded: { sessions: 0, messages: 0 }, remoteDisabled: true };
+  }
+  return syncOrchestrator.syncAllData(supabase, session, dataControls);
+}
 var syncRunner = createSyncRunner({
   logger: logger2,
   syncAllData,

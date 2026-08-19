@@ -241,7 +241,7 @@ function createStandupNotifications(opts) {
 import { homedir } from "node:os";
 import { join } from "node:path";
 var HERMES_HOME = process.env.HERMES_DIR ?? join(homedir(), ".hermes");
-var HERMES_ZEST_HOME = join(homedir(), ".hermes-zest");
+var HERMES_ZEST_HOME = process.env.ZEST_HERMES_STATE_DIR ?? join(homedir(), ".hermes-zest");
 var HERMES_CONFIG_PATH = join(HERMES_HOME, "config.yaml");
 var STATE_DB_PATH = join(HERMES_HOME, "state.db");
 var CHECKPOINT_PATH = join(HERMES_ZEST_HOME, "state.json");
@@ -352,6 +352,8 @@ var FILE_LOCK_TIMEOUT = "file_lock_timeout";
 var FILE_LOCK_CREATE_FAILED = "file_lock_create_failed";
 var NOTIFICATION_STATE_WRITE_FAILED = "notification_state_write_failed";
 var QUEUE_CAP_EVICTION = "queue_cap_eviction";
+var QUEUE_LEGACY_ENTRIES_DROPPED = "queue_legacy_entries_dropped";
+var QUEUE_MISMATCHED_ENTRIES_PURGED = "queue_mismatched_entries_purged";
 var SYNC_DRAIN_THROTTLED = "sync_drain_throttled";
 var SYNC_ORPHANED_MESSAGES_DROPPED = "sync_orphaned_messages_dropped";
 var EXTRACTION_PROJECT_DIR_NOT_FOUND = "extraction_project_dir_not_found";
@@ -389,6 +391,8 @@ var ERROR_TYPES = [
   QUEUE_READ_CORRUPTED,
   QUEUE_WRITE_FAILED,
   QUEUE_CAP_EVICTION,
+  QUEUE_LEGACY_ENTRIES_DROPPED,
+  QUEUE_MISMATCHED_ENTRIES_PURGED,
   SYNC_DRAIN_THROTTLED,
   SYNC_ORPHANED_MESSAGES_DROPPED,
   FILE_LOCK_TIMEOUT,
@@ -647,7 +651,9 @@ var DEFAULT_STATUS_CACHE = {
   syncStatus: DEFAULT_SYNC_STATUS,
   devMode: DEFAULT_DEV_MODE_STATUS,
   standupNotification: DEFAULT_STANDUP_NOTIFICATION,
-  daemonWarmingUpUntil: null
+  daemonWarmingUpUntil: null,
+  legacyQueueDrop: null,
+  captureBlockedByAuth: null
 };
 function createStatusCacheManager(config) {
   const {
@@ -695,7 +701,9 @@ function createStatusCacheManager(config) {
           ...parsed.standupNotification
         },
         daemonWarmingUpUntil: parsed.daemonWarmingUpUntil ?? null,
-        lastUpdate: parsed.lastUpdate ?? undefined
+        lastUpdate: parsed.lastUpdate ?? undefined,
+        legacyQueueDrop: parsed.legacyQueueDrop ?? null,
+        captureBlockedByAuth: parsed.captureBlockedByAuth ?? null
       };
     } catch (error) {
       if (error.code === "ENOENT") {
@@ -810,6 +818,80 @@ function createStatusCacheManager(config) {
       logger2?.error("Failed to mark sync stuck alerted in status cache", error);
     }
   }
+  async function writeLegacyQueueDrop(counts) {
+    try {
+      await withFileLock(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const updatedCache = {
+          ...currentCache,
+          legacyQueueDrop: {
+            sessions: counts.sessions,
+            messages: counts.messages,
+            droppedAt: Date.now(),
+            acknowledged: false
+          }
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        logger2?.debug("Wrote legacy queue drop to status cache", counts);
+      });
+    } catch (error) {
+      logger2?.error("Failed to write legacy queue drop to status cache", error);
+    }
+  }
+  async function acknowledgeLegacyQueueDrop() {
+    try {
+      await withFileLock(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        if (!currentCache.legacyQueueDrop || currentCache.legacyQueueDrop.acknowledged)
+          return;
+        const updatedCache = {
+          ...currentCache,
+          legacyQueueDrop: { ...currentCache.legacyQueueDrop, acknowledged: true }
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+      });
+    } catch (error) {
+      logger2?.error("Failed to acknowledge legacy queue drop in status cache", error);
+    }
+  }
+  async function recordCaptureBlockedByAuth(sessionId) {
+    try {
+      await withFileLock(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const existing = currentCache.captureBlockedByAuth;
+        if (existing?.sessionIds.includes(sessionId))
+          return;
+        const updatedCache = {
+          ...currentCache,
+          captureBlockedByAuth: {
+            sessionIds: [...existing?.sessionIds ?? [], sessionId],
+            since: existing?.since ?? Date.now()
+          }
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+      });
+    } catch (error) {
+      logger2?.error("Failed to record capture-blocked-by-auth in status cache", error);
+    }
+  }
+  async function clearCaptureBlockedByAuth(sessionId) {
+    try {
+      await withFileLock(statusCacheFile, async () => {
+        const currentCache = readStatusCache();
+        const existing = currentCache.captureBlockedByAuth;
+        if (!existing)
+          return;
+        const remaining = existing.sessionIds.filter((id) => id !== sessionId);
+        const updatedCache = {
+          ...currentCache,
+          captureBlockedByAuth: remaining.length > 0 ? { ...existing, sessionIds: remaining } : null
+        };
+        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+      });
+    } catch (error) {
+      logger2?.error("Failed to clear capture-blocked-by-auth in status cache", error);
+    }
+  }
   async function writeDevModeActive() {
     try {
       await withFileLock(statusCacheFile, async () => {
@@ -905,6 +987,10 @@ function createStatusCacheManager(config) {
     writeSyncStatus,
     clearSyncError,
     markStuckAlerted,
+    writeLegacyQueueDrop,
+    acknowledgeLegacyQueueDrop,
+    recordCaptureBlockedByAuth,
+    clearCaptureBlockedByAuth,
     writeDevModeActive,
     writeStandupNotification,
     hasActiveStandupNotification,
@@ -1013,6 +1099,14 @@ var EVENTS = {
   ONBOARDING_STARTED: "Onboarding Started",
   ONBOARDING_STEP_VIEWED: "Onboarding Step Viewed",
   ONBOARDING_COMPLETED: "Onboarding Completed",
+  HOME_TOUR_OPENED: "Home Tour Opened",
+  HOME_TOUR_STEP_VIEWED: "Home Tour Step Viewed",
+  HOME_TOUR_COMPLETED: "Home Tour Completed",
+  HOME_TOUR_SKIPPED: "Home Tour Skipped",
+  HOME_TOUR_INSTALL_COPY: "Home Tour Install Command Copied",
+  HOME_TOUR_INSTALL_OPEN: "Home Tour Install Link Opened",
+  SEE_HOW_ZEST_WORKS_TILE_CLICKED: "See How Zest Works Tile Clicked",
+  SEE_HOW_ZEST_WORKS_DISMISSED: "See How Zest Works Dismissed",
   NAV_LINK_CLICKED: "Nav Link Clicked",
   WORKSPACE_SWITCHED: "Workspace Switched",
   TEAM_SWITCHED: "Team Switched",
@@ -6513,7 +6607,7 @@ var {
 
 // src/utils/plugin-version.ts
 function getPluginVersion() {
-  return "0.1.2";
+  return "0.1.3";
 }
 
 // src/analytics/client.ts
@@ -6583,7 +6677,11 @@ var {
   writeVersionCheck,
   hasActiveStandupNotification,
   shouldShowFirstDataReady,
-  shouldShowStandupRefreshed
+  shouldShowStandupRefreshed,
+  writeLegacyQueueDrop,
+  acknowledgeLegacyQueueDrop,
+  recordCaptureBlockedByAuth,
+  clearCaptureBlockedByAuth
 } = statusCacheManager;
 
 // src/notifications/standup-notifications.ts
