@@ -44,6 +44,7 @@ var UPDATE_CHECK_CACHE_TTL_MS = 60 * 60 * 1000;
 var STALE_SESSION_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 var NOTIFICATION_DURATION_MS = 5 * 60 * 1000;
 var STANDUP_NOTIFICATION_THROTTLE_MS = 2 * 60 * 60 * 1000;
+var LOG_RETENTION_DAYS = 7;
 var POSTHOG_API_KEY = "phc_cSYAEzsJX9gr0sgCp4tfnr7QJ71PwGD04eUQSglw4iQ";
 
 // ../../packages/plugin-common/src/utils/file-lock.ts
@@ -331,10 +332,27 @@ function createFileLock(config) {
       logger?.debug("Failed to clean up stale locks:", error);
     }
   }
+  let cleanupRegistered = false;
+  function setupLockCleanup() {
+    if (cleanupRegistered)
+      return;
+    cleanupRegistered = true;
+    process.on("exit", cleanupLockFiles);
+    process.on("SIGINT", () => {
+      cleanupLockFiles();
+      process.exit(0);
+    });
+    process.on("SIGTERM", () => {
+      cleanupLockFiles();
+      process.exit(0);
+    });
+    logger?.debug("Lock cleanup handlers registered");
+  }
   return {
     withFileLock: withFileLockInstance,
     cleanupStaleLocks,
-    cleanupLockFiles
+    cleanupLockFiles,
+    setupLockCleanup
   };
 }
 var noopFileLock = (_path, fn) => fn();
@@ -457,6 +475,7 @@ var EVENTS = {
   ASK_ZEST_PROMPT_SELECTED: "Ask Zest Prompt Selected",
   ASK_ZEST_MENU_OPENED: "Ask Zest Menu Opened",
   ASK_ZEST_CHAT_FAILED: "Ask Zest Chat Failed",
+  ASK_ZEST_REPORT_EMAIL_LANDED: "Ask Zest Report Email Landed",
   STANDUP_GENERATED: "Standup Generated",
   STANDUP_VIEWED: "Standup Viewed",
   STANDUP_SHARED: "Standup Shared",
@@ -2364,31 +2383,31 @@ class PostHogCoreStateless {
 // ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/index.mjs
 var exports_error_tracking = {};
 __export(exports_error_tracking, {
-  winjsStackLineParser: () => winjsStackLineParser,
-  stripReservedExceptionStepFields: () => stripReservedExceptionStepFields,
-  reverseAndStripFrames: () => reverseAndStripFrames,
-  resolveExceptionStepsConfig: () => resolveExceptionStepsConfig,
-  opera11StackLineParser: () => opera11StackLineParser,
-  opera10StackLineParser: () => opera10StackLineParser,
-  nodeStackLineParser: () => nodeStackLineParser,
-  getUtf8ByteLength: () => getUtf8ByteLength,
-  geckoStackLineParser: () => geckoStackLineParser,
-  createStackParser: () => createStackParser,
-  createDefaultStackParser: () => createDefaultStackParser,
-  chromeStackLineParser: () => chromeStackLineParser,
-  StringCoercer: () => StringCoercer,
-  ReduceableCache: () => ReduceableCache,
-  PromiseRejectionEventCoercer: () => PromiseRejectionEventCoercer,
-  PrimitiveCoercer: () => PrimitiveCoercer,
-  ObjectCoercer: () => ObjectCoercer,
-  ExceptionStepsBuffer: () => ExceptionStepsBuffer,
-  EventCoercer: () => EventCoercer,
-  ErrorPropertiesBuilder: () => ErrorPropertiesBuilder,
-  ErrorEventCoercer: () => ErrorEventCoercer,
-  ErrorCoercer: () => ErrorCoercer,
-  EXCEPTION_STEP_INTERNAL_FIELDS: () => EXCEPTION_STEP_INTERNAL_FIELDS,
+  DEFAULT_EXCEPTION_STEPS_CONFIG: () => DEFAULT_EXCEPTION_STEPS_CONFIG,
   DOMExceptionCoercer: () => DOMExceptionCoercer,
-  DEFAULT_EXCEPTION_STEPS_CONFIG: () => DEFAULT_EXCEPTION_STEPS_CONFIG
+  EXCEPTION_STEP_INTERNAL_FIELDS: () => EXCEPTION_STEP_INTERNAL_FIELDS,
+  ErrorCoercer: () => ErrorCoercer,
+  ErrorEventCoercer: () => ErrorEventCoercer,
+  ErrorPropertiesBuilder: () => ErrorPropertiesBuilder,
+  EventCoercer: () => EventCoercer,
+  ExceptionStepsBuffer: () => ExceptionStepsBuffer,
+  ObjectCoercer: () => ObjectCoercer,
+  PrimitiveCoercer: () => PrimitiveCoercer,
+  PromiseRejectionEventCoercer: () => PromiseRejectionEventCoercer,
+  ReduceableCache: () => ReduceableCache,
+  StringCoercer: () => StringCoercer,
+  chromeStackLineParser: () => chromeStackLineParser,
+  createDefaultStackParser: () => createDefaultStackParser,
+  createStackParser: () => createStackParser,
+  geckoStackLineParser: () => geckoStackLineParser,
+  getUtf8ByteLength: () => getUtf8ByteLength,
+  nodeStackLineParser: () => nodeStackLineParser,
+  opera10StackLineParser: () => opera10StackLineParser,
+  opera11StackLineParser: () => opera11StackLineParser,
+  resolveExceptionStepsConfig: () => resolveExceptionStepsConfig,
+  reverseAndStripFrames: () => reverseAndStripFrames,
+  stripReservedExceptionStepFields: () => stripReservedExceptionStepFields,
+  winjsStackLineParser: () => winjsStackLineParser
 });
 
 // ../../node_modules/.bun/@posthog+core@1.29.2/node_modules/@posthog/core/dist/error-tracking/chunk-ids.mjs
@@ -5715,6 +5734,22 @@ class PostHogServerProvider {
   }
 }
 
+// ../../packages/analytics/src/identity.ts
+var PROCESS_PERSON_PROFILE = "$process_person_profile";
+var UNKNOWN_INSTALL_ID = "unknown-install";
+function resolveIdentity(userId, fallbackId, properties) {
+  if (userId) {
+    return { distinctId: userId, properties };
+  }
+  return {
+    distinctId: fallbackId,
+    properties: { ...properties, [PROCESS_PERSON_PROFILE]: false }
+  };
+}
+function resolveExceptionIdentity(userId, anonymousId, properties = {}) {
+  return resolveIdentity(userId, anonymousId || UNKNOWN_INSTALL_ID, properties);
+}
+
 // ../../packages/analytics/src/server.ts
 function createServerAnalytics(configOrApiKey, legacyOptions) {
   if (typeof configOrApiKey === "string") {
@@ -5738,7 +5773,7 @@ function createServerAnalytics(configOrApiKey, legacyOptions) {
 
 // ../../packages/plugin-common/src/analytics/index.ts
 function createAnalyticsClient(config) {
-  const { posthogApiKey, errorSourcePrefix, logger: logger2 } = config;
+  const { posthogApiKey, errorSourcePrefix, anonymousId, logger: logger2 } = config;
   if (!posthogApiKey) {
     return null;
   }
@@ -5752,7 +5787,8 @@ function createAnalyticsClient(config) {
           error_source: `${errorSourcePrefix}/${errorSource}`,
           ...properties
         };
-        client.captureException(error, userId, context);
+        const identity = resolveExceptionIdentity(userId, anonymousId, context);
+        client.captureException(error, identity.distinctId, identity.properties);
       } catch (e) {
         logger2?.debug("Failed to capture exception in PostHog", e);
       }
@@ -5776,6 +5812,52 @@ function createAnalyticsClient(config) {
       }
     }
   };
+}
+
+// ../../packages/plugin-common/src/analytics/anonymous-id.ts
+import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join as join2 } from "node:path";
+var ANONYMOUS_ID_FILE = "anon-id";
+var cachedIds = new Map;
+var processFallbackId;
+function getProcessFallbackId() {
+  processFallbackId ??= randomUUID();
+  return processFallbackId;
+}
+function getAnonymousId(stateDir) {
+  const cached = cachedIds.get(stateDir);
+  if (cached)
+    return cached;
+  const idFile = join2(stateDir, ANONYMOUS_ID_FILE);
+  try {
+    const existing = readFileSync(idFile, "utf8").trim();
+    if (existing) {
+      cachedIds.set(stateDir, existing);
+      return existing;
+    }
+  } catch {}
+  const id = randomUUID();
+  try {
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(idFile, id, { encoding: "utf8", mode: 384, flag: "wx" });
+    cachedIds.set(stateDir, id);
+    return id;
+  } catch (error) {
+    if (error?.code === "EEXIST") {
+      try {
+        const winner = readFileSync(idFile, "utf8").trim();
+        if (winner) {
+          cachedIds.set(stateDir, winner);
+          return winner;
+        }
+        writeFileSync(idFile, id, { encoding: "utf8", mode: 384 });
+        cachedIds.set(stateDir, id);
+        return id;
+      } catch {}
+    }
+    return getProcessFallbackId();
+  }
 }
 
 // ../../packages/plugin-common/src/auth/session-io.ts
@@ -5827,7 +5909,7 @@ function createSessionManager(config) {
         return null;
       if (!isSessionStructureValid(session)) {
         logger2?.warn("Invalid session structure, clearing session");
-        await clearSession();
+        await clearSession("invalid_structure");
         return null;
       }
       return session;
@@ -5851,10 +5933,10 @@ function createSessionManager(config) {
       throw error;
     }
   }
-  async function clearSession() {
+  async function clearSession(reason = "unspecified") {
     try {
       await deleteSessionFile(sessionFilePath);
-      logger2?.info("Session cleared successfully");
+      logger2?.info("Session cleared", { reason });
     } catch (error) {
       logger2?.error("Failed to clear session", error);
       if (error instanceof Error)
@@ -5870,7 +5952,7 @@ function createSessionManager(config) {
     }
     if (isRefreshTokenExpired(session)) {
       logger2?.warn("getValidSession: Refresh token expired, user must re-authenticate");
-      await clearSession();
+      await clearSession("refresh_expired");
       return null;
     }
     return session;
@@ -5916,7 +5998,7 @@ function createSessionManager(config) {
   async function clearSessionIfStale(staleRefreshToken) {
     const current = await loadSession();
     if (current && current.refreshToken === staleRefreshToken) {
-      await clearSession();
+      await clearSession("stale_refresh");
     } else {
       logger2?.info("Session refresh token changed on disk, skipping clear");
     }
@@ -5933,59 +6015,148 @@ function createSessionManager(config) {
   };
 }
 
+// ../../packages/plugin-common/src/logger/logger.ts
+import { appendFile } from "node:fs/promises";
+import { dirname as dirname4 } from "node:path";
+var levels = { debug: 0, info: 1, warn: 2, error: 3 };
+var pendingWrites = new Set;
+async function flushLogs() {
+  await Promise.all([...pendingWrites]);
+}
+var beforeExitRegistered = false;
+function registerBeforeExit() {
+  if (beforeExitRegistered)
+    return;
+  beforeExitRegistered = true;
+  process.on("beforeExit", () => {
+    flushLogs();
+  });
+}
+function formatArgs(args) {
+  if (args.length === 0)
+    return "";
+  return ` ${args.map((a) => a instanceof Error ? a.message : JSON.stringify(a)).join(" ")}`;
+}
+function writeToFile(rotation, logPrefix, level, message, args) {
+  const task = (async () => {
+    try {
+      const logFilePath = rotation.getDatedLogPath(logPrefix);
+      await ensureDirectory(dirname4(logFilePath));
+      const timestamp = new Date().toISOString();
+      await appendFile(logFilePath, `[${timestamp}] ${level}: ${message}${formatArgs(args)}
+`);
+      rotation.cleanupStaleLogs(logPrefix);
+    } catch {}
+  })();
+  pendingWrites.add(task);
+  task.finally(() => pendingWrites.delete(task));
+}
+function createLogger2(config) {
+  const { prefix, logRotation, logPrefix = "plugin" } = config;
+  let minLevel = "info";
+  registerBeforeExit();
+  const logger2 = {
+    setLevel(level) {
+      minLevel = level;
+    },
+    debug(message, ...args) {
+      if (levels.debug >= levels[minLevel]) {
+        writeToFile(logRotation, logPrefix, "DEBUG", message, args);
+      }
+    },
+    info(message, ...args) {
+      if (levels.info >= levels[minLevel]) {
+        writeToFile(logRotation, logPrefix, "INFO", message, args);
+      }
+    },
+    warn(message, ...args) {
+      if (levels.warn >= levels[minLevel]) {
+        console.warn(`[${prefix}:Warn] ${message}`, ...args);
+        writeToFile(logRotation, logPrefix, "WARN", message, args);
+      }
+    },
+    error(message, error) {
+      if (levels.error >= levels[minLevel]) {
+        console.error(`[${prefix}:Error] ${message}`, error ?? "");
+        writeToFile(logRotation, logPrefix, "ERROR", message, error === undefined ? [] : [error]);
+      }
+    }
+  };
+  return { logger: logger2, flushLogs };
+}
+// ../../packages/plugin-common/src/log-rotation/log-rotation.ts
+import { readdir as readdir2, unlink as unlink3 } from "node:fs/promises";
+import { join as join3 } from "node:path";
+var CLEANUP_THROTTLE_MS = 60 * 60 * 1000;
+function getDateString() {
+  return new Date().toISOString().split("T")[0];
+}
+function getDatedLogPath(logsDir, logPrefix) {
+  const dateStr = getDateString();
+  return join3(logsDir, `${logPrefix}-${dateStr}.log`);
+}
+function parseDateFromFilename(filename, logPrefix) {
+  const pattern = new RegExp(`^${logPrefix}-(\\d{4}-\\d{2}-\\d{2})\\.log$`);
+  const match = filename.match(pattern);
+  if (!match) {
+    return null;
+  }
+  const date = new Date(match[1] + "T00:00:00Z");
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+function createLogRotation(config) {
+  const { logsDir, retentionDays, logger: logger2 } = config;
+  const lastCleanupTime = {};
+  async function cleanupStaleLogs(logPrefix) {
+    const now = Date.now();
+    const lastCleanup = lastCleanupTime[logPrefix] || 0;
+    if (now - lastCleanup < CLEANUP_THROTTLE_MS) {
+      return;
+    }
+    lastCleanupTime[logPrefix] = now;
+    try {
+      await ensureDirectory(logsDir);
+      const files = await readdir2(logsDir);
+      const cutoffDate = new Date(now - retentionDays * 24 * 60 * 60 * 1000);
+      for (const file of files) {
+        const fileDate = parseDateFromFilename(file, logPrefix);
+        if (fileDate && fileDate < cutoffDate) {
+          const filePath = join3(logsDir, file);
+          try {
+            await unlink3(filePath);
+          } catch (error) {
+            logger2?.error(`Failed to delete old log file ${file}`, error);
+          }
+        }
+      }
+    } catch (error) {
+      logger2?.error("Failed to cleanup old logs", error);
+    }
+  }
+  async function forceCleanupStaleLogs(logPrefix) {
+    lastCleanupTime[logPrefix] = 0;
+    await cleanupStaleLogs(logPrefix);
+  }
+  return { cleanupStaleLogs, forceCleanupStaleLogs };
+}
+
+// src/log-rotation/log-rotation.ts
+function getDatedLogPath2(logPrefix) {
+  return getDatedLogPath(LOGS_DIR, logPrefix);
+}
+var logRotation = createLogRotation({
+  logsDir: LOGS_DIR,
+  retentionDays: LOG_RETENTION_DAYS
+});
+var { cleanupStaleLogs, forceCleanupStaleLogs } = logRotation;
+
 // src/utils/logger.ts
-import { createWriteStream, mkdirSync } from "node:fs";
-import { join as join2 } from "node:path";
-var stream = null;
-var streamFailed = false;
-var currentDate = "";
-function getStream() {
-  const today = new Date().toISOString().split("T")[0];
-  if (stream && today !== currentDate) {
-    stream.end();
-    stream = null;
-    streamFailed = false;
-  }
-  currentDate = today;
-  if (stream)
-    return stream;
-  if (streamFailed)
-    return null;
-  try {
-    mkdirSync(LOGS_DIR, { recursive: true });
-    const logFile = join2(LOGS_DIR, `plugin-${today}.log`);
-    stream = createWriteStream(logFile, { flags: "a" });
-    stream.on("error", () => {
-      streamFailed = true;
-      stream = null;
-    });
-    return stream;
-  } catch {
-    streamFailed = true;
-    return null;
-  }
-}
-function log(level, msg, ...args) {
-  const timestamp = new Date().toISOString();
-  const suffix = args.length ? ` ${args.map((a) => a instanceof Error ? a.message : JSON.stringify(a)).join(" ")}` : "";
-  const line = `[${timestamp}] [${level}] ${msg}${suffix}
-`;
-  try {
-    getStream()?.write(line);
-  } catch {}
-}
-var logger2 = {
-  debug: (msg, ...args) => log("DEBUG", msg, ...args),
-  info: (msg, ...args) => log("INFO", msg, ...args),
-  warn: (msg, ...args) => {
-    console.warn(`[Zest:Warn] ${msg}`, ...args);
-    log("WARN", msg, ...args);
-  },
-  error: (msg, ...args) => {
-    console.error(`[Zest:Error] ${msg}`);
-    log("ERROR", msg, ...args);
-  }
-};
+var created = createLogger2({
+  prefix: "Zest",
+  logRotation: { getDatedLogPath: getDatedLogPath2, cleanupStaleLogs }
+});
+var logger2 = created.logger;
+var flushLogger = created.flushLogs;
 
 // src/auth/session-manager.ts
 var sessionManager = createSessionManager({
@@ -6003,12 +6174,11 @@ var {
 
 // src/utils/plugin-version.ts
 function getPluginVersion() {
-  return "0.1.3";
+  return "0.1.4";
 }
 
 // src/analytics/client.ts
 var analyticsClient = null;
-var cachedSession = null;
 async function getAnalyticsClient() {
   if (!POSTHOG_API_KEY)
     return null;
@@ -6016,20 +6186,27 @@ async function getAnalyticsClient() {
     analyticsClient = createAnalyticsClient({
       posthogApiKey: POSTHOG_API_KEY,
       errorSourcePrefix: "hermes-plugin",
+      anonymousId: getAnonymousId(STATE_DIR),
       logger: logger2
     });
-    try {
-      cachedSession = await loadSession();
-    } catch (error) {
-      logger2.debug("Could not load session for analytics context", error);
-    }
   }
   return analyticsClient;
 }
-function enrichProperties(extra) {
+async function defaultSessionLoader() {
+  return await loadSession();
+}
+async function resolveSession(load = () => defaultSessionLoader()) {
+  try {
+    return await load();
+  } catch (error) {
+    logger2.debug("Could not load session for analytics context", error);
+    return null;
+  }
+}
+function enrichProperties(session, extra) {
   return {
     ...buildStandardProperties(getPluginVersion()),
-    ...buildUserProperties(cachedSession),
+    ...buildUserProperties(session),
     ...extra
   };
 }
@@ -6038,7 +6215,8 @@ async function captureException(error, errorType, errorSource, additionalPropert
     const client = await getAnalyticsClient();
     if (!client)
       return;
-    client.captureException(error, errorType, errorSource, cachedSession?.userId, enrichProperties(additionalProperties));
+    const session = await resolveSession();
+    client.captureException(error, errorType, errorSource, session?.userId, enrichProperties(session, additionalProperties));
     logger2.debug("Exception captured in PostHog", {
       error_type: errorType,
       error_message: error.message
@@ -6057,7 +6235,7 @@ var fileLock = createFileLock({
 var { withFileLock } = fileLock;
 
 // ../../packages/plugin-common/src/cache/status-cache-manager.ts
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "node:fs";
 var DEFAULT_VERSION_CHECK = {
   updateAvailable: false,
   currentVersion: "unknown",
@@ -6101,7 +6279,7 @@ function createStatusCacheManager(config) {
   const withFileLock2 = resolveFileLock(config.withFileLock);
   function readStatusCache() {
     try {
-      const data = readFileSync(statusCacheFile, "utf-8");
+      const data = readFileSync2(statusCacheFile, "utf-8");
       const parsed = JSON.parse(data);
       if (parsed.updateAvailable !== undefined && !parsed.versionCheck) {
         logger3?.info("Migrating old update-check.json format to new status-cache.json format");
@@ -6158,7 +6336,7 @@ function createStatusCacheManager(config) {
           ...currentCache,
           versionCheck: check
         };
-        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        writeFileSync2(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
         logger3?.debug("Wrote version check to status cache", {
           updateAvailable: check.updateAvailable,
           currentVersion: check.currentVersion,
@@ -6181,7 +6359,7 @@ function createStatusCacheManager(config) {
             updateAvailable: false
           }
         };
-        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        writeFileSync2(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
         logger3?.debug("Wrote last update to status cache", {
           fromVersion: update.fromVersion,
           toVersion: update.toVersion
@@ -6203,7 +6381,7 @@ function createStatusCacheManager(config) {
             stuckAlertedAt: status.stuckAlertedAt ?? currentCache.syncStatus.stuckAlertedAt ?? null
           }
         };
-        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        writeFileSync2(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
         logger3?.debug("Wrote sync status to status cache", {
           hasError: status.hasError,
           errorType: status.errorType
@@ -6229,7 +6407,7 @@ function createStatusCacheManager(config) {
           ...currentCache,
           syncStatus: clearedStatus
         };
-        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        writeFileSync2(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
         logger3?.debug("Cleared sync error in status cache");
       });
     } catch (error) {
@@ -6247,7 +6425,7 @@ function createStatusCacheManager(config) {
             stuckAlertedAt: now
           }
         };
-        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        writeFileSync2(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
         logger3?.debug("Marked sync stuck episode as alerted", { stuckAlertedAt: now });
       });
     } catch (error) {
@@ -6267,7 +6445,7 @@ function createStatusCacheManager(config) {
             acknowledged: false
           }
         };
-        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        writeFileSync2(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
         logger3?.debug("Wrote legacy queue drop to status cache", counts);
       });
     } catch (error) {
@@ -6284,7 +6462,7 @@ function createStatusCacheManager(config) {
           ...currentCache,
           legacyQueueDrop: { ...currentCache.legacyQueueDrop, acknowledged: true }
         };
-        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        writeFileSync2(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
       });
     } catch (error) {
       logger3?.error("Failed to acknowledge legacy queue drop in status cache", error);
@@ -6304,7 +6482,7 @@ function createStatusCacheManager(config) {
             since: existing?.since ?? Date.now()
           }
         };
-        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        writeFileSync2(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
       });
     } catch (error) {
       logger3?.error("Failed to record capture-blocked-by-auth in status cache", error);
@@ -6322,7 +6500,7 @@ function createStatusCacheManager(config) {
           ...currentCache,
           captureBlockedByAuth: remaining.length > 0 ? { ...existing, sessionIds: remaining } : null
         };
-        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        writeFileSync2(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
       });
     } catch (error) {
       logger3?.error("Failed to clear capture-blocked-by-auth in status cache", error);
@@ -6336,7 +6514,7 @@ function createStatusCacheManager(config) {
           ...currentCache,
           devMode: { active: true }
         };
-        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        writeFileSync2(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
         logger3?.debug("Wrote dev mode active to status cache");
       });
     } catch (error) {
@@ -6360,7 +6538,7 @@ function createStatusCacheManager(config) {
           ...currentCache,
           standupNotification: updatedNotification
         };
-        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        writeFileSync2(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
         logger3?.debug("Wrote standup notification to status cache", { message });
       });
     } catch (error) {
@@ -6397,7 +6575,7 @@ function createStatusCacheManager(config) {
           ...currentCache,
           daemonWarmingUpUntil: Date.now() + durationMs
         };
-        writeFileSync(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
+        writeFileSync2(statusCacheFile, JSON.stringify(updatedCache, null, 2), "utf-8");
         logger3?.debug(`Wrote daemon warmup grace period (${durationMs}ms)`);
       });
     } catch (error) {

@@ -17,6 +17,6 @@ function parseArguments(argsJson) {
   }
 }
 export {
-  parseToolCalls,
-  parseArguments
+  parseArguments,
+  parseToolCalls
 };

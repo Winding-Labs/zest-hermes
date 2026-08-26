@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // src/utils/ignored-sessions.ts
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join as join3 } from "node:path";
+import { mkdir as mkdir2, readFile, writeFile } from "node:fs/promises";
+import { dirname as dirname2, join as join3 } from "node:path";
 
 // src/config/constants.ts
 import { homedir } from "node:os";
@@ -31,60 +31,162 @@ var UPDATE_CHECK_CACHE_TTL_MS = 60 * 60 * 1000;
 var STALE_SESSION_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 var NOTIFICATION_DURATION_MS = 5 * 60 * 1000;
 var STANDUP_NOTIFICATION_THROTTLE_MS = 2 * 60 * 60 * 1000;
+var LOG_RETENTION_DAYS = 7;
+
+// ../../packages/plugin-common/src/logger/logger.ts
+import { appendFile } from "node:fs/promises";
+import { dirname } from "node:path";
+
+// ../../packages/plugin-common/src/utils/fs-utils.ts
+import { mkdir, stat } from "node:fs/promises";
+async function ensureDirectory(dirPath) {
+  try {
+    await stat(dirPath);
+  } catch {
+    await mkdir(dirPath, { recursive: true, mode: 448 });
+  }
+}
+
+// ../../packages/plugin-common/src/logger/logger.ts
+var levels = { debug: 0, info: 1, warn: 2, error: 3 };
+var pendingWrites = new Set;
+async function flushLogs() {
+  await Promise.all([...pendingWrites]);
+}
+var beforeExitRegistered = false;
+function registerBeforeExit() {
+  if (beforeExitRegistered)
+    return;
+  beforeExitRegistered = true;
+  process.on("beforeExit", () => {
+    flushLogs();
+  });
+}
+function formatArgs(args) {
+  if (args.length === 0)
+    return "";
+  return ` ${args.map((a) => a instanceof Error ? a.message : JSON.stringify(a)).join(" ")}`;
+}
+function writeToFile(rotation, logPrefix, level, message, args) {
+  const task = (async () => {
+    try {
+      const logFilePath = rotation.getDatedLogPath(logPrefix);
+      await ensureDirectory(dirname(logFilePath));
+      const timestamp = new Date().toISOString();
+      await appendFile(logFilePath, `[${timestamp}] ${level}: ${message}${formatArgs(args)}
+`);
+      rotation.cleanupStaleLogs(logPrefix);
+    } catch {}
+  })();
+  pendingWrites.add(task);
+  task.finally(() => pendingWrites.delete(task));
+}
+function createLogger(config) {
+  const { prefix, logRotation, logPrefix = "plugin" } = config;
+  let minLevel = "info";
+  registerBeforeExit();
+  const logger = {
+    setLevel(level) {
+      minLevel = level;
+    },
+    debug(message, ...args) {
+      if (levels.debug >= levels[minLevel]) {
+        writeToFile(logRotation, logPrefix, "DEBUG", message, args);
+      }
+    },
+    info(message, ...args) {
+      if (levels.info >= levels[minLevel]) {
+        writeToFile(logRotation, logPrefix, "INFO", message, args);
+      }
+    },
+    warn(message, ...args) {
+      if (levels.warn >= levels[minLevel]) {
+        console.warn(`[${prefix}:Warn] ${message}`, ...args);
+        writeToFile(logRotation, logPrefix, "WARN", message, args);
+      }
+    },
+    error(message, error) {
+      if (levels.error >= levels[minLevel]) {
+        console.error(`[${prefix}:Error] ${message}`, error ?? "");
+        writeToFile(logRotation, logPrefix, "ERROR", message, error === undefined ? [] : [error]);
+      }
+    }
+  };
+  return { logger, flushLogs };
+}
+// ../../packages/plugin-common/src/log-rotation/log-rotation.ts
+import { readdir, unlink } from "node:fs/promises";
+import { join as join2 } from "node:path";
+var CLEANUP_THROTTLE_MS = 60 * 60 * 1000;
+function getDateString() {
+  return new Date().toISOString().split("T")[0];
+}
+function getDatedLogPath(logsDir, logPrefix) {
+  const dateStr = getDateString();
+  return join2(logsDir, `${logPrefix}-${dateStr}.log`);
+}
+function parseDateFromFilename(filename, logPrefix) {
+  const pattern = new RegExp(`^${logPrefix}-(\\d{4}-\\d{2}-\\d{2})\\.log$`);
+  const match = filename.match(pattern);
+  if (!match) {
+    return null;
+  }
+  const date = new Date(match[1] + "T00:00:00Z");
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+function createLogRotation(config) {
+  const { logsDir, retentionDays, logger } = config;
+  const lastCleanupTime = {};
+  async function cleanupStaleLogs(logPrefix) {
+    const now = Date.now();
+    const lastCleanup = lastCleanupTime[logPrefix] || 0;
+    if (now - lastCleanup < CLEANUP_THROTTLE_MS) {
+      return;
+    }
+    lastCleanupTime[logPrefix] = now;
+    try {
+      await ensureDirectory(logsDir);
+      const files = await readdir(logsDir);
+      const cutoffDate = new Date(now - retentionDays * 24 * 60 * 60 * 1000);
+      for (const file of files) {
+        const fileDate = parseDateFromFilename(file, logPrefix);
+        if (fileDate && fileDate < cutoffDate) {
+          const filePath = join2(logsDir, file);
+          try {
+            await unlink(filePath);
+          } catch (error) {
+            logger?.error(`Failed to delete old log file ${file}`, error);
+          }
+        }
+      }
+    } catch (error) {
+      logger?.error("Failed to cleanup old logs", error);
+    }
+  }
+  async function forceCleanupStaleLogs(logPrefix) {
+    lastCleanupTime[logPrefix] = 0;
+    await cleanupStaleLogs(logPrefix);
+  }
+  return { cleanupStaleLogs, forceCleanupStaleLogs };
+}
+
+// src/log-rotation/log-rotation.ts
+function getDatedLogPath2(logPrefix) {
+  return getDatedLogPath(LOGS_DIR, logPrefix);
+}
+var logRotation = createLogRotation({
+  logsDir: LOGS_DIR,
+  retentionDays: LOG_RETENTION_DAYS
+});
+var { cleanupStaleLogs, forceCleanupStaleLogs } = logRotation;
 
 // src/utils/logger.ts
-import { createWriteStream, mkdirSync } from "node:fs";
-import { join as join2 } from "node:path";
-var stream = null;
-var streamFailed = false;
-var currentDate = "";
-function getStream() {
-  const today = new Date().toISOString().split("T")[0];
-  if (stream && today !== currentDate) {
-    stream.end();
-    stream = null;
-    streamFailed = false;
-  }
-  currentDate = today;
-  if (stream)
-    return stream;
-  if (streamFailed)
-    return null;
-  try {
-    mkdirSync(LOGS_DIR, { recursive: true });
-    const logFile = join2(LOGS_DIR, `plugin-${today}.log`);
-    stream = createWriteStream(logFile, { flags: "a" });
-    stream.on("error", () => {
-      streamFailed = true;
-      stream = null;
-    });
-    return stream;
-  } catch {
-    streamFailed = true;
-    return null;
-  }
-}
-function log(level, msg, ...args) {
-  const timestamp = new Date().toISOString();
-  const suffix = args.length ? ` ${args.map((a) => a instanceof Error ? a.message : JSON.stringify(a)).join(" ")}` : "";
-  const line = `[${timestamp}] [${level}] ${msg}${suffix}
-`;
-  try {
-    getStream()?.write(line);
-  } catch {}
-}
-var logger = {
-  debug: (msg, ...args) => log("DEBUG", msg, ...args),
-  info: (msg, ...args) => log("INFO", msg, ...args),
-  warn: (msg, ...args) => {
-    console.warn(`[Zest:Warn] ${msg}`, ...args);
-    log("WARN", msg, ...args);
-  },
-  error: (msg, ...args) => {
-    console.error(`[Zest:Error] ${msg}`);
-    log("ERROR", msg, ...args);
-  }
-};
+var created = createLogger({
+  prefix: "Zest",
+  logRotation: { getDatedLogPath: getDatedLogPath2, cleanupStaleLogs }
+});
+var logger = created.logger;
+var flushLogger = created.flushLogs;
 
 // src/utils/ignored-sessions.ts
 var IGNORED_SESSIONS_FILE = join3(HERMES_ZEST_HOME, "ignored-sessions.json");
@@ -105,7 +207,7 @@ async function loadIgnoredSessions() {
   }
 }
 async function saveIgnoredSessions(sessions) {
-  await mkdir(dirname(IGNORED_SESSIONS_FILE), { recursive: true });
+  await mkdir2(dirname2(IGNORED_SESSIONS_FILE), { recursive: true });
   await writeFile(IGNORED_SESSIONS_FILE, JSON.stringify([...sessions], null, 2), "utf-8");
 }
 async function addIgnoredSession(sessionId) {

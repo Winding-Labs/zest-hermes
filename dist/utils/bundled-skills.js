@@ -57,7 +57,7 @@ function _setBundledSkillsForTesting(skills) {
   bundledSkills = skills;
 }
 export {
-  scanBundledSkills,
+  _setBundledSkillsForTesting,
   isBundledSkill,
-  _setBundledSkillsForTesting
+  scanBundledSkills
 };

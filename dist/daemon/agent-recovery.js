@@ -7,7 +7,7 @@ function __accessProp(key) {
   return this[key];
 }
 var __reExport = (target, mod, secondTarget) => {
-  var keys = __getOwnPropNames(mod);
+  var keys = mod && typeof mod === "object" || typeof mod === "function" ? __getOwnPropNames(mod) : [];
   for (let key of keys)
     if (!__hasOwnProp.call(target, key) && key !== "default")
       __defProp(target, key, {
@@ -36,12 +36,14 @@ var __toESM = (mod, isNodeMode, target) => {
   }
   target = mod != null ? __create(__getProtoOf(mod)) : {};
   const to = isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target;
-  for (let key of __getOwnPropNames(mod))
-    if (!__hasOwnProp.call(to, key))
-      __defProp(to, key, {
-        get: __accessProp.bind(mod, key),
-        enumerable: true
-      });
+  if (mod && typeof mod === "object" || typeof mod === "function") {
+    for (let key of __getOwnPropNames(mod))
+      if (!__hasOwnProp.call(to, key))
+        __defProp(to, key, {
+          get: __accessProp.bind(mod, key),
+          enumerable: true
+        });
+  }
   if (canCache)
     cache.set(mod, to);
   return to;
@@ -62,7 +64,7 @@ var __export = (target, all) => {
 };
 
 // ../../node_modules/.bun/tslib@2.8.1/node_modules/tslib/tslib.js
-var require_tslib = __commonJS((exports, module) => {
+var require_tslib = __commonJS(function(exports, module) {
   var __extends;
   var __assign;
   var __rest;
@@ -667,7 +669,7 @@ var require_tslib = __commonJS((exports, module) => {
 });
 
 // ../../node_modules/.bun/@supabase+functions-js@2.110.7/node_modules/@supabase/functions-js/dist/main/helper.js
-var require_helper = __commonJS((exports) => {
+var require_helper = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.resolveFetch = undefined;
   var resolveFetch = (customFetch) => {
@@ -680,7 +682,7 @@ var require_helper = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+functions-js@2.110.7/node_modules/@supabase/functions-js/dist/main/types.js
-var require_types = __commonJS((exports) => {
+var require_types = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.FunctionRegion = exports.FunctionsHttpError = exports.FunctionsRelayError = exports.FunctionsFetchError = exports.FunctionsError = undefined;
 
@@ -741,7 +743,7 @@ var require_types = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+functions-js@2.110.7/node_modules/@supabase/functions-js/dist/main/FunctionsClient.js
-var require_FunctionsClient = __commonJS((exports) => {
+var require_FunctionsClient = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.FunctionsClient = undefined;
   var tslib_1 = require_tslib();
@@ -855,7 +857,7 @@ var require_FunctionsClient = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+functions-js@2.110.7/node_modules/@supabase/functions-js/dist/main/index.js
-var require_main = __commonJS((exports) => {
+var require_main = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.FunctionRegion = exports.FunctionsRelayError = exports.FunctionsHttpError = exports.FunctionsFetchError = exports.FunctionsError = exports.FunctionsClient = undefined;
   var FunctionsClient_1 = require_FunctionsClient();
@@ -881,7 +883,7 @@ var require_main = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+realtime-js@2.110.7/node_modules/@supabase/realtime-js/dist/main/lib/websocket-factory.js
-var require_websocket_factory = __commonJS((exports) => {
+var require_websocket_factory = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.WebSocketFactory = undefined;
 
@@ -958,14 +960,14 @@ Suggested solution: ${env.workaround}`;
 });
 
 // ../../node_modules/.bun/@supabase+realtime-js@2.110.7/node_modules/@supabase/realtime-js/dist/main/lib/version.js
-var require_version = __commonJS((exports) => {
+var require_version = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.version = undefined;
   exports.version = "2.110.7";
 });
 
 // ../../node_modules/.bun/@supabase+realtime-js@2.110.7/node_modules/@supabase/realtime-js/dist/main/lib/constants.js
-var require_constants = __commonJS((exports) => {
+var require_constants = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.CONNECTION_STATE = exports.TRANSPORTS = exports.CHANNEL_EVENTS = exports.CHANNEL_STATES = exports.SOCKET_STATES = exports.MAX_PUSH_BUFFER_SIZE = exports.WS_CLOSE_NORMAL = exports.DEFAULT_TIMEOUT = exports.VERSION = exports.DEFAULT_VSN = exports.VSN_2_0_0 = exports.VSN_1_0_0 = exports.DEFAULT_VERSION = undefined;
   var version_1 = require_version();
@@ -1010,7 +1012,7 @@ var require_constants = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+realtime-js@2.110.7/node_modules/@supabase/realtime-js/dist/main/lib/serializer.js
-var require_serializer = __commonJS((exports) => {
+var require_serializer = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
 
   class Serializer {
@@ -1162,7 +1164,7 @@ var require_serializer = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+realtime-js@2.110.7/node_modules/@supabase/realtime-js/dist/main/lib/transformers.js
-var require_transformers = __commonJS((exports) => {
+var require_transformers = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.httpEndpointURL = exports.toTimestampString = exports.toArray = exports.toJson = exports.toNumber = exports.toBoolean = exports.convertCell = exports.convertColumn = exports.convertChangeData = exports.PostgresTypes = undefined;
   var PostgresTypes;
@@ -1331,7 +1333,7 @@ var require_transformers = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+phoenix@0.4.5/node_modules/@supabase/phoenix/priv/static/phoenix.cjs.js
-var require_phoenix_cjs = __commonJS((exports, module) => {
+var require_phoenix_cjs = __commonJS(function(exports, module) {
   var __defProp2 = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropNames2 = Object.getOwnPropertyNames;
@@ -2747,7 +2749,7 @@ var require_phoenix_cjs = __commonJS((exports, module) => {
 });
 
 // ../../node_modules/.bun/@supabase+realtime-js@2.110.7/node_modules/@supabase/realtime-js/dist/main/phoenix/presenceAdapter.js
-var require_presenceAdapter = __commonJS((exports) => {
+var require_presenceAdapter = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   var phoenix_1 = require_phoenix_cjs();
 
@@ -2820,7 +2822,7 @@ var require_presenceAdapter = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+realtime-js@2.110.7/node_modules/@supabase/realtime-js/dist/main/RealtimePresence.js
-var require_RealtimePresence = __commonJS((exports) => {
+var require_RealtimePresence = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.REALTIME_PRESENCE_LISTEN_EVENTS = undefined;
   var tslib_1 = require_tslib();
@@ -2845,7 +2847,7 @@ var require_RealtimePresence = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+realtime-js@2.110.7/node_modules/@supabase/realtime-js/dist/main/lib/normalizeChannelError.js
-var require_normalizeChannelError = __commonJS((exports) => {
+var require_normalizeChannelError = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.normalizeChannelError = normalizeChannelError;
   function normalizeChannelError(reason) {
@@ -2868,7 +2870,7 @@ var require_normalizeChannelError = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+realtime-js@2.110.7/node_modules/@supabase/realtime-js/dist/main/phoenix/channelAdapter.js
-var require_channelAdapter = __commonJS((exports) => {
+var require_channelAdapter = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   var constants_1 = require_constants();
 
@@ -2970,7 +2972,7 @@ var require_channelAdapter = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+realtime-js@2.110.7/node_modules/@supabase/realtime-js/dist/main/RealtimePostgresFilterBuilder.js
-var require_RealtimePostgresFilterBuilder = __commonJS((exports) => {
+var require_RealtimePostgresFilterBuilder = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.postgresChangesFilter = exports.RealtimePostgresFilterBuilder = undefined;
   var PostgrestReservedCharsRegexp2 = /[,()"\\]/;
@@ -3060,7 +3062,7 @@ var require_RealtimePostgresFilterBuilder = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+realtime-js@2.110.7/node_modules/@supabase/realtime-js/dist/main/RealtimeChannel.js
-var require_RealtimeChannel = __commonJS((exports) => {
+var require_RealtimeChannel = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.REALTIME_CHANNEL_STATES = exports.REALTIME_SUBSCRIBE_STATES = exports.REALTIME_LISTEN_TYPES = exports.REALTIME_POSTGRES_CHANGES_LISTEN_EVENT = exports.postgresChangesFilter = exports.RealtimePostgresFilterBuilder = undefined;
   var tslib_1 = require_tslib();
@@ -3450,7 +3452,7 @@ var require_RealtimeChannel = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+realtime-js@2.110.7/node_modules/@supabase/realtime-js/dist/main/phoenix/socketAdapter.js
-var require_socketAdapter = __commonJS((exports) => {
+var require_socketAdapter = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   var phoenix_1 = require_phoenix_cjs();
   var constants_1 = require_constants();
@@ -3563,7 +3565,7 @@ var require_socketAdapter = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+realtime-js@2.110.7/node_modules/@supabase/realtime-js/dist/main/RealtimeClient.js
-var require_RealtimeClient = __commonJS((exports) => {
+var require_RealtimeClient = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   var tslib_1 = require_tslib();
   var websocket_factory_1 = tslib_1.__importDefault(require_websocket_factory());
@@ -4016,7 +4018,7 @@ var require_RealtimeClient = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+realtime-js@2.110.7/node_modules/@supabase/realtime-js/dist/main/index.js
-var require_main2 = __commonJS((exports) => {
+var require_main2 = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.WebSocketFactory = exports.REALTIME_CHANNEL_STATES = exports.REALTIME_SUBSCRIBE_STATES = exports.REALTIME_PRESENCE_LISTEN_EVENTS = exports.REALTIME_POSTGRES_CHANGES_LISTEN_EVENT = exports.REALTIME_LISTEN_TYPES = exports.postgresChangesFilter = exports.RealtimePostgresFilterBuilder = exports.RealtimeClient = exports.RealtimeChannel = exports.RealtimePresence = undefined;
   var tslib_1 = require_tslib();
@@ -4052,14 +4054,14 @@ var require_main2 = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/lib/version.js
-var require_version2 = __commonJS((exports) => {
+var require_version2 = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.version = undefined;
   exports.version = "2.110.7";
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/lib/constants.js
-var require_constants2 = __commonJS((exports) => {
+var require_constants2 = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.JWKS_TTL = exports.BASE64URL_REGEX = exports.API_VERSIONS = exports.API_VERSION_HEADER_NAME = exports.NETWORK_FAILURE = exports.DEFAULT_HEADERS = exports.AUDIENCE = exports.STORAGE_KEY = exports.GOTRUE_URL = exports.REFRESH_FAILURE_COOLDOWN_MS = exports.EXPIRY_MARGIN_MS = exports.AUTO_REFRESH_TICK_THRESHOLD = exports.AUTO_REFRESH_TICK_DURATION_MS = undefined;
   var version_1 = require_version2();
@@ -4087,7 +4089,7 @@ var require_constants2 = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/lib/errors.js
-var require_errors = __commonJS((exports) => {
+var require_errors = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.AuthInvalidJwtError = exports.AuthWeakPasswordError = exports.AuthRefreshDiscardedError = exports.AuthRetryableFetchError = exports.AuthPKCECodeVerifierMissingError = exports.AuthPKCEGrantCodeExchangeError = exports.AuthImplicitGrantRedirectError = exports.AuthInvalidCredentialsError = exports.AuthInvalidTokenResponseError = exports.AuthSessionMissingError = exports.CustomAuthError = exports.AuthUnknownError = exports.AuthApiError = exports.AuthError = undefined;
   exports.isAuthError = isAuthError;
@@ -4256,7 +4258,7 @@ var require_errors = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/lib/base64url.js
-var require_base64url = __commonJS((exports) => {
+var require_base64url = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.byteToBase64URL = byteToBase64URL;
   exports.byteFromBase64URL = byteFromBase64URL;
@@ -4444,7 +4446,7 @@ var require_base64url = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/lib/helpers.js
-var require_helpers = __commonJS((exports) => {
+var require_helpers = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.Deferred = exports.removeItemAsync = exports.getItemAsync = exports.setItemAsync = exports.looksLikeFetchResponse = exports.resolveFetch = exports.supportsLocalStorage = exports.isBrowser = undefined;
   exports.expiresAt = expiresAt;
@@ -4759,7 +4761,7 @@ var require_helpers = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/lib/fetch.js
-var require_fetch = __commonJS((exports) => {
+var require_fetch = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.handleError = handleError2;
   exports._request = _request;
@@ -4941,14 +4943,14 @@ var require_fetch = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/lib/types.js
-var require_types2 = __commonJS((exports) => {
+var require_types2 = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.SIGN_OUT_SCOPES = undefined;
   exports.SIGN_OUT_SCOPES = ["global", "local", "others"];
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/GoTrueAdminApi.js
-var require_GoTrueAdminApi = __commonJS((exports) => {
+var require_GoTrueAdminApi = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   var tslib_1 = require_tslib();
   var fetch_1 = require_fetch();
@@ -5395,7 +5397,7 @@ var require_GoTrueAdminApi = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/lib/local-storage.js
-var require_local_storage = __commonJS((exports) => {
+var require_local_storage = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.memoryLocalStorageAdapter = memoryLocalStorageAdapter;
   function memoryLocalStorageAdapter(store = {}) {
@@ -5414,7 +5416,7 @@ var require_local_storage = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/lib/locks.js
-var require_locks = __commonJS((exports) => {
+var require_locks = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.ProcessLockAcquireTimeoutError = exports.NavigatorLockAcquireTimeoutError = exports.LockAcquireTimeoutError = exports.internals = undefined;
   exports.navigatorLock = navigatorLock;
@@ -5588,7 +5590,7 @@ var require_locks = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/lib/polyfills.js
-var require_polyfills = __commonJS((exports) => {
+var require_polyfills = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.polyfillGlobalThis = polyfillGlobalThis;
   function polyfillGlobalThis() {
@@ -5612,7 +5614,7 @@ var require_polyfills = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/lib/web3/ethereum.js
-var require_ethereum = __commonJS((exports) => {
+var require_ethereum = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.getAddress = getAddress;
   exports.fromHex = fromHex;
@@ -5689,7 +5691,7 @@ ${suffix}`;
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/lib/webauthn.errors.js
-var require_webauthn_errors = __commonJS((exports) => {
+var require_webauthn_errors = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.WebAuthnUnknownError = exports.WebAuthnError = undefined;
   exports.isWebAuthnError = isWebAuthnError;
@@ -5876,7 +5878,7 @@ var require_webauthn_errors = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/lib/webauthn.js
-var require_webauthn = __commonJS((exports) => {
+var require_webauthn = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.WebAuthnApi = exports.DEFAULT_REQUEST_OPTIONS = exports.DEFAULT_CREATION_OPTIONS = exports.webAuthnAbortService = exports.WebAuthnAbortService = exports.identifyAuthenticationError = exports.identifyRegistrationError = exports.isWebAuthnError = exports.WebAuthnError = undefined;
   exports.deserializeCredentialCreationOptions = deserializeCredentialCreationOptions;
@@ -6330,7 +6332,7 @@ var require_webauthn = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/GoTrueClient.js
-var require_GoTrueClient = __commonJS((exports) => {
+var require_GoTrueClient = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   var tslib_1 = require_tslib();
   var GoTrueAdminApi_1 = tslib_1.__importDefault(require_GoTrueAdminApi());
@@ -9025,7 +9027,7 @@ var require_GoTrueClient = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/AuthAdminApi.js
-var require_AuthAdminApi = __commonJS((exports) => {
+var require_AuthAdminApi = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   var tslib_1 = require_tslib();
   var GoTrueAdminApi_1 = tslib_1.__importDefault(require_GoTrueAdminApi());
@@ -9034,7 +9036,7 @@ var require_AuthAdminApi = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/AuthClient.js
-var require_AuthClient = __commonJS((exports) => {
+var require_AuthClient = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   var tslib_1 = require_tslib();
   var GoTrueClient_1 = tslib_1.__importDefault(require_GoTrueClient());
@@ -9043,7 +9045,7 @@ var require_AuthClient = __commonJS((exports) => {
 });
 
 // ../../node_modules/.bun/@supabase+auth-js@2.110.7/node_modules/@supabase/auth-js/dist/main/index.js
-var require_main3 = __commonJS((exports) => {
+var require_main3 = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.processLock = exports.lockInternals = exports.NavigatorLockAcquireTimeoutError = exports.navigatorLock = exports.AuthClient = exports.AuthAdminApi = exports.GoTrueClient = exports.GoTrueAdminApi = undefined;
   var tslib_1 = require_tslib();
@@ -9162,28 +9164,28 @@ var errorTypeSet = new Set(ERROR_TYPES);
 // ../../node_modules/.bun/@supabase+supabase-js@2.110.7/node_modules/@supabase/supabase-js/dist/index.mjs
 var exports_dist3 = {};
 __export(exports_dist3, {
-  createClient: () => createClient,
-  SupabaseClient: () => SupabaseClient,
-  StorageApiError: () => StorageApiError,
-  PostgrestError: () => PostgrestError,
-  FunctionsRelayError: () => import_functions_js.FunctionsRelayError,
-  FunctionsHttpError: () => import_functions_js.FunctionsHttpError,
-  FunctionsFetchError: () => import_functions_js.FunctionsFetchError,
+  FunctionRegion: () => import_functions_js.FunctionRegion,
   FunctionsError: () => import_functions_js.FunctionsError,
-  FunctionRegion: () => import_functions_js.FunctionRegion
+  FunctionsFetchError: () => import_functions_js.FunctionsFetchError,
+  FunctionsHttpError: () => import_functions_js.FunctionsHttpError,
+  FunctionsRelayError: () => import_functions_js.FunctionsRelayError,
+  PostgrestError: () => PostgrestError,
+  StorageApiError: () => StorageApiError,
+  SupabaseClient: () => SupabaseClient,
+  createClient: () => createClient
 });
 var import_functions_js = __toESM(require_main(), 1);
 
 // ../../node_modules/.bun/@supabase+postgrest-js@2.110.7/node_modules/@supabase/postgrest-js/dist/index.mjs
 var exports_dist = {};
 __export(exports_dist, {
-  default: () => src_default,
-  PostgrestTransformBuilder: () => PostgrestTransformBuilder,
-  PostgrestQueryBuilder: () => PostgrestQueryBuilder,
-  PostgrestFilterBuilder: () => PostgrestFilterBuilder,
-  PostgrestError: () => PostgrestError,
+  PostgrestBuilder: () => PostgrestBuilder,
   PostgrestClient: () => PostgrestClient,
-  PostgrestBuilder: () => PostgrestBuilder
+  PostgrestError: () => PostgrestError,
+  PostgrestFilterBuilder: () => PostgrestFilterBuilder,
+  PostgrestQueryBuilder: () => PostgrestQueryBuilder,
+  PostgrestTransformBuilder: () => PostgrestTransformBuilder,
+  default: () => src_default
 });
 var DEFAULT_MAX_RETRIES = 3;
 var getRetryDelay = (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000);
@@ -10011,23 +10013,23 @@ var import_realtime_js = __toESM(require_main2(), 1);
 // ../../node_modules/.bun/@supabase+storage-js@2.110.7/node_modules/@supabase/storage-js/dist/index.mjs
 var exports_dist2 = {};
 __export(exports_dist2, {
-  isStorageVectorsError: () => isStorageVectorsError,
-  isStorageError: () => isStorageError,
-  VectorIndexScope: () => VectorIndexScope,
-  VectorIndexApi: () => VectorIndexApi,
-  VectorDataApi: () => VectorDataApi,
-  VectorBucketScope: () => VectorBucketScope,
-  VectorBucketApi: () => VectorBucketApi,
-  StorageVectorsUnknownError: () => StorageVectorsUnknownError,
-  StorageVectorsErrorCode: () => StorageVectorsErrorCode,
-  StorageVectorsError: () => StorageVectorsError,
-  StorageVectorsClient: () => StorageVectorsClient,
-  StorageVectorsApiError: () => StorageVectorsApiError,
-  StorageUnknownError: () => StorageUnknownError,
-  StorageError: () => StorageError,
-  StorageClient: () => StorageClient,
+  StorageAnalyticsClient: () => StorageAnalyticsClient,
   StorageApiError: () => StorageApiError,
-  StorageAnalyticsClient: () => StorageAnalyticsClient
+  StorageClient: () => StorageClient,
+  StorageError: () => StorageError,
+  StorageUnknownError: () => StorageUnknownError,
+  StorageVectorsApiError: () => StorageVectorsApiError,
+  StorageVectorsClient: () => StorageVectorsClient,
+  StorageVectorsError: () => StorageVectorsError,
+  StorageVectorsErrorCode: () => StorageVectorsErrorCode,
+  StorageVectorsUnknownError: () => StorageVectorsUnknownError,
+  VectorBucketApi: () => VectorBucketApi,
+  VectorBucketScope: () => VectorBucketScope,
+  VectorDataApi: () => VectorDataApi,
+  VectorIndexApi: () => VectorIndexApi,
+  VectorIndexScope: () => VectorIndexScope,
+  isStorageError: () => isStorageError,
+  isStorageVectorsError: () => isStorageVectorsError
 });
 
 // ../../node_modules/.bun/iceberg-js@0.8.1/node_modules/iceberg-js/dist/index.mjs
@@ -11991,20 +11993,15 @@ var CLAUDE_BUILTIN_COMMANDS = new Set([
   "voice",
   "web-setup"
 ]);
-// ../../packages/utils/src/date-range.ts
-var PERIOD_TYPE_LABELS = {
-  ["today" /* Today */]: "Today",
-  ["this_week" /* ThisWeek */]: "This Week",
-  ["this_month" /* ThisMonth */]: "This Month"
-};
-var PERIOD_SUMMARY_LABELS = {
-  ["today" /* Today */]: "Daily Summary",
-  ["this_week" /* ThisWeek */]: "Weekly Summary",
-  ["this_month" /* ThisMonth */]: "Monthly Summary",
-  custom: "Custom Period"
-};
 // ../../packages/utils/src/frontmatter.ts
 var FRONTMATTER_KEYS = new Set(["name", "description"]);
+// ../../packages/utils/src/manager-digest-retirement.ts
+var PER_TEAM_MANAGER_DIGEST_ROWS = {
+  cascadeCategory: "weekly-manager-digest",
+  frequency: "weekly",
+  teamScope: { column: "team_id", nullness: "not-null" }
+};
+var PER_TEAM_MANAGER_DIGEST_ROWS_SQL = `cascade_category = '${PER_TEAM_MANAGER_DIGEST_ROWS.cascadeCategory}'` + ` AND frequency = '${PER_TEAM_MANAGER_DIGEST_ROWS.frequency}'` + ` AND ${PER_TEAM_MANAGER_DIGEST_ROWS.teamScope.column}` + ` ${PER_TEAM_MANAGER_DIGEST_ROWS.teamScope.nullness === "not-null" ? "IS NOT NULL" : "IS NULL"}`;
 // ../../packages/utils/src/mcp-registry.ts
 var CACHE_TTL_MS = 30 * 60 * 1000;
 var CACHE_MAX_SIZE = 100;
@@ -12106,6 +12103,16 @@ function createSanitizingFetch(baseFetch) {
   };
   return Object.assign(wrapper, baseFetch);
 }
+// ../../packages/plugin-common/src/utils/fs-utils.ts
+import { mkdir, stat } from "node:fs/promises";
+async function ensureDirectory(dirPath) {
+  try {
+    await stat(dirPath);
+  } catch {
+    await mkdir(dirPath, { recursive: true, mode: 448 });
+  }
+}
+
 // ../../packages/plugin-common/src/utils/file-lock.ts
 var noopFileLock = (_path, fn) => fn();
 function resolveFileLock(callback) {
@@ -12192,7 +12199,7 @@ async function setClientSession(options, client, session) {
     }
     if (isInvalidRefreshToken) {
       logger?.warn("Invalid refresh token, clearing session");
-      await sessionManager.clearSession();
+      await sessionManager.clearSession("invalid_refresh");
     }
     throw error;
   }
@@ -12391,7 +12398,7 @@ async function resolveWorkspaceName(options, session, workspaceId) {
 }
 
 // ../../packages/plugin-common/src/auth/session-io.ts
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir as mkdir2, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 async function readSessionFile(filePath) {
   try {
@@ -12405,7 +12412,7 @@ async function readSessionFile(filePath) {
   }
 }
 async function writeSessionFile(filePath, session) {
-  await mkdir(dirname(filePath), { recursive: true });
+  await mkdir2(dirname(filePath), { recursive: true });
   await writeFile(filePath, JSON.stringify(session, null, 2), {
     encoding: "utf-8",
     mode: 384
@@ -12439,7 +12446,7 @@ function createSessionManager(config) {
         return null;
       if (!isSessionStructureValid(session)) {
         logger?.warn("Invalid session structure, clearing session");
-        await clearSession();
+        await clearSession("invalid_structure");
         return null;
       }
       return session;
@@ -12463,10 +12470,10 @@ function createSessionManager(config) {
       throw error;
     }
   }
-  async function clearSession() {
+  async function clearSession(reason = "unspecified") {
     try {
       await deleteSessionFile(sessionFilePath);
-      logger?.info("Session cleared successfully");
+      logger?.info("Session cleared", { reason });
     } catch (error) {
       logger?.error("Failed to clear session", error);
       if (error instanceof Error)
@@ -12482,7 +12489,7 @@ function createSessionManager(config) {
     }
     if (isRefreshTokenExpired(session)) {
       logger?.warn("getValidSession: Refresh token expired, user must re-authenticate");
-      await clearSession();
+      await clearSession("refresh_expired");
       return null;
     }
     return session;
@@ -12528,7 +12535,7 @@ function createSessionManager(config) {
   async function clearSessionIfStale(staleRefreshToken) {
     const current = await loadSession();
     if (current && current.refreshToken === staleRefreshToken) {
-      await clearSession();
+      await clearSession("stale_refresh");
     } else {
       logger?.info("Session refresh token changed on disk, skipping clear");
     }
@@ -12572,62 +12579,152 @@ var UPDATE_CHECK_CACHE_TTL_MS = 60 * 60 * 1000;
 var STALE_SESSION_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 var NOTIFICATION_DURATION_MS = 5 * 60 * 1000;
 var STANDUP_NOTIFICATION_THROTTLE_MS = 2 * 60 * 60 * 1000;
+var LOG_RETENTION_DAYS = 7;
 var SUPABASE_URL = "https://fnnlebrtmlxxjwdvngck.supabase.co";
 var SUPABASE_ANON_KEY = "sb_publishable_gJsE8TaVHipVQfLNDFV3tA_z7SRAZBY";
 
-// src/utils/logger.ts
-import { createWriteStream, mkdirSync } from "node:fs";
+// ../../packages/plugin-common/src/logger/logger.ts
+import { appendFile } from "node:fs/promises";
+import { dirname as dirname2 } from "node:path";
+var levels = { debug: 0, info: 1, warn: 2, error: 3 };
+var pendingWrites = new Set;
+async function flushLogs() {
+  await Promise.all([...pendingWrites]);
+}
+var beforeExitRegistered = false;
+function registerBeforeExit() {
+  if (beforeExitRegistered)
+    return;
+  beforeExitRegistered = true;
+  process.on("beforeExit", () => {
+    flushLogs();
+  });
+}
+function formatArgs(args) {
+  if (args.length === 0)
+    return "";
+  return ` ${args.map((a) => a instanceof Error ? a.message : JSON.stringify(a)).join(" ")}`;
+}
+function writeToFile(rotation, logPrefix, level, message, args) {
+  const task = (async () => {
+    try {
+      const logFilePath = rotation.getDatedLogPath(logPrefix);
+      await ensureDirectory(dirname2(logFilePath));
+      const timestamp = new Date().toISOString();
+      await appendFile(logFilePath, `[${timestamp}] ${level}: ${message}${formatArgs(args)}
+`);
+      rotation.cleanupStaleLogs(logPrefix);
+    } catch {}
+  })();
+  pendingWrites.add(task);
+  task.finally(() => pendingWrites.delete(task));
+}
+function createLogger(config) {
+  const { prefix, logRotation, logPrefix = "plugin" } = config;
+  let minLevel = "info";
+  registerBeforeExit();
+  const logger = {
+    setLevel(level) {
+      minLevel = level;
+    },
+    debug(message, ...args) {
+      if (levels.debug >= levels[minLevel]) {
+        writeToFile(logRotation, logPrefix, "DEBUG", message, args);
+      }
+    },
+    info(message, ...args) {
+      if (levels.info >= levels[minLevel]) {
+        writeToFile(logRotation, logPrefix, "INFO", message, args);
+      }
+    },
+    warn(message, ...args) {
+      if (levels.warn >= levels[minLevel]) {
+        console.warn(`[${prefix}:Warn] ${message}`, ...args);
+        writeToFile(logRotation, logPrefix, "WARN", message, args);
+      }
+    },
+    error(message, error) {
+      if (levels.error >= levels[minLevel]) {
+        console.error(`[${prefix}:Error] ${message}`, error ?? "");
+        writeToFile(logRotation, logPrefix, "ERROR", message, error === undefined ? [] : [error]);
+      }
+    }
+  };
+  return { logger, flushLogs };
+}
+// ../../packages/plugin-common/src/log-rotation/log-rotation.ts
+import { readdir, unlink as unlink2 } from "node:fs/promises";
 import { join as join2 } from "node:path";
-var stream = null;
-var streamFailed = false;
-var currentDate = "";
-function getStream() {
-  const today = new Date().toISOString().split("T")[0];
-  if (stream && today !== currentDate) {
-    stream.end();
-    stream = null;
-    streamFailed = false;
-  }
-  currentDate = today;
-  if (stream)
-    return stream;
-  if (streamFailed)
-    return null;
-  try {
-    mkdirSync(LOGS_DIR, { recursive: true });
-    const logFile = join2(LOGS_DIR, `plugin-${today}.log`);
-    stream = createWriteStream(logFile, { flags: "a" });
-    stream.on("error", () => {
-      streamFailed = true;
-      stream = null;
-    });
-    return stream;
-  } catch {
-    streamFailed = true;
+var CLEANUP_THROTTLE_MS = 60 * 60 * 1000;
+function getDateString() {
+  return new Date().toISOString().split("T")[0];
+}
+function getDatedLogPath(logsDir, logPrefix) {
+  const dateStr = getDateString();
+  return join2(logsDir, `${logPrefix}-${dateStr}.log`);
+}
+function parseDateFromFilename(filename, logPrefix) {
+  const pattern = new RegExp(`^${logPrefix}-(\\d{4}-\\d{2}-\\d{2})\\.log$`);
+  const match = filename.match(pattern);
+  if (!match) {
     return null;
   }
+  const date = new Date(match[1] + "T00:00:00Z");
+  return Number.isNaN(date.getTime()) ? null : date;
 }
-function log(level, msg, ...args) {
-  const timestamp = new Date().toISOString();
-  const suffix = args.length ? ` ${args.map((a) => a instanceof Error ? a.message : JSON.stringify(a)).join(" ")}` : "";
-  const line = `[${timestamp}] [${level}] ${msg}${suffix}
-`;
-  try {
-    getStream()?.write(line);
-  } catch {}
-}
-var logger = {
-  debug: (msg, ...args) => log("DEBUG", msg, ...args),
-  info: (msg, ...args) => log("INFO", msg, ...args),
-  warn: (msg, ...args) => {
-    console.warn(`[Zest:Warn] ${msg}`, ...args);
-    log("WARN", msg, ...args);
-  },
-  error: (msg, ...args) => {
-    console.error(`[Zest:Error] ${msg}`);
-    log("ERROR", msg, ...args);
+function createLogRotation(config) {
+  const { logsDir, retentionDays, logger } = config;
+  const lastCleanupTime = {};
+  async function cleanupStaleLogs(logPrefix) {
+    const now = Date.now();
+    const lastCleanup = lastCleanupTime[logPrefix] || 0;
+    if (now - lastCleanup < CLEANUP_THROTTLE_MS) {
+      return;
+    }
+    lastCleanupTime[logPrefix] = now;
+    try {
+      await ensureDirectory(logsDir);
+      const files = await readdir(logsDir);
+      const cutoffDate = new Date(now - retentionDays * 24 * 60 * 60 * 1000);
+      for (const file of files) {
+        const fileDate = parseDateFromFilename(file, logPrefix);
+        if (fileDate && fileDate < cutoffDate) {
+          const filePath = join2(logsDir, file);
+          try {
+            await unlink2(filePath);
+          } catch (error) {
+            logger?.error(`Failed to delete old log file ${file}`, error);
+          }
+        }
+      }
+    } catch (error) {
+      logger?.error("Failed to cleanup old logs", error);
+    }
   }
-};
+  async function forceCleanupStaleLogs(logPrefix) {
+    lastCleanupTime[logPrefix] = 0;
+    await cleanupStaleLogs(logPrefix);
+  }
+  return { cleanupStaleLogs, forceCleanupStaleLogs };
+}
+
+// src/log-rotation/log-rotation.ts
+function getDatedLogPath2(logPrefix) {
+  return getDatedLogPath(LOGS_DIR, logPrefix);
+}
+var logRotation = createLogRotation({
+  logsDir: LOGS_DIR,
+  retentionDays: LOG_RETENTION_DAYS
+});
+var { cleanupStaleLogs, forceCleanupStaleLogs } = logRotation;
+
+// src/utils/logger.ts
+var created = createLogger({
+  prefix: "Zest",
+  logRotation: { getDatedLogPath: getDatedLogPath2, cleanupStaleLogs }
+});
+var logger = created.logger;
+var flushLogger = created.flushLogs;
 
 // src/auth/session-manager.ts
 var sessionManager = createSessionManager({

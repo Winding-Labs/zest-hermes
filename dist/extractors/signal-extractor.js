@@ -278,7 +278,7 @@ class SignalExtractor {
   }
 }
 export {
-  extractSignalsFromMessages,
+  SignalExtractor,
   categorizeTool,
-  SignalExtractor
+  extractSignalsFromMessages
 };
