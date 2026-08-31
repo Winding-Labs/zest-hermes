@@ -1,7 +1,1 @@
-// src/utils/time.ts
-function epochToIso(epoch) {
-  return new Date(epoch * 1000).toISOString();
-}
-export {
-  epochToIso
-};
+import{hc as a}from"../chunk-emm29fpq.js";import"../chunk-99vkbd8m.js";export{a as epochToIso};

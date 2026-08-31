@@ -1,7 +1,1 @@
-// src/utils/plugin-version.ts
-function getPluginVersion() {
-  return "0.1.4";
-}
-export {
-  getPluginVersion
-};
+import{ab as a}from"../chunk-cxngqzdt.js";import"../chunk-99vkbd8m.js";export{a as getPluginVersion};

@@ -1,0 +1,2 @@
+import{x as a}from"./chunk-577jjjpr.js";import{cb as i}from"./chunk-w9a5cf6w.js";import{Tb as t}from"./chunk-h7xvd0mn.js";import{Uc as o,Vc as n}from"./chunk-8f17f647.js";var r=null;async function g(e){if(e.authMode!=="agent"||!e.agentId||!e.provisioningKey)return null;return r??=a({sessionManager:i,supabaseUrl:o,supabaseAnonKey:n,logger:t}),r(e.agentId,e.provisioningKey,e.workspaceId)}
+export{g as f};
