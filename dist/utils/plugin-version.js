@@ -1,1 +1,1 @@
-import{ab as a}from"../chunk-cxngqzdt.js";import"../chunk-99vkbd8m.js";export{a as getPluginVersion};
+import{h}from"../chunk-t1em59g1.js";export{h as getPluginVersion};

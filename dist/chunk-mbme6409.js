@@ -1,0 +1,2 @@
+import{e,D}from"./chunk-6fyq4kv6.js";import{O}from"./chunk-36m1t0gm.js";import{N}from"./chunk-4qgq7y5k.js";async function Ve(i,r={writeStatus:()=>O({hasError:!0,errorType:"privacy_init_failed",errorMessage:"Privacy manager failed to initialize — daemon exiting to avoid uploading unredacted data",lastErrorAt:Date.now(),lastSuccessAt:null}),release:N,flush:D,exit:(a)=>process.exit(a)}){e.error("privacy_manager_init_failed",i),await r.writeStatus(),await r.release(),await r.flush(),r.exit(1)}
+export{Ve};
