@@ -1,1 +1,1 @@
-import{h}from"../chunk-t1em59g1.js";export{h as getPluginVersion};
+import{h}from"../chunk-1awe83tp.js";export{h as getPluginVersion};

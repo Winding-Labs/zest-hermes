@@ -1,1 +1,1 @@
-import{V}from"../chunk-ahha650d.js";import"../chunk-wxrcde7h.js";export{V as buildInventoryMetadata};
+import{K}from"../chunk-c6hbxrs3.js";import"../chunk-r3gwqfxc.js";export{K as buildInventoryMetadata};
