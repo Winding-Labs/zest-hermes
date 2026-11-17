@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import atexit
 import fcntl
+import getpass
 import json
 import os
 import shlex
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -24,7 +26,8 @@ COMMANDS_DIR = DIST_DIR / "commands"
 HOOKS_DIR = DIST_DIR / "hooks"
 DAEMON_ENTRY = DIST_DIR / "daemon" / "index.js"
 
-STATE_DIR = Path.home() / ".hermes-zest"
+# Same override as the Node side (src/config/constants.ts); the Node scripts inherit it.
+STATE_DIR = Path(os.environ.get("ZEST_HERMES_STATE_DIR") or Path.home() / ".hermes-zest")
 PIDFILE = STATE_DIR / "daemon.pid"
 DAEMON_LOG = STATE_DIR / "daemon.log"
 ACTIVE_SESSIONS_FILE = STATE_DIR / "active-sessions"
@@ -184,10 +187,15 @@ def _read_pidfile() -> int | None:
 
 
 def _pid_alive(pid: int) -> bool:
+    """Same rule as the Node side's isProcessAlive: only ESRCH is dead, EPERM is alive."""
+    if pid <= 0:
+        return False
     try:
         os.kill(pid, 0)
-    except (ProcessLookupError, PermissionError):
+    except ProcessLookupError:
         return False
+    except PermissionError:
+        return True
     except OSError:
         return False
     return True
@@ -326,18 +334,47 @@ def daemon_status(**kwargs) -> dict:
     return {"status": "running" if alive else "stale", "pid": pid}
 
 
+def _read_provisioning_key(args) -> str:
+    """The provisioning key, kept off argv unless an old script still passes the flag.
+
+    Order: the deprecated --provisioning-key flag (with a warning), then
+    ZEST_PROVISIONING_KEY, then a hidden prompt on a terminal, else one line of stdin.
+    """
+    flag_key = getattr(args, "provisioning_key", None)
+    if flag_key:
+        print(
+            "⚠️  --provisioning-key is visible in the process list and saved in shell history. "
+            "Next time omit it to be prompted, or pass the key in ZEST_PROVISIONING_KEY or on stdin.",
+            file=sys.stderr,
+        )
+        return flag_key.strip()
+    env_key = os.environ.get("ZEST_PROVISIONING_KEY", "").strip()
+    if env_key:
+        return env_key
+    if sys.stdin.isatty():
+        return getpass.getpass("Zest provisioning key: ").strip()
+    return sys.stdin.readline().strip()
+
+
 def cli_provision_handler(args) -> None:
     """Run the zest-provision Node command with the parsed CLI flags.
 
     Streams Node's stdout/stderr straight to the terminal (the command prints
-    user-facing messages itself) and propagates its exit code.
+    user-facing messages itself) and propagates its exit code. The provisioning
+    key is an API key, so it goes to Node in the environment, never in argv
+    where any local user could read it from the process list.
     """
+    key = _read_provisioning_key(args)
+    if not key:
+        print("❌ No provisioning key given", file=sys.stderr)
+        raise SystemExit(1)
+
     cmd = ["node", str(COMMANDS_DIR / "provision.js"), f"--agent-id={args.agent_id}"]
-    cmd.append(f"--provisioning-key={args.provisioning_key}")
     if getattr(args, "workspace_id", None):
         cmd.append(f"--workspace-id={args.workspace_id}")
 
-    result = subprocess.run(cmd, text=True)
+    env = {**os.environ, "ZEST_PROVISIONING_KEY": key}
+    result = subprocess.run(cmd, text=True, env=env)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 

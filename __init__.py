@@ -77,7 +77,13 @@ _NOTIFICATION_HINT = (
 
 def _setup_provision_args(parser):
     parser.add_argument("--agent-id", required=True, help="Zest agent UUID")
-    parser.add_argument("--provisioning-key", required=True, help="Zest-issued provisioning key")
+    parser.add_argument(
+        "--provisioning-key",
+        help=(
+            "Deprecated: argv shows in the process list and shell history. "
+            "Omit it to be prompted, or pass the key in ZEST_PROVISIONING_KEY or on stdin."
+        ),
+    )
     parser.add_argument("--workspace-id", help="Zest workspace UUID (optional)")
 
 

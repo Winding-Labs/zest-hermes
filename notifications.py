@@ -7,13 +7,11 @@ spawning a Node process would add ~100ms latency per message.
 from __future__ import annotations
 
 import json
-import os
 import time
-from pathlib import Path
 
-STATUS_CACHE_FILE = Path(
-    os.environ.get("ZEST_STATUS_CACHE_FILE", str(Path.home() / ".hermes-zest" / "status-cache.json"))
-)
+from .tools import STATE_DIR
+
+STATUS_CACHE_FILE = STATE_DIR / "status-cache.json"
 
 
 def peek_pending_notification() -> bool:

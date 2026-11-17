@@ -1,2 +1,0 @@
-import{R}from"./chunk-r3gwqfxc.js";import{readdirSync as s}from"node:fs";import{join as o}from"node:path";var d=o(R,"hermes-agent","skills"),e;function An(t=d){let n=new Set;try{let l=s(t,{withFileTypes:!0});for(let i of l){if(!i.isDirectory())continue;let c=s(o(t,i.name),{withFileTypes:!0});for(let r of c)if(r.isDirectory())n.add(r.name)}}catch{}return n}function kt(t){return e??=An(),e.has(t)}function Nn(t){e=t}
-export{An,kt,Nn};
