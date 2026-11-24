@@ -1,4 +1,0 @@
-import{e,r,Pe,Ae,Te,Fe}from"./chunk-9daynpjh.js";function o(t){async function s(){try{let a=new Date().toISOString(),i=t.getLastSeenStandupCreatedAt(),n=i?Date.parse(i):Number.NaN;if(Number.isNaN(n)){await t.setLastSeenStandupCreatedAt(a);return}if(!await t.zest.standupSince(new Date(n)))return;if(t.shouldShowStandupRefreshed())await t.writeStandupNotification(t.message,{updateRefreshedThrottle:!0}),t.logger.info("Standup poll: notification shown");else t.logger.debug("Standup poll: notification skipped (throttled)");await t.setLastSeenStandupCreatedAt(a)}catch(a){t.logger.error("Failed to check standup completed notification",a)}}return{checkStandupCompletedNotification:s}}var{checkStandupCompletedNotification:de}=o({logger:e,zest:r,message:`Your standup is ready at ${r.webUrl("/app")}`,shouldShowStandupRefreshed:Ae,getLastSeenStandupCreatedAt:Te,setLastSeenStandupCreatedAt:Fe,writeStandupNotification:Pe});
-export{de};
-
-//# debugId=48A3223D13BC40CA64756E2164756E21

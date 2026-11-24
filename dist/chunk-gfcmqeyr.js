@@ -1,0 +1,4 @@
+import{a}from"./chunk-2g5dx4dg.js";import{e}from"./chunk-tn04xezw.js";import{mkdir as i,readFile as t,writeFile as d}from"node:fs/promises";import{dirname as c,join as g}from"node:path";var he=g(a,"ignored-sessions.json");async function f(){try{let r=await t(he,"utf-8"),n=JSON.parse(r);if(!Array.isArray(n))return e.warn("ignored_sessions_invalid_format",{expected:"array"}),new Set;return new Set(n.filter((o)=>typeof o==="string"))}catch(r){if(r.code!=="ENOENT")e.warn("ignored_sessions_load_failed",r);return new Set}}async function s(r){await i(c(he),{recursive:!0}),await d(he,JSON.stringify([...r],null,2),"utf-8")}async function me(r){return(await f()).has(r)}async function _e(r){let n=await f();if(n.has(r))return!1;return n.add(r),await s(n),!0}async function ye(r){let n=await f();if(!n.has(r))return!1;return n.delete(r),await s(n),!0}
+export{he,f,me,_e,ye};
+
+//# debugId=E7DE167CD099713464756E2164756E21

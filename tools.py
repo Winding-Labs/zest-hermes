@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import atexit
 import fcntl
+import functools
 import getpass
 import json
+import logging
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -33,9 +36,61 @@ DAEMON_LOG = STATE_DIR / "daemon.log"
 ACTIVE_SESSIONS_FILE = STATE_DIR / "active-sessions"
 CURRENT_SESSION_FILE = STATE_DIR / "current-session-id"
 
+# When Hermes loaded this plugin. The first extraction on a computer starts here (extract-turn.ts
+# --loaded-at), so the turn that just ended is read too.
+LOADED_AT = time.time()
+
+# node:sqlite runs without a flag from Node 22.13, and on 23 from 23.4 (src/db/node-sqlite-adapter.ts).
+NODE_MIN = (22, 13)
+NODE_23_MIN = (23, 4)
+
+_log = logging.getLogger(__name__)
+_logged_once: set[str] = set()
+
+
+def _log_once(level: int, message: str) -> None:
+    """Log a problem that every hook would hit again, once per Hermes process."""
+    if message not in _logged_once:
+        _logged_once.add(message)
+        _log.log(level, "zest-hermes: %s", message)
+
+
+def node_version_problem(version: str) -> str | None:
+    """Why this `node --version` output can't run the plugin, or None when it can."""
+    match = re.match(r"v?(\d+)\.(\d+)", version.strip())
+    if not match:
+        return f"`node --version` said {version.strip()!r}, not a version."
+    found = (int(match.group(1)), int(match.group(2)))
+    if found < NODE_MIN or (found[0] == 23 and found < NODE_23_MIN):
+        return (
+            f"Node.js {version.strip()} is too old: Zest needs Node.js "
+            f"{NODE_MIN[0]}.{NODE_MIN[1]} or newer (https://nodejs.org)."
+        )
+    return None
+
+
+@functools.lru_cache(maxsize=1)
+def node_problem() -> str | None:
+    """Why Node can't run the plugin here, or None. Every hook and command runs on Node; without it
+    each one used to exit quietly, so a signed-in Hermes never uploaded and nothing said why."""
+    try:
+        result = subprocess.run(["node", "--version"], capture_output=True, text=True, timeout=10)
+    except FileNotFoundError:
+        return (
+            f"Node.js is not on PATH: Zest needs Node.js {NODE_MIN[0]}.{NODE_MIN[1]} or newer "
+            "(https://nodejs.org) to record Hermes sessions."
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"Node.js did not run ({exc})."
+    return node_version_problem(result.stdout or result.stderr)
+
 
 def _run_hook(script_name: str, raw_args: str = "") -> str:
-    """Run a Node hook script and return its stdout."""
+    """Run a Node hook script and return its stdout. Without a Node that can run it, log why once."""
+    problem = node_problem()
+    if problem:
+        _log_once(logging.ERROR, problem)
+        return json.dumps({"error": problem})
     return _run_script(HOOKS_DIR / script_name, raw_args)
 
 
@@ -45,7 +100,8 @@ def _run_command(script_name: str, raw_args: str = "") -> str:
 
 
 def _run_script(script_path: Path, raw_args: str = "") -> str:
-    """Run a Node script and return its stdout."""
+    """Run a Node script and return its stdout. A failure is logged too: the hooks' results are
+    dropped, so the log is the only place their errors show."""
     cmd = ["node", str(script_path)]
     if raw_args:
         cmd.extend(shlex.split(raw_args))
@@ -54,28 +110,75 @@ def _run_script(script_path: Path, raw_args: str = "") -> str:
         output = result.stdout.strip()
         if result.returncode != 0:
             error_msg = result.stderr.strip() or output or "Command failed"
+            _log.warning(
+                "zest-hermes: %s failed (exit %s): %s",
+                script_path.name,
+                result.returncode,
+                error_msg[-2000:],
+            )
             return json.dumps({"error": error_msg})
         return output or json.dumps({"ok": True})
+    except FileNotFoundError:
+        problem = node_problem() or "Node.js is not on PATH."
+        _log_once(logging.ERROR, problem)
+        return json.dumps({"error": problem})
     except subprocess.TimeoutExpired:
+        _log.warning("zest-hermes: %s timed out after 120s", script_path.name)
         return json.dumps({"error": "Command timed out after 120s"})
     except Exception as exc:
+        _log.warning("zest-hermes: %s did not run: %s", script_path.name, exc)
         return json.dumps({"error": str(exc)})
+
+
+def _start_script(script_path: Path, args: list[str]) -> None:
+    """Start a Node script and leave it running (output to daemon.log), so the session doesn't wait."""
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(DAEMON_LOG, "a") as log_file:
+            subprocess.Popen(
+                ["node", str(script_path), *args],
+                stdout=log_file,
+                stderr=log_file,
+                stdin=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+    except OSError as exc:
+        _log_once(logging.ERROR, node_problem() or f"{script_path.name} did not start: {exc}")
+
+
+def _hermes_version() -> str | None:
+    try:
+        from hermes_cli import __version__
+
+        return str(__version__)
+    except Exception as exc:  # an older or repackaged Hermes: the check-in goes without it
+        _log_once(logging.DEBUG, f"Hermes version unknown: {exc}")
+        return None
 
 
 # -- Session tracking --
 
 
 def on_session_start(**kwargs):
-    """Hook: persist session_id so slash-commands can reference the active session."""
+    """Hook: persist session_id so slash-commands can reference the active session, and check in
+    (hooks/session-start.ts) in the background."""
     session_id = kwargs.get("session_id")
     if session_id:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         CURRENT_SESSION_FILE.write_text(session_id)
+    args = []
+    version = _hermes_version()
+    if version:
+        args.append(f"--host-version={version}")
+    if kwargs.get("platform"):
+        args.append(f"--host-surface={kwargs['platform']}")
+    if not node_problem():
+        _start_script(HOOKS_DIR / "session-start.js", args)
 
 
 def on_session_end(**kwargs):
     """Hook: per-turn extraction (Hermes on_session_end = end of turn, not session)."""
-    _run_hook("extract-turn.js")
+    _run_hook("extract-turn.js", f"--loaded-at={LOADED_AT}")
 
 
 def on_session_finalize(**kwargs):
@@ -266,6 +369,10 @@ def _ensure_daemon_running() -> dict:
     if existing_pid is not None and _pid_alive(existing_pid):
         return {"status": "already-running", "pid": existing_pid}
 
+    problem = node_problem()
+    if problem:
+        return {"status": "no-node", "error": problem}
+
     log_file = open(DAEMON_LOG, "a")
     try:
         proc = subprocess.Popen(
@@ -282,7 +389,12 @@ def _ensure_daemon_running() -> dict:
     time.sleep(0.3)
     if not _pid_alive(proc.pid):
         PIDFILE.unlink(missing_ok=True)
-        return {"status": "crashed-on-start", "pid": proc.pid, "log": str(DAEMON_LOG)}
+        return {
+            "status": "crashed-on-start",
+            "pid": proc.pid,
+            "log": str(DAEMON_LOG),
+            "error": f"the Zest daemon stopped as it started; see {DAEMON_LOG}",
+        }
 
     return {"status": "started", "pid": proc.pid}
 
@@ -316,9 +428,14 @@ def _force_stop_daemon() -> dict:
 
 
 def spawn_daemon(**kwargs) -> dict:
-    """Register Hermes PID and ensure the daemon is running."""
+    """Register Hermes PID and ensure the daemon is running. A daemon that can't run is said out
+    loud, on the terminal and in Hermes's log: nothing would upload, and nothing else says so."""
     _register_hermes_pid()
-    return _ensure_daemon_running()
+    result = _ensure_daemon_running()
+    if result.get("error"):
+        _log_once(logging.ERROR, result["error"])
+        print(f"⚠️  Zest: {result['error']}", file=sys.stderr)
+    return result
 
 
 def stop_daemon(**kwargs) -> dict:

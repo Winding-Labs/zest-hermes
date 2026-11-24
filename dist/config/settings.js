@@ -1,3 +1,3 @@
-import{Je,s,Qe,g}from"../chunk-9daynpjh.js";import"../chunk-yr9x52ks.js";export{Je as UserSettingsSchema,s as loadSettings,Qe as loadSettingsSync,g as saveSettings};
+import{Ye,s,et,g}from"../chunk-tn04xezw.js";import"../chunk-2g5dx4dg.js";export{Ye as UserSettingsSchema,s as loadSettings,et as loadSettingsSync,g as saveSettings};
 
-//# debugId=7F1DB392DE36BB3D64756E2164756E21
+//# debugId=E296CBD89F37782864756E2164756E21

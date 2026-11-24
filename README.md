@@ -9,7 +9,7 @@ analytics, and a picture of how your team actually works across every AI tool.
 
 Then run `/zest_login` inside a Hermes session.
 
-Full instructions: https://meetzest.com/docs/plugins/hermes/
+Full instructions: https://meetzest.com/docs/plugins/hermes/?utm_source=github.com&utm_medium=referral&utm_campaign=plugin-readme
 
 ## What it captures
 

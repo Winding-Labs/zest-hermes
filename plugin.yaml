@@ -1,5 +1,5 @@
 name: zest-hermes
-version: "2.0.0"
+version: "2.0.1"
 description: Zest for Hermes — track sessions for standups and workflow insights
 provides_tools:
   - zest_login
