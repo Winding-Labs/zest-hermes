@@ -1,4 +1,4 @@
 #!/usr/bin/env node
-import"../chunk-2g5dx4dg.js";import{P,c}from"../chunk-tn04xezw.js";import{x}from"../chunk-catbdnvx.js";await P.checkIn({trigger:"session_start",host_version:x("host-version"),host_surface:x("host-surface")});await c();
+import"../chunk-68v7wrd3.js";import{P,c}from"../chunk-3cy9ceqd.js";import{E}from"../chunk-fb39xxyt.js";await P.checkIn({trigger:"session_start",host_version:E("host-version"),host_surface:E("host-surface")});await c();
 
-//# debugId=B7644C223F5E2CFB64756E2164756E21
+//# debugId=DCD9AADEB13F016C64756E2164756E21

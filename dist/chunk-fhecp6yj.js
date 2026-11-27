@@ -1,0 +1,4 @@
+import{j,Z}from"./chunk-rcxdgzj3.js";import{D,z}from"./chunk-68v7wrd3.js";import{e,g}from"./chunk-3cy9ceqd.js";import{release as t}from"node:os";var n={CLI_SIGNED_IN:"CLI Signed In",CLI_INSTALL_STARTED:"CLI Install Started",CLI_INSTALL_COMPLETED:"CLI Install Completed",EXTENSION_INSTALLED:"Extension Installed",EXTENSION_SYNC_STATUS_CHANGED:"sync_status_changed",EXTENSION_FORCED_SIGNOUT_RECOVERY:"forced_signout_recovery_clicked",EXTENSION_SIGNED_OUT:"extension_signed_out"};async function ae(r){try{let o=Z({posthogApiKey:z,errorSourcePrefix:"hermes-plugin",anonymousId:j(D),logger:e});if(!o)return;o.capture(r,n.CLI_SIGNED_IN,{plugin_version:g(),hermes_version:"unknown",node_version:process.version,os_platform:process.platform,os_version:t()}),await o.shutdown(),e.debug("Hermes sign-in tracked",{userId:r})}catch(o){e.debug("Failed to track Hermes sign-in",o)}}
+export{ae};
+
+//# debugId=FD2579AC0658E38764756E2164756E21

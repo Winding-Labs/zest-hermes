@@ -1,0 +1,4 @@
+import{e,r,Te,Fe,Ne,Le}from"./chunk-3cy9ceqd.js";function o(t){async function s(){try{let a=new Date().toISOString(),i=t.getLastSeenStandupCreatedAt(),n=i?Date.parse(i):Number.NaN;if(Number.isNaN(n)){await t.setLastSeenStandupCreatedAt(a);return}if(!await t.zest.standupSince(new Date(n)))return;if(t.shouldShowStandupRefreshed())await t.writeStandupNotification(t.message,{updateRefreshedThrottle:!0}),t.logger.info("Standup poll: notification shown");else t.logger.debug("Standup poll: notification skipped (throttled)");await t.setLastSeenStandupCreatedAt(a)}catch(a){t.logger.error("Failed to check standup completed notification",a)}}return{checkStandupCompletedNotification:s}}var{checkStandupCompletedNotification:we}=o({logger:e,zest:r,message:`Your standup is ready at ${r.webUrl("/app")}`,shouldShowStandupRefreshed:Fe,getLastSeenStandupCreatedAt:Ne,setLastSeenStandupCreatedAt:Le,writeStandupNotification:Te});
+export{we};
+
+//# debugId=7A6877FB387414B964756E2164756E21

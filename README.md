@@ -5,9 +5,14 @@ analytics, and a picture of how your team actually works across every AI tool.
 
 ## Install
 
-    hermes plugins update zest-hermes
+    hermes plugins install https://github.com/Winding-Labs/zest-hermes --enable
 
 Then run `/zest_login` inside a Hermes session.
+
+Zest updates itself: while Hermes runs, Zest checks for a new release hourly
+and runs `hermes plugins update zest-hermes` (one try a day); its background
+sync moves to the new version at once, the rest with the next Hermes start
+(`ZEST_NO_AUTO_UPDATE=1` turns that off).
 
 Full instructions: https://meetzest.com/docs/plugins/hermes/?utm_source=github.com&utm_medium=referral&utm_campaign=plugin-readme
 
